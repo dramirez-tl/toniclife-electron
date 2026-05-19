@@ -11,6 +11,7 @@ import { LiveClock } from '@/components/LiveClock';
 import { Button } from '@/components/ui/button';
 import { DeactivateConfirmDialog } from '@/components/DeactivateConfirmDialog';
 import { ProductGrid } from '@/components/pos/ProductGrid';
+import { AvailablePromotions } from '@/components/pos/AvailablePromotions';
 import { Cart } from '@/components/pos/Cart';
 import { PaymentModal } from '@/components/pos/PaymentModal';
 import { RecentSales } from '@/components/pos/RecentSales';
@@ -258,12 +259,20 @@ export function PosScreen({ session, onLogout }: PosScreenProps) {
             onSelectSale={(id) => setSelectedSaleId(id)}
           />
         </aside>
-        <main className="flex-1 min-w-0">
-          <ProductGrid
-            branchId={branchId}
-            currencySymbol={currencySymbol}
-            onKitDetected={handleKitDetected}
-          />
+        <main className="flex-1 min-w-0 flex flex-col">
+          {cart.customerId && (
+            <AvailablePromotions
+              customerId={cart.customerId}
+              branchId={branchId}
+            />
+          )}
+          <div className="flex-1 min-h-0">
+            <ProductGrid
+              branchId={branchId}
+              currencySymbol={currencySymbol}
+              onKitDetected={handleKitDetected}
+            />
+          </div>
         </main>
         <aside className="w-96 shrink-0">
           <Cart

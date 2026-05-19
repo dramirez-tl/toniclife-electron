@@ -15,8 +15,8 @@ import type { QuickProduct } from '@/types/pos';
 interface ProductGridProps {
   branchId: string;
   currencySymbol: string;
-  /** Se invoca cuando se intenta agregar un kit de inscripcion (productType
-   *  'kit' + kitPosition). El kit NO se agrega al carrito directamente;
+  /** Se invoca cuando se intenta agregar un kit de inscripcion
+   *  (isEnrollmentKit=true). El kit NO se agrega al carrito directamente;
    *  PosScreen abre el flujo de enrolamiento de distribuidor. */
   onKitDetected: (product: QuickProduct) => void;
 }
@@ -58,7 +58,7 @@ export function ProductGrid({
   function handleAdd(product: QuickProduct) {
     // Kit de inscripcion: dispara el flujo de enrolamiento en vez de agregarse
     // directo al carrito.
-    if (product.productType === 'kit' && product.kitPosition) {
+    if (product.isEnrollmentKit) {
       onKitDetected(product);
       return;
     }
@@ -100,7 +100,7 @@ export function ProductGrid({
         return;
       }
       // Kit de inscripcion: deriva al flujo de enrolamiento, no al carrito.
-      if (product.productType === 'kit' && product.kitPosition) {
+      if (product.isEnrollmentKit) {
         onKitDetected(product);
         setSkuInput('');
         return;
@@ -173,7 +173,7 @@ export function ProductGrid({
           notFound.push(rawSku);
           continue;
         }
-        if (product.productType === 'kit' && product.kitPosition) {
+        if (product.isEnrollmentKit) {
           notFound.push(`${rawSku} (kit — agregalo manualmente)`);
           continue;
         }

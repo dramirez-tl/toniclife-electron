@@ -58,6 +58,7 @@ function mapApiProduct(p: any): QuickProduct {
       p.priceBusinessValue != null ? Number(p.priceBusinessValue) : 0,
     productType: p.productType,
     kitPosition: p.kitPosition,
+    isEnrollmentKit: p.isEnrollmentKit === true,
   };
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */

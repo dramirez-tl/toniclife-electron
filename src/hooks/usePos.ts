@@ -205,6 +205,9 @@ export const useCancelSale = () => {
     }) => posApi.cancelSale(saleId, input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: posKeys.all });
+      // Las promos canjeables pueden cambiar si la cancelacion regresa
+      // puntos al periodo del distribuidor.
+      qc.invalidateQueries({ queryKey: ['promotions'] });
     },
   });
 };
@@ -224,6 +227,9 @@ export const useProcessPayment = () => {
     mutationFn: (input: ProcessPaymentInput) => posApi.processPayment(input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: posKeys.all });
+      // Refrescar promos canjeables: la venta pudo haber sumado puntos que
+      // desbloquean nuevas promos, o canjeado una con consumes_points=true.
+      qc.invalidateQueries({ queryKey: ['promotions'] });
     },
   });
 };

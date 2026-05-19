@@ -354,6 +354,11 @@ export interface QuickProduct {
   businessVolume?: number;
   productType?: string;
   kitPosition?: string;
+  /**
+   * TRUE solo para kits de inscripción reales (gate autoritativo, mig 037).
+   * Dispara el flujo de enrolamiento de distribuidor en POS.
+   */
+  isEnrollmentKit?: boolean;
 }
 
 // ============================================================================
