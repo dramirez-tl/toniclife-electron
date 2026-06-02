@@ -83,6 +83,8 @@ export interface TerminalLicenseInfo {
     currencyCode?: string;
     ticketName?: string;
     isPosEnabled: boolean;
+    posInventoryLocked: boolean;
+    lockMessage: string | null;
   };
   hardware: {
     fingerprint: string;

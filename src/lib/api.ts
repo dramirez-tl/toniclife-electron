@@ -49,16 +49,25 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       const body = error.response.data as { message?: string } | undefined;
       const reason = body?.message ?? 'Token rechazado por el servidor';
+      const url = error.config?.url ?? '';
       // Log detallado para diagnostico desde DevTools.
       console.warn(
         '[POS API] 401 en',
-        error.config?.url,
+        url,
         '— motivo:',
         reason,
         '— body completo:',
         error.response.data,
       );
-      onUnauthorized?.(reason);
+      // Solo invalidamos la SESIÓN cuando el 401 viene de un endpoint de
+      // LICENCIA (validación del device token). Un 401 de un endpoint de
+      // negocio (ej. uno que no acepta el token de terminal) NO debe cerrar
+      // la terminal: dejamos que esa petición falle y seguimos operando. Si el
+      // token realmente está revocado, /pos-licenses/me o /heartbeat lo
+      // detectarán y entonces sí se invalida.
+      if (url.includes('/pos-licenses/')) {
+        onUnauthorized?.(reason);
+      }
     }
     return Promise.reject(error);
   },

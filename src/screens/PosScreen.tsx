@@ -3,8 +3,8 @@
 // Phase 4 completa: catalogo + carrito + cliente + cobro + sesiones + corte
 // + ventas recientes + movimientos de caja + kits de inscripcion + CFDI.
 
-import { useState } from 'react';
-import { LogOut, Clock, Settings } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { LogOut, Clock, Settings, PanelLeftOpen, Receipt } from 'lucide-react';
 import { toast } from 'sonner';
 import { LogoMark } from '@/components/LogoMark';
 import { LiveClock } from '@/components/LiveClock';
@@ -64,6 +64,23 @@ export function PosScreen({ session, onLogout }: PosScreenProps) {
   const [stampRetry, setStampRetry] = useState<StampRetryState | null>(null);
   const [salesDate, setSalesDate] = useState(todayLocal());
 
+  // Panel "Ventas recientes" plegable. Se recuerda la preferencia.
+  const [salesCollapsed, setSalesCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('pos.recentSales.collapsed') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const toggleSalesPanel = (collapsed: boolean) => {
+    setSalesCollapsed(collapsed);
+    try {
+      localStorage.setItem('pos.recentSales.collapsed', collapsed ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  };
+
   const cart = usePosCartStore((s) => s.cart);
   const clearCart = usePosCartStore((s) => s.clearCart);
   const setCustomer = usePosCartStore((s) => s.setCustomer);
@@ -76,6 +93,35 @@ export function PosScreen({ session, onLogout }: PosScreenProps) {
   const currencySymbol = currencySymbolFor(session.branch.currencyCode);
 
   const { data: activeSession } = usePosActiveSession(branchId);
+
+  // Re-cotiza los items del carrito cuando cambia el tipo de precio (asignar o
+  // quitar distribuidor). Lee el estado fresco del store para no depender de
+  // closures y cubre ambos sentidos (distribuidor ⇄ público). Sin priceTypeId
+  // el backend usa el precio público; branchId resuelve el país igual que el
+  // catálogo, así el carrito y el grid SIEMPRE muestran el mismo precio.
+  const cartPriceTypeId = cart.priceTypeId;
+  useEffect(() => {
+    const items = usePosCartStore.getState().cart.items;
+    if (items.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const prices = await posApi.resolveProductPrices(
+          items.map((it) => it.productId),
+          cartPriceTypeId,
+          branchId,
+        );
+        if (!cancelled && prices.length > 0) {
+          usePosCartStore.getState().refreshItemPrices(prices);
+        }
+      } catch {
+        /* si falla, se conservan los precios actuales */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [cartPriceTypeId, branchId]);
 
   /**
    * Asegura que exista una sesion de caja. Si no hay, auto-abre una con la
@@ -248,17 +294,36 @@ export function PosScreen({ session, onLogout }: PosScreenProps) {
 
       {/* Cuerpo: ventas recientes + catalogo + carrito */}
       <div className="flex-1 flex min-h-0">
-        <aside className="w-72 shrink-0">
-          <RecentSales
-            branchId={branchId}
-            currencySymbol={currencySymbol}
-            date={salesDate}
-            onDateChange={setSalesDate}
-            onOpenCorte={() => setCorteOpen(true)}
-            onOpenMovements={() => setMovementsOpen(true)}
-            onSelectSale={(id) => setSelectedSaleId(id)}
-          />
-        </aside>
+        {salesCollapsed ? (
+          <aside className="w-11 shrink-0 border-r bg-card flex flex-col items-center gap-3 py-3">
+            <button
+              onClick={() => toggleSalesPanel(false)}
+              title="Mostrar ventas recientes"
+              className="text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <PanelLeftOpen className="size-5" />
+            </button>
+            <div className="flex flex-col items-center gap-2 text-muted-foreground">
+              <Receipt className="size-4 text-primary" />
+              <span className="text-[11px] font-medium tracking-wide [writing-mode:vertical-rl] rotate-180">
+                Ventas recientes
+              </span>
+            </div>
+          </aside>
+        ) : (
+          <aside className="w-72 shrink-0">
+            <RecentSales
+              branchId={branchId}
+              currencySymbol={currencySymbol}
+              date={salesDate}
+              onDateChange={setSalesDate}
+              onOpenCorte={() => setCorteOpen(true)}
+              onOpenMovements={() => setMovementsOpen(true)}
+              onSelectSale={(id) => setSelectedSaleId(id)}
+              onCollapse={() => toggleSalesPanel(true)}
+            />
+          </aside>
+        )}
         <main className="flex-1 min-w-0 flex flex-col">
           {cart.customerId && (
             <AvailablePromotions
@@ -274,7 +339,11 @@ export function PosScreen({ session, onLogout }: PosScreenProps) {
             />
           </div>
         </main>
-        <aside className="w-96 shrink-0">
+        <aside
+          className={`shrink-0 transition-[width] duration-200 ${
+            salesCollapsed ? 'w-[32rem]' : 'w-96'
+          }`}
+        >
           <Cart
             currencySymbol={currencySymbol}
             currencyCode={currencyCode}

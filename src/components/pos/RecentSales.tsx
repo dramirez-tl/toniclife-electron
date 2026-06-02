@@ -14,6 +14,7 @@ import {
   ClipboardList,
   RefreshCw,
   Wallet,
+  PanelLeftClose,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePosSales } from '@/hooks/usePos';
@@ -29,6 +30,8 @@ interface RecentSalesProps {
   onOpenCorte: () => void;
   onOpenMovements: () => void;
   onSelectSale: (saleId: string) => void;
+  /** Si se provee, muestra un botón para plegar el panel. */
+  onCollapse?: () => void;
 }
 
 function statusBadge(status: PosSaleStatus) {
@@ -71,6 +74,7 @@ export function RecentSales({
   onOpenCorte,
   onOpenMovements,
   onSelectSale,
+  onCollapse,
 }: RecentSalesProps) {
   const {
     data: salesResp,
@@ -93,13 +97,24 @@ export function RecentSales({
               Ventas recientes
             </h3>
           </div>
-          <button
-            onClick={() => refetch()}
-            className="text-muted-foreground hover:text-foreground transition-colors"
-            title="Actualizar"
-          >
-            <RefreshCw className={isFetching ? 'size-3.5 animate-spin' : 'size-3.5'} />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => refetch()}
+              className="text-muted-foreground hover:text-foreground transition-colors"
+              title="Actualizar"
+            >
+              <RefreshCw className={isFetching ? 'size-3.5 animate-spin' : 'size-3.5'} />
+            </button>
+            {onCollapse && (
+              <button
+                onClick={onCollapse}
+                className="text-muted-foreground hover:text-foreground transition-colors"
+                title="Plegar panel"
+              >
+                <PanelLeftClose className="size-4" />
+              </button>
+            )}
+          </div>
         </div>
         <div className="relative">
           <CalendarDays className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />

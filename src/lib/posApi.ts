@@ -130,10 +130,15 @@ class PosApi {
     }
   }
 
-  /** Resuelve precios para un lote de productos segun tipo de precio. */
+  /**
+   * Resuelve precios para un lote de productos segun tipo de precio.
+   * Sin priceTypeId el backend usa el precio público. branchId resuelve el país
+   * (mismo criterio que el catálogo), garantizando que carrito y grid coincidan.
+   */
   async resolveProductPrices(
     productIds: string[],
-    priceTypeId: string,
+    priceTypeId?: string,
+    branchId?: string,
     countryId?: string,
   ): Promise<
     Array<{
@@ -145,7 +150,8 @@ class PosApi {
   > {
     const { data } = await api.post('/products/resolve-prices', {
       productIds,
-      priceTypeId,
+      ...(priceTypeId && { priceTypeId }),
+      ...(branchId && { branchId }),
       ...(countryId && { countryId }),
     });
     return data;

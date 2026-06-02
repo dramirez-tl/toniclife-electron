@@ -118,10 +118,15 @@ export function ActivationScreen({
   return (
     <div className="flex h-full w-full">
       {/* Panel izquierdo: brand teal */}
-      <div className="w-[42%] bg-primary text-primary-foreground px-10 py-12 flex flex-col">
-        <LogoMark size={56} />
+      <div className="relative w-[42%] bg-primary text-primary-foreground px-10 py-12 flex flex-col overflow-hidden">
+        {/* Sello: logo gigante semitransparente sobre el panel */}
+        <LogoMark
+          size={560}
+          variant="blue-outline"
+          className="pointer-events-none absolute -right-32 -bottom-24 rotate-[-12deg] opacity-[0.12]"
+        />
 
-        <div className="mt-10 flex-1">
+        <div className="relative z-10 mt-10 flex-1">
           <h1 className="text-3xl font-bold leading-tight">
             Activacion de
             <br />
@@ -133,7 +138,7 @@ export function ActivationScreen({
           </p>
         </div>
 
-        <div className="mt-auto text-xs text-white/70 space-y-1.5">
+        <div className="relative z-10 mt-auto text-xs text-white/70 space-y-1.5">
           <div className="flex items-center gap-2">
             <Shield className="size-3.5" /> Licencia vinculada por hardware
           </div>
@@ -141,7 +146,7 @@ export function ActivationScreen({
             <Monitor className="size-3.5" /> Uso exclusivo en una maquina
           </div>
           <div className="flex items-center gap-2">
-            <Headphones className="size-3.5" /> Soporte: sistemas@tonic.life
+            <Headphones className="size-3.5" /> Soporte: soporte@toniclife.com
           </div>
 
           {/* Diagnostico: ruta del archivo de sesion */}

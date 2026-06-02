@@ -8,20 +8,20 @@ import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { usePosCustomerSearch } from '@/hooks/usePos';
 import { usePosCartStore } from '@/stores/pos-cart.store';
-import { posApi } from '@/lib/posApi';
 import type { PosCustomer } from '@/types/pos';
 
 export function CustomerSelector() {
   const cart = usePosCartStore((s) => s.cart);
   const setCustomer = usePosCartStore((s) => s.setCustomer);
   const setPublicPrice = usePosCartStore((s) => s.setPublicPrice);
-  const refreshItemPrices = usePosCartStore((s) => s.refreshItemPrices);
 
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const { data: results = [], isFetching } = usePosCustomerSearch(query);
 
-  async function handleSelect(customer: PosCustomer) {
+  function handleSelect(customer: PosCustomer) {
+    // El re-cotizado de los items del carrito se hace de forma reactiva en
+    // PosScreen al cambiar el tipo de precio (cubre asignar Y quitar distribuidor).
     setCustomer(
       customer.id,
       customer.fullName,
@@ -30,23 +30,6 @@ export function CustomerSelector() {
     );
     setOpen(false);
     setQuery('');
-
-    // Si el cliente tiene un tipo de precio (distribuidor), re-resolvemos los
-    // precios de los items que ya estan en el carrito.
-    if (customer.priceTypeId && cart.items.length > 0) {
-      try {
-        const prices = await posApi.resolveProductPrices(
-          cart.items.map((it) => it.productId),
-          customer.priceTypeId,
-        );
-        refreshItemPrices(prices);
-      } catch {
-        toast.warning(
-          'Cliente asignado, pero no se pudieron recalcular los precios del carrito',
-        );
-        return;
-      }
-    }
     toast.success(`Cliente: ${customer.fullName}`);
   }
 
@@ -116,7 +99,7 @@ export function CustomerSelector() {
             />
           </div>
 
-          {query.trim().length >= 2 && (
+          {query.trim().length >= 1 && (
             <div className="mt-2 border rounded-lg bg-card max-h-56 overflow-y-auto">
               {isFetching ? (
                 <div className="px-3 py-3 text-sm text-muted-foreground">

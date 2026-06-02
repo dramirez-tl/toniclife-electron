@@ -24,6 +24,7 @@
     "lucide-react": "^0.469.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "socket.io-client": "^4.8.3",
     "sonner": "^1.7.1",
     "tailwind-merge": "^3.0.0",
     "zustand": "^5.0.2"
@@ -34,7 +35,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.4",
-    "electron": "^33.2.1",
+    "electron": "^33.4.11",
     "electron-builder": "^25.1.8",
     "tailwindcss": "^4.1.17",
     "typescript": "^5.7.2",

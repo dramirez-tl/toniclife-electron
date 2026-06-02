@@ -26,8 +26,11 @@ class PromotionsApi {
     customerId: string,
     branchId: string,
   ): Promise<AvailablePromotionForCustomer[]> {
+    // Endpoint bajo /pos (PosAccessGuard) — acepta el device token de la
+    // terminal. El endpoint público /promotions/available es solo para
+    // usuarios admin y rechazaría el token de terminal con 401.
     const { data } = await api.get<AvailablePromotionForCustomer[]>(
-      `/promotions/available/${customerId}`,
+      `/pos/promotions/available/${customerId}`,
       { params: { branchId } },
     );
     return data;

@@ -56,12 +56,13 @@ export const usePosProductSearch = (
     staleTime: 30 * 1000,
   });
 
-/** Busqueda de clientes/distribuidores. Dispara con query >= 2 chars. */
+/** Busqueda de clientes/distribuidores. Dispara desde 1 char (permite buscar
+ *  por ID corto, ej. el socio #1). */
 export const usePosCustomerSearch = (query: string) =>
   useQuery({
     queryKey: posKeys.customers(query),
     queryFn: () => posApi.searchCustomers(query),
-    enabled: query.trim().length >= 2,
+    enabled: query.trim().length >= 1,
     staleTime: 30 * 1000,
   });
 

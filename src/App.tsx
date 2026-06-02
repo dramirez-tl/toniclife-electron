@@ -39,6 +39,8 @@ import {
 import { ActivationScreen } from '@/screens/ActivationScreen';
 import { LicenseConflictScreen } from '@/screens/LicenseConflictScreen';
 import { PosScreen } from '@/screens/PosScreen';
+import { InventoryLockScreen } from '@/screens/InventoryLockScreen';
+import { connectPosSocket, disconnectPosSocket, type PosLockState } from '@/lib/posSocket';
 import { Toaster } from '@/components/ui/sonner';
 
 type AppState =
@@ -53,6 +55,7 @@ export function App() {
   const [state, setState] = useState<AppState>({ kind: 'loading' });
   const [hardware, setHardware] = useState<HardwareFingerprint | null>(null);
   const [windowTitle, setWindowTitle] = useState('Tonic Life POS');
+  const [lock, setLock] = useState<PosLockState>({ locked: false, message: null });
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ------------------------------------------------------------------
@@ -111,6 +114,11 @@ export function App() {
           },
         };
         await window.toniclife.session.save(updated);
+        // Estado de bloqueo inicial (el socket lo confirmará/actualizará al conectar).
+        setLock({
+          locked: result.data.branch.posInventoryLocked ?? false,
+          message: result.data.branch.lockMessage ?? null,
+        });
         setState({ kind: 'pos', session: updated });
         setWindowTitle(`Tonic Life POS · Sucursal ${updated.branch.name}`);
       } else if (result.kind === 'invalid') {
@@ -177,6 +185,20 @@ export function App() {
       }
     };
   }, [state.kind]);
+
+  // ------------------------------------------------------------------
+  // Socket /pos: bloqueo por inventario en tiempo real (solo en 'pos')
+  // ------------------------------------------------------------------
+  const sessionToken = state.kind === 'pos' ? state.session.deviceToken : null;
+  useEffect(() => {
+    if (!sessionToken) {
+      disconnectPosSocket();
+      setLock({ locked: false, message: null });
+      return;
+    }
+    connectPosSocket(sessionToken, (s) => setLock(s));
+    return () => disconnectPosSocket();
+  }, [sessionToken]);
 
   // ------------------------------------------------------------------
   // Titulo de la ventana
@@ -259,6 +281,14 @@ export function App() {
           <PosScreen session={state.session} onLogout={handleLogout} />
         )}
       </div>
+      {state.kind === 'pos' && lock.locked && (
+        <div className="fixed inset-0 z-50">
+          <InventoryLockScreen
+            message={lock.message}
+            branchName={state.session.branch.name}
+          />
+        </div>
+      )}
       <Toaster />
     </div>
   );
