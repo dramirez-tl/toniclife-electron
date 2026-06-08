@@ -6,6 +6,7 @@
 // 'pos:lock' con el estado actual al conectar y en cada cambio.
 
 import { io, type Socket } from 'socket.io-client';
+import type { TransferIncomingEvent } from '@/types/pos';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001/api/v1';
 // socket.io NO usa el prefix /api/v1 — vive en el origen del backend.
@@ -21,6 +22,7 @@ let socket: Socket | null = null;
 export function connectPosSocket(
   deviceToken: string,
   onLock: (state: PosLockState) => void,
+  onTransferIncoming?: (event: TransferIncomingEvent) => void,
 ): void {
   disconnectPosSocket();
   socket = io(`${API_ORIGIN}/pos`, {
@@ -31,6 +33,11 @@ export function connectPosSocket(
   socket.on('pos:lock', (state: PosLockState) => {
     onLock({ locked: !!state?.locked, message: state?.message ?? null });
   });
+  if (onTransferIncoming) {
+    socket.on('pos:transfer-incoming', (event: TransferIncomingEvent) => {
+      onTransferIncoming(event);
+    });
+  }
 }
 
 export function disconnectPosSocket(): void {

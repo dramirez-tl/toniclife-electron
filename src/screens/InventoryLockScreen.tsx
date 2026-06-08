@@ -2,6 +2,7 @@
 // Operaciones realiza el conteo de inventario de la sucursal. No es cerrable;
 // desaparece sola cuando el backend emite el desbloqueo (pos:lock locked=false).
 
+import { Lock } from 'lucide-react';
 import { LogoMark } from '@/components/LogoMark';
 
 interface InventoryLockScreenProps {
@@ -23,20 +24,7 @@ export function InventoryLockScreen({ message, branchName }: InventoryLockScreen
       {/* Contenido */}
       <div className="relative z-10 flex h-full w-full flex-col items-center justify-center gap-6 p-8 text-center">
         <div className="flex size-20 items-center justify-center rounded-full bg-white/10 ring-1 ring-white/15">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-            strokeWidth={1.5}
-            stroke="currentColor"
-            className="size-10 text-white"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"
-            />
-          </svg>
+          <Lock strokeWidth={1.5} className="size-10 text-white" />
         </div>
 
         <div className="max-w-md">

@@ -17,6 +17,8 @@ import {
   PanelLeftClose,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { usePosSales } from '@/hooks/usePos';
 import { posApi } from '@/lib/posApi';
 import { formatTime } from '@/lib/date';
@@ -38,28 +40,31 @@ function statusBadge(status: PosSaleStatus) {
   switch (status) {
     case PosSaleStatus.COMPLETED:
       return (
-        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+        <Badge className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
           Pagada
-        </span>
+        </Badge>
       );
     case PosSaleStatus.PENDING:
       return (
-        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">
+        <Badge className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">
           Pendiente
-        </span>
+        </Badge>
       );
     case PosSaleStatus.CANCELLED:
       return (
-        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-red-100 text-red-700">
+        <Badge
+          variant="destructive"
+          className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-red-100 text-red-700"
+        >
           Cancelada
-        </span>
+        </Badge>
       );
     case PosSaleStatus.REFUNDED:
     case PosSaleStatus.PARTIAL_REFUND:
       return (
-        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700">
+        <Badge className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700">
           Reembolso
-        </span>
+        </Badge>
       );
     default:
       return null;
@@ -98,31 +103,37 @@ export function RecentSales({
             </h3>
           </div>
           <div className="flex items-center gap-2">
-            <button
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
               onClick={() => refetch()}
-              className="text-muted-foreground hover:text-foreground transition-colors"
+              className="size-6 text-muted-foreground hover:bg-transparent hover:text-foreground"
               title="Actualizar"
             >
               <RefreshCw className={isFetching ? 'size-3.5 animate-spin' : 'size-3.5'} />
-            </button>
+            </Button>
             {onCollapse && (
-              <button
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
                 onClick={onCollapse}
-                className="text-muted-foreground hover:text-foreground transition-colors"
+                className="size-6 text-muted-foreground hover:bg-transparent hover:text-foreground"
                 title="Plegar panel"
               >
                 <PanelLeftClose className="size-4" />
-              </button>
+              </Button>
             )}
           </div>
         </div>
         <div className="relative">
           <CalendarDays className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
-          <input
+          <Input
             type="date"
             value={date}
             onChange={(e) => onDateChange(e.target.value)}
-            className="w-full pl-8 pr-2 py-1.5 text-xs border rounded-md bg-background text-foreground"
+            className="w-full pl-8 pr-2 py-1.5 text-xs bg-background text-foreground"
           />
         </div>
       </div>
@@ -139,9 +150,11 @@ export function RecentSales({
           <ul className="divide-y">
             {sales.map((sale) => (
               <li key={sale.id}>
-                <button
+                <Button
+                  type="button"
+                  variant="ghost"
                   onClick={() => onSelectSale(sale.id)}
-                  className="w-full text-left px-4 py-2.5 hover:bg-muted/60 transition-colors"
+                  className="block h-auto w-full rounded-none px-4 py-2.5 text-left whitespace-normal hover:bg-muted/60"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-xs font-mono text-foreground">
@@ -158,7 +171,7 @@ export function RecentSales({
                       {fmt(Number(sale.total))}
                     </span>
                   </div>
-                </button>
+                </Button>
               </li>
             ))}
           </ul>

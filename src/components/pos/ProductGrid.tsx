@@ -7,6 +7,8 @@ import { Search, ScanBarcode, PackageX, Plus, ListPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { cn } from '@/lib/utils';
 import { usePosCatalog } from '@/hooks/usePos';
 import { usePosCartStore } from '@/stores/pos-cart.store';
 import { posApi } from '@/lib/posApi';
@@ -279,7 +281,7 @@ export function ProductGrid({
               <span className="font-mono">SKU,cantidad</span> (la cantidad es
               opcional, por defecto 1).
             </p>
-            <textarea
+            <Textarea
               value={bulkText}
               onChange={(e) => setBulkText(e.target.value)}
               rows={4}
@@ -327,17 +329,21 @@ export function ProductGrid({
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(11rem,1fr))] gap-3">
             {filtered.map((product) => {
               const out =
                 product.stock != null && product.stock <= 0;
               const inCart = cartQtyByProduct.get(product.id) ?? 0;
               return (
-                <button
+                <Button
                   key={product.id}
+                  type="button"
+                  variant="outline"
                   onClick={() => handleAdd(product)}
                   disabled={out}
-                  className="group relative text-left rounded-xl border bg-card overflow-hidden transition-shadow hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                  className={cn(
+                    'group relative block h-auto w-full p-0 text-left rounded-xl border bg-card overflow-hidden whitespace-normal transition-shadow hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed',
+                  )}
                 >
                   {/* Imagen */}
                   <div className="aspect-square bg-muted/40 relative overflow-hidden">
@@ -392,7 +398,7 @@ export function ProductGrid({
                       )}
                     </div>
                   </div>
-                </button>
+                </Button>
               );
             })}
           </div>

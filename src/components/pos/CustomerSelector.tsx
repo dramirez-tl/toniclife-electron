@@ -6,6 +6,8 @@ import { useState } from 'react';
 import { Search, User, UserCheck, X, Tag } from 'lucide-react';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { usePosCustomerSearch } from '@/hooks/usePos';
 import { usePosCartStore } from '@/stores/pos-cart.store';
 import type { PosCustomer } from '@/types/pos';
@@ -54,18 +56,21 @@ export function CustomerSelector() {
           )}
         </div>
         {cart.priceTypeId && (
-          <span className="flex items-center gap-1 text-[11px] text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+          <Badge className="flex items-center gap-1 text-[11px] text-primary bg-primary/10 px-2 py-0.5 rounded-full">
             <Tag className="size-3" />
             Precio distribuidor
-          </span>
+          </Badge>
         )}
-        <button
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
           onClick={handleClear}
-          className="text-muted-foreground hover:text-destructive transition-colors shrink-0"
+          className="size-6 shrink-0 text-muted-foreground hover:bg-transparent hover:text-destructive"
           title="Quitar cliente (precio publico)"
         >
           <X className="size-4" />
-        </button>
+        </Button>
       </div>
     );
   }
@@ -78,12 +83,15 @@ export function CustomerSelector() {
         <span className="text-sm text-muted-foreground flex-1">
           Precio publico — venta sin distribuidor
         </span>
-        <button
+        <Button
+          type="button"
+          variant="link"
+          size="sm"
           onClick={() => setOpen((v) => !v)}
-          className="text-xs font-medium text-primary hover:underline shrink-0"
+          className="h-auto shrink-0 p-0 text-xs font-medium"
         >
           {open ? 'Cancelar' : 'Asignar distribuidor'}
-        </button>
+        </Button>
       </div>
 
       {open && (
@@ -113,9 +121,11 @@ export function CustomerSelector() {
                 <ul className="divide-y">
                   {results.map((c) => (
                     <li key={c.id}>
-                      <button
+                      <Button
+                        type="button"
+                        variant="ghost"
                         onClick={() => handleSelect(c)}
-                        className="w-full text-left px-3 py-2 hover:bg-muted/60 transition-colors"
+                        className="block h-auto w-full rounded-none px-3 py-2 text-left whitespace-normal hover:bg-muted/60"
                       >
                         <div className="text-sm font-medium text-foreground">
                           {c.fullName}
@@ -131,7 +141,7 @@ export function CustomerSelector() {
                             <span className="text-primary">distribuidor</span>
                           )}
                         </div>
-                      </button>
+                      </Button>
                     </li>
                   ))}
                 </ul>

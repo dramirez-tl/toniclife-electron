@@ -22,6 +22,22 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { cn } from '@/lib/utils';
 import type { PrinterConfig, OsPrinterInfo } from '@/types';
 
 interface PrinterSettingsModalProps {
@@ -69,24 +85,6 @@ export function PrinterSettingsModal({
       }
     })();
   }, [isOpen]);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    const handler = (e: KeyboardEvent) => {
-      if (
-        e.key === 'Escape' &&
-        !testingPrint &&
-        !testingDrawer &&
-        !saving
-      ) {
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [isOpen, testingPrint, testingDrawer, saving, onClose]);
-
-  if (!isOpen) return null;
 
   function set<K extends keyof PrinterConfig>(key: K, value: PrinterConfig[K]) {
     setConfig((c) => ({ ...c, [key]: value }));
@@ -155,29 +153,41 @@ export function PrinterSettingsModal({
   const busy = testingPrint || testingDrawer || saving;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div
-        className="fixed inset-0 bg-black/60"
-        onClick={() => !busy && onClose()}
-      />
-      <div className="relative bg-background border rounded-2xl shadow-xl max-w-lg w-full mx-4 max-h-[92vh] overflow-y-auto">
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open && !busy) onClose();
+      }}
+    >
+      <DialogContent
+        className="max-w-lg max-h-[92vh] overflow-y-auto gap-0 p-0 rounded-2xl"
+        showCloseButton={false}
+        onInteractOutside={(e) => {
+          if (busy) e.preventDefault();
+        }}
+        onEscapeKeyDown={(e) => {
+          if (busy) e.preventDefault();
+        }}
+      >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b">
+        <DialogHeader className="flex-row items-center justify-between space-y-0 px-6 py-4 border-b text-left">
           <div className="flex items-center gap-2">
             <Printer className="size-5 text-primary" />
-            <h2 className="text-lg font-bold text-foreground">
+            <DialogTitle className="text-lg font-bold text-foreground">
               Impresora termica
-            </h2>
+            </DialogTitle>
           </div>
-          <button
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8"
             onClick={() => !busy && onClose()}
             disabled={busy}
-            className="p-1 hover:bg-muted rounded-md transition-colors"
             aria-label="Cerrar"
           >
             <X className="size-4 text-muted-foreground" />
-          </button>
-        </div>
+          </Button>
+        </DialogHeader>
 
         {/* Body */}
         <div className="px-6 py-5 space-y-5">
@@ -185,32 +195,34 @@ export function PrinterSettingsModal({
           <div>
             <Label className="block mb-2">Tipo de conexion</Label>
             <div className="grid grid-cols-2 gap-2">
-              <button
+              <Button
+                type="button"
+                variant="outline"
                 onClick={() => set('connection', 'network')}
                 disabled={busy}
-                className={[
-                  'flex flex-col items-center gap-1 rounded-lg border px-3 py-3 text-sm font-medium transition-colors',
-                  config.connection === 'network'
-                    ? 'border-primary bg-primary/10 text-primary'
-                    : 'border-border hover:bg-muted text-foreground',
-                ].join(' ')}
+                className={cn(
+                  'h-auto flex-col items-center gap-1 rounded-lg px-3 py-3 text-sm font-medium',
+                  config.connection === 'network' &&
+                    'border-primary bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary',
+                )}
               >
                 <Wifi className="size-4" />
                 Impresora de red (IP)
-              </button>
-              <button
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
                 onClick={() => set('connection', 'system')}
                 disabled={busy}
-                className={[
-                  'flex flex-col items-center gap-1 rounded-lg border px-3 py-3 text-sm font-medium transition-colors',
-                  config.connection === 'system'
-                    ? 'border-primary bg-primary/10 text-primary'
-                    : 'border-border hover:bg-muted text-foreground',
-                ].join(' ')}
+                className={cn(
+                  'h-auto flex-col items-center gap-1 rounded-lg px-3 py-3 text-sm font-medium',
+                  config.connection === 'system' &&
+                    'border-primary bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary',
+                )}
               >
                 <Monitor className="size-4" />
                 Impresora del sistema
-              </button>
+              </Button>
             </div>
             <p className="text-[11px] text-muted-foreground mt-1.5">
               {config.connection === 'network'
@@ -260,20 +272,23 @@ export function PrinterSettingsModal({
                   Instala el driver de tu impresora termica primero.
                 </p>
               ) : (
-                <select
+                <Select
                   value={config.deviceName ?? ''}
-                  onChange={(e) => set('deviceName', e.target.value)}
+                  onValueChange={(v) => set('deviceName', v)}
                   disabled={busy || loadingPrinters}
-                  className="w-full h-9 px-2 border rounded-md text-sm bg-background"
                 >
-                  <option value="">Selecciona una impresora...</option>
-                  {osPrinters.map((p) => (
-                    <option key={p.name} value={p.name}>
-                      {p.displayName}
-                      {p.isDefault ? ' (predeterminada)' : ''}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Selecciona una impresora..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {osPrinters.map((p) => (
+                      <SelectItem key={p.name} value={p.name}>
+                        {p.displayName}
+                        {p.isDefault ? ' (predeterminada)' : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               )}
             </div>
           )}
@@ -283,31 +298,31 @@ export function PrinterSettingsModal({
             <Label className="block mb-2">Ancho del papel</Label>
             <div className="flex gap-2">
               {([58, 80] as const).map((w) => (
-                <button
+                <Button
                   key={w}
+                  type="button"
+                  variant="outline"
                   onClick={() => set('paperWidth', w)}
                   disabled={busy}
-                  className={[
-                    'flex-1 py-2 text-sm rounded-md border transition-colors',
-                    config.paperWidth === w
-                      ? 'border-primary bg-primary/10 text-primary'
-                      : 'border-border hover:bg-muted',
-                  ].join(' ')}
+                  className={cn(
+                    'flex-1',
+                    config.paperWidth === w &&
+                      'border-primary bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary',
+                  )}
                 >
                   {w} mm
-                </button>
+                </Button>
               ))}
             </div>
           </div>
 
           {/* Cajon de dinero */}
-          <label className="flex items-start gap-2 text-sm cursor-pointer">
-            <input
-              type="checkbox"
+          <Label className="flex items-start gap-2 text-sm cursor-pointer">
+            <Checkbox
               checked={config.hasCashDrawer}
-              onChange={(e) => set('hasCashDrawer', e.target.checked)}
+              onCheckedChange={(c) => set('hasCashDrawer', c === true)}
               disabled={busy}
-              className="size-4 mt-0.5 accent-[var(--primary)]"
+              className="mt-0.5"
             />
             <div>
               <div className="font-medium text-foreground">
@@ -318,7 +333,7 @@ export function PrinterSettingsModal({
                 cajon al cobrar en efectivo.
               </div>
             </div>
-          </label>
+          </Label>
 
           {/* Acciones de prueba */}
           <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
@@ -388,15 +403,15 @@ export function PrinterSettingsModal({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-2 px-6 py-4 border-t bg-muted/30 rounded-b-2xl">
+        <DialogFooter className="px-6 py-4 border-t bg-muted/30 rounded-b-2xl">
           <Button variant="outline" onClick={onClose} disabled={busy}>
             Cancelar
           </Button>
           <Button onClick={handleSave} disabled={!canTest || busy}>
             {saving ? 'Guardando...' : 'Guardar configuracion'}
           </Button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

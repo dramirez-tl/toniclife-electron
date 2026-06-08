@@ -4,15 +4,25 @@
 // + ventas recientes + movimientos de caja + kits de inscripcion + CFDI.
 
 import { useEffect, useState } from 'react';
-import { LogOut, Clock, Settings, PanelLeftOpen, Receipt } from 'lucide-react';
+import {
+  LogOut,
+  Clock,
+  Settings,
+  PanelLeftOpen,
+  Receipt,
+  PackageCheck,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { LogoMark } from '@/components/LogoMark';
 import { LiveClock } from '@/components/LiveClock';
+import { ConnectionStatus } from '@/components/ConnectionStatus';
 import { Button } from '@/components/ui/button';
 import { DeactivateConfirmDialog } from '@/components/DeactivateConfirmDialog';
 import { ProductGrid } from '@/components/pos/ProductGrid';
 import { AvailablePromotions } from '@/components/pos/AvailablePromotions';
 import { Cart } from '@/components/pos/Cart';
+import { ResizeHandle } from '@/components/pos/ResizeHandle';
+import { TransfersModal } from '@/components/pos/TransfersModal';
 import { PaymentModal } from '@/components/pos/PaymentModal';
 import { RecentSales } from '@/components/pos/RecentSales';
 import { CorteModal } from '@/components/pos/CorteModal';
@@ -29,6 +39,7 @@ import {
   useCreateSale,
   useProcessPayment,
   usePosActiveSession,
+  useIncomingTransfers,
 } from '@/hooks/usePos';
 import { posApi } from '@/lib/posApi';
 import { todayLocal } from '@/lib/date';
@@ -45,6 +56,11 @@ interface PosScreenProps {
   onLogout: () => Promise<void> | void;
 }
 
+// Limites del ancho del panel del carrito (px).
+const CART_MIN_WIDTH = 320;
+const CART_MAX_WIDTH = 760;
+const CART_DEFAULT_WIDTH = 384; // = w-96
+
 /** Simbolo de moneda — MXN/USD usan '$'; el resto cae al propio codigo. */
 function currencySymbolFor(code?: string): string {
   if (!code) return '$';
@@ -58,6 +74,7 @@ export function PosScreen({ session, onLogout }: PosScreenProps) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [corteOpen, setCorteOpen] = useState(false);
   const [movementsOpen, setMovementsOpen] = useState(false);
+  const [transfersOpen, setTransfersOpen] = useState(false);
   const [printerSettingsOpen, setPrinterSettingsOpen] = useState(false);
   const [pendingKit, setPendingKit] = useState<QuickProduct | null>(null);
   const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null);
@@ -81,6 +98,26 @@ export function PosScreen({ session, onLogout }: PosScreenProps) {
     }
   };
 
+  // Ancho del panel del carrito, ajustable por el usuario y recordado.
+  const [cartWidth, setCartWidth] = useState<number>(() => {
+    try {
+      const saved = Number(localStorage.getItem('pos.cart.width'));
+      if (Number.isFinite(saved) && saved >= CART_MIN_WIDTH && saved <= CART_MAX_WIDTH) {
+        return saved;
+      }
+    } catch {
+      /* ignore */
+    }
+    return CART_DEFAULT_WIDTH;
+  });
+  const persistCartWidth = (w: number) => {
+    try {
+      localStorage.setItem('pos.cart.width', String(w));
+    } catch {
+      /* ignore */
+    }
+  };
+
   const cart = usePosCartStore((s) => s.cart);
   const clearCart = usePosCartStore((s) => s.clearCart);
   const setCustomer = usePosCartStore((s) => s.setCustomer);
@@ -93,6 +130,8 @@ export function PosScreen({ session, onLogout }: PosScreenProps) {
   const currencySymbol = currencySymbolFor(session.branch.currencyCode);
 
   const { data: activeSession } = usePosActiveSession(branchId);
+  const { data: incomingTransfers = [] } = useIncomingTransfers(branchId);
+  const incomingCount = incomingTransfers.length;
 
   // Re-cotiza los items del carrito cuando cambia el tipo de precio (asignar o
   // quitar distribuidor). Lee el estado fresco del store para no depender de
@@ -260,18 +299,45 @@ export function PosScreen({ session, onLogout }: PosScreenProps) {
           <div className="text-sm font-semibold leading-tight">
             Tonic Life POS
           </div>
-          <div className="text-xs text-white/80 truncate">
-            {session.branch.code} — {session.branch.name}
+          <div className="flex items-center gap-1.5 text-xs text-white/80">
+            {session.branch.legacyKey && (
+              <span className="shrink-0 rounded bg-white/15 px-1.5 py-0.5 text-[11px] font-semibold text-white">
+                Clave {session.branch.legacyKey}
+              </span>
+            )}
+            <span className="truncate">
+              {session.branch.code} — {session.branch.name}
+            </span>
           </div>
         </div>
+        <ConnectionStatus />
+        <div className="h-5 w-px bg-white/20" />
         <div className="flex items-center gap-1.5 text-sm text-white/85 mr-1">
-          <Clock className="size-4" />
-          <LiveClock timezone={session.branch.timezone} />
+          <Clock className="size-4 shrink-0" />
+          <LiveClock
+            timezone={session.branch.timezone}
+            showDate
+            dateClassName="text-[11px] text-white/70"
+          />
         </div>
         <div className="text-xs text-white/70 text-right mr-2">
           <div className="font-mono">{session.license.licenseKey}</div>
           {session.license.label && <div>{session.license.label}</div>}
         </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => setTransfersOpen(true)}
+          className="relative text-white/80 hover:text-white hover:bg-white/10"
+          title="Entradas de inventario (traspasos)"
+        >
+          <PackageCheck />
+          {incomingCount > 0 && (
+            <span className="absolute -right-0.5 -top-0.5 flex min-w-4 items-center justify-center rounded-full bg-amber-400 px-1 text-[10px] font-bold leading-4 text-amber-950">
+              {incomingCount > 9 ? '9+' : incomingCount}
+            </span>
+          )}
+        </Button>
         <Button
           variant="ghost"
           size="icon"
@@ -296,13 +362,15 @@ export function PosScreen({ session, onLogout }: PosScreenProps) {
       <div className="flex-1 flex min-h-0">
         {salesCollapsed ? (
           <aside className="w-11 shrink-0 border-r bg-card flex flex-col items-center gap-3 py-3">
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={() => toggleSalesPanel(false)}
               title="Mostrar ventas recientes"
-              className="text-muted-foreground transition-colors hover:text-foreground"
+              className="text-muted-foreground hover:text-foreground"
             >
               <PanelLeftOpen className="size-5" />
-            </button>
+            </Button>
             <div className="flex flex-col items-center gap-2 text-muted-foreground">
               <Receipt className="size-4 text-primary" />
               <span className="text-[11px] font-medium tracking-wide [writing-mode:vertical-rl] rotate-180">
@@ -339,11 +407,15 @@ export function PosScreen({ session, onLogout }: PosScreenProps) {
             />
           </div>
         </main>
-        <aside
-          className={`shrink-0 transition-[width] duration-200 ${
-            salesCollapsed ? 'w-[32rem]' : 'w-96'
-          }`}
-        >
+        <ResizeHandle
+          width={cartWidth}
+          min={CART_MIN_WIDTH}
+          max={CART_MAX_WIDTH}
+          defaultWidth={CART_DEFAULT_WIDTH}
+          onResize={setCartWidth}
+          onCommit={persistCartWidth}
+        />
+        <aside className="shrink-0" style={{ width: cartWidth }}>
           <Cart
             currencySymbol={currencySymbol}
             currencyCode={currencyCode}
@@ -386,6 +458,13 @@ export function PosScreen({ session, onLogout }: PosScreenProps) {
         onClose={() => setMovementsOpen(false)}
         sessionId={activeSession?.session?.id ?? null}
         currencySymbol={currencySymbol}
+      />
+
+      {/* Modal de entradas de inventario (traspasos) */}
+      <TransfersModal
+        isOpen={transfersOpen}
+        onClose={() => setTransfersOpen(false)}
+        branchId={branchId}
       />
 
       {/* Modal de inscripcion por kit */}

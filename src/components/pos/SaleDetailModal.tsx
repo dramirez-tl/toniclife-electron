@@ -5,6 +5,26 @@ import { useEffect, useState } from 'react';
 import { X, Ban, Receipt } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { usePosSale, useCancelSale } from '@/hooks/usePos';
 import { posApi } from '@/lib/posApi';
 import { formatDateTime } from '@/lib/date';
@@ -48,8 +68,7 @@ export function SaleDetailModal({
     }
   }, [isOpen]);
 
-  if (!isOpen) return null;
-
+  const busy = cancelSale.isPending;
   const fmt = (n: number) => posApi.formatCurrency(n, currencySymbol);
   const canCancel =
     sale &&
@@ -77,32 +96,48 @@ export function SaleDetailModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center">
-      <div className="fixed inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative bg-background border rounded-2xl shadow-xl max-w-lg w-full mx-4 max-h-[92vh] overflow-y-auto">
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open && !busy) onClose();
+      }}
+    >
+      <DialogContent
+        className="z-[60] max-w-lg max-h-[92vh] overflow-y-auto gap-0 p-0 rounded-2xl"
+        showCloseButton={false}
+        onInteractOutside={(e) => {
+          if (busy) e.preventDefault();
+        }}
+        onEscapeKeyDown={(e) => {
+          if (busy) e.preventDefault();
+        }}
+      >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b">
+        <DialogHeader className="flex-row items-center justify-between space-y-0 px-6 py-4 border-b text-left">
           <div className="flex items-center gap-2">
             <Receipt className="size-5 text-primary" />
             <div>
-              <h2 className="text-lg font-bold text-foreground">
+              <DialogTitle className="text-lg font-bold text-foreground">
                 {sale ? `Venta ${sale.saleNumber}` : 'Detalle de venta'}
-              </h2>
+              </DialogTitle>
               {sale && (
-                <p className="text-xs text-muted-foreground">
+                <DialogDescription className="text-xs">
                   {formatDateTime(sale.createdAt)} · {sale.sellerName}
-                </p>
+                </DialogDescription>
               )}
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1 hover:bg-muted rounded-md transition-colors"
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8"
+            onClick={() => !busy && onClose()}
+            disabled={busy}
             aria-label="Cerrar"
           >
             <X className="size-4 text-muted-foreground" />
-          </button>
-        </div>
+          </Button>
+        </DialogHeader>
 
         {/* Body */}
         <div className="px-6 py-5 space-y-4">
@@ -117,59 +152,60 @@ export function SaleDetailModal({
                 <span className="text-muted-foreground">
                   {sale.customerName ?? 'Venta a publico'}
                 </span>
-                <span
-                  className={[
-                    'text-xs font-medium px-2 py-0.5 rounded-full',
-                    sale.status === PosSaleStatus.COMPLETED
-                      ? 'bg-emerald-100 text-emerald-700'
-                      : sale.status === PosSaleStatus.CANCELLED
-                        ? 'bg-red-100 text-red-700'
-                        : sale.status === PosSaleStatus.PENDING
-                          ? 'bg-amber-100 text-amber-700'
-                          : 'bg-purple-100 text-purple-700',
-                  ].join(' ')}
-                >
-                  {sale.status}
-                </span>
+                {sale.status === PosSaleStatus.CANCELLED ? (
+                  <Badge variant="destructive">{sale.status}</Badge>
+                ) : sale.status === PosSaleStatus.COMPLETED ? (
+                  <Badge className="bg-emerald-100 text-emerald-700">
+                    {sale.status}
+                  </Badge>
+                ) : sale.status === PosSaleStatus.PENDING ? (
+                  <Badge className="bg-amber-100 text-amber-700">
+                    {sale.status}
+                  </Badge>
+                ) : (
+                  <Badge className="bg-purple-100 text-purple-700">
+                    {sale.status}
+                  </Badge>
+                )}
               </div>
 
               {/* Items */}
               <div className="rounded-lg border overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead className="bg-muted/60">
-                    <tr>
-                      <th className="text-left px-3 py-1.5 font-medium text-muted-foreground">
+                <Table className="text-sm">
+                  <TableHeader className="bg-muted/60">
+                    <TableRow>
+                      <TableHead className="text-left px-3 py-1.5 font-medium text-muted-foreground">
                         Producto
-                      </th>
-                      <th className="text-center px-2 py-1.5 font-medium text-muted-foreground">
+                      </TableHead>
+                      <TableHead className="text-center px-2 py-1.5 font-medium text-muted-foreground">
                         Cant
-                      </th>
-                      <th className="text-right px-3 py-1.5 font-medium text-muted-foreground">
+                      </TableHead>
+                      <TableHead className="text-right px-3 py-1.5 font-medium text-muted-foreground">
                         Total
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody className="divide-y">
                     {sale.items.map((it) => (
-                      <tr key={it.id}>
-                        <td className="px-3 py-1.5">
+                      <TableRow key={it.id}>
+                        <TableCell className="px-3 py-1.5">
                           <div className="text-foreground">
                             {it.productName}
                           </div>
                           <div className="text-[11px] text-muted-foreground font-mono">
                             {it.productSku}
                           </div>
-                        </td>
-                        <td className="px-2 py-1.5 text-center tabular-nums">
+                        </TableCell>
+                        <TableCell className="px-2 py-1.5 text-center tabular-nums">
                           {it.quantity}
-                        </td>
-                        <td className="px-3 py-1.5 text-right tabular-nums">
+                        </TableCell>
+                        <TableCell className="px-3 py-1.5 text-right tabular-nums">
                           {fmt(Number(it.total))}
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               </div>
 
               {/* Totales */}
@@ -196,23 +232,25 @@ export function SaleDetailModal({
                   <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
                     Pagos
                   </h3>
-                  <div className="rounded-lg border divide-y">
-                    {sale.payments.map((p) => (
-                      <div
-                        key={p.id}
-                        className="flex justify-between px-3 py-1.5 text-sm"
-                      >
-                        <span className="text-muted-foreground">
-                          {PAYMENT_LABELS[p.paymentMethod] ?? p.paymentMethod}
-                          {p.changeGiven
-                            ? ` (cambio ${fmt(Number(p.changeGiven))})`
-                            : ''}
-                        </span>
-                        <span className="tabular-nums text-foreground">
-                          {fmt(Number(p.amount))}
-                        </span>
-                      </div>
-                    ))}
+                  <div className="rounded-lg border overflow-hidden">
+                    <Table className="text-sm">
+                      <TableBody>
+                        {sale.payments.map((p) => (
+                          <TableRow key={p.id}>
+                            <TableCell className="px-3 py-1.5 text-muted-foreground">
+                              {PAYMENT_LABELS[p.paymentMethod] ??
+                                p.paymentMethod}
+                              {p.changeGiven
+                                ? ` (cambio ${fmt(Number(p.changeGiven))})`
+                                : ''}
+                            </TableCell>
+                            <TableCell className="px-3 py-1.5 text-right tabular-nums text-foreground">
+                              {fmt(Number(p.amount))}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
                   </div>
                 </div>
               )}
@@ -227,20 +265,26 @@ export function SaleDetailModal({
 
               {/* Cancelacion */}
               {sale.status === PosSaleStatus.CANCELLED && (
-                <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">
-                  Cancelada{sale.cancelledByName ? ` por ${sale.cancelledByName}` : ''}
-                  {sale.cancellationReason
-                    ? ` — ${sale.cancellationReason}`
-                    : ''}
-                </div>
+                <Alert variant="destructive" className="text-xs">
+                  <Ban />
+                  <AlertDescription className="text-xs text-destructive">
+                    Cancelada
+                    {sale.cancelledByName
+                      ? ` por ${sale.cancelledByName}`
+                      : ''}
+                    {sale.cancellationReason
+                      ? ` — ${sale.cancellationReason}`
+                      : ''}
+                  </AlertDescription>
+                </Alert>
               )}
 
               {showCancel && (
                 <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 space-y-2">
-                  <label className="block text-sm font-medium text-destructive">
+                  <Label className="block text-sm font-medium text-destructive">
                     Motivo de la cancelacion
-                  </label>
-                  <textarea
+                  </Label>
+                  <Textarea
                     value={reason}
                     onChange={(e) => setReason(e.target.value)}
                     rows={2}
@@ -265,7 +309,7 @@ export function SaleDetailModal({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-6 py-4 border-t bg-muted/30 rounded-b-2xl">
+        <DialogFooter className="flex-row items-center justify-between px-6 py-4 border-t bg-muted/30 rounded-b-2xl">
           {canCancel && !showCancel ? (
             <Button
               variant="outline"
@@ -282,9 +326,9 @@ export function SaleDetailModal({
           <Button variant="outline" onClick={onClose}>
             Cerrar
           </Button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -504,3 +504,43 @@ export interface PosCustomer {
   priceTypeId?: string;
   status?: string;
 }
+
+// ============================================================================
+// TRASPASOS — ENTRADAS A LA SUCURSAL
+// ============================================================================
+
+export interface IncomingTransferItem {
+  id: string;
+  productId: string;
+  productCode: string;
+  productName: string;
+  quantity: number;
+}
+
+export interface IncomingTransfer {
+  id: string;
+  movementNumber: string;
+  status: string;
+  /** Sucursal origen (quien envia). */
+  branch: { id: string; name: string; code: string };
+  /** Sucursal destino (esta terminal). */
+  destinationBranch: { id: string; name: string; code: string };
+  items: IncomingTransferItem[];
+  totalItems: number;
+  totalQuantity: number;
+  reason: string;
+  notes?: string;
+  requestedBy?: { id: string; name: string };
+  requestedAt?: string;
+  approvedBy?: { id: string; name: string };
+  approvedAt?: string;
+}
+
+/** Aviso de socket cuando llega un traspaso nuevo a la sucursal. */
+export interface TransferIncomingEvent {
+  transferId: string;
+  movementNumber: string;
+  originBranchName: string;
+  totalItems: number;
+  totalQuantity: number;
+}

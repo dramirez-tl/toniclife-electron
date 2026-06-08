@@ -25,6 +25,7 @@ import type {
   SatCatalogItem,
   FiscalData,
   CreateFiscalDataInput,
+  IncomingTransfer,
 } from '@/types/pos';
 
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3001/api/v1';
@@ -304,6 +305,27 @@ class PosApi {
     input: KitEnrollmentRequest,
   ): Promise<KitEnrollmentResponse> {
     const { data } = await api.post('/customers/kit-enrollment', input);
+    return data;
+  }
+
+  // --------------------------------------------------------------------------
+  // TRASPASOS — ENTRADAS A LA SUCURSAL
+  // --------------------------------------------------------------------------
+
+  /** Traspasos En Tránsito dirigidos a la sucursal de esta terminal. El backend
+   *  ignora branchId del cliente y usa el del device token; lo enviamos solo
+   *  como fallback para pruebas desde web. */
+  async getIncomingTransfers(branchId?: string): Promise<IncomingTransfer[]> {
+    const { data } = await api.get('/pos/transfers/incoming', {
+      params: branchId ? { branchId } : undefined,
+    });
+    return data ?? [];
+  }
+
+  /** Acepta la entrada de un traspaso: aplica el movimiento e ingresa el stock
+   *  al destino. */
+  async receiveTransfer(id: string): Promise<IncomingTransfer> {
+    const { data } = await api.post(`/pos/transfers/${id}/receive`);
     return data;
   }
 

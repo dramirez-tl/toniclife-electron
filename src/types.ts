@@ -32,6 +32,8 @@ export interface StoredSession {
     timezone?: string;
     currencyCode?: string;
     ticketName?: string;
+    /** Clave legacy de la sucursal (ej. "254"). */
+    legacyKey?: string;
   };
 }
 
@@ -64,6 +66,8 @@ export interface ActivationResponse {
     timezone?: string;
     currencyCode?: string;
     ticketName?: string;
+    /** Clave legacy de la sucursal (ej. "254"). */
+    legacyKey?: string;
   };
 }
 
@@ -82,6 +86,8 @@ export interface TerminalLicenseInfo {
     timezone?: string;
     currencyCode?: string;
     ticketName?: string;
+    /** Clave legacy de la sucursal (ej. "254"). */
+    legacyKey?: string;
     isPosEnabled: boolean;
     posInventoryLocked: boolean;
     lockMessage: string | null;

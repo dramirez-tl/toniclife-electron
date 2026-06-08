@@ -10,7 +10,24 @@ import { X, AlertTriangle, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { cn } from '@/lib/utils';
 import { useFiscalCatalogs } from '@/hooks/usePos';
 import { posApi } from '@/lib/posApi';
 import type { CreateFiscalDataInput } from '@/types/pos';
@@ -88,34 +105,46 @@ export function StampRetryModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div
-        className="fixed inset-0 bg-black/60"
-        onClick={() => !retrying && onClose()}
-      />
-      <div className="relative bg-background border rounded-2xl shadow-xl max-w-xl w-full mx-4 max-h-[92vh] overflow-y-auto">
+    <Dialog
+      open={!!state}
+      onOpenChange={(open) => {
+        if (!open && !retrying) onClose();
+      }}
+    >
+      <DialogContent
+        className="max-w-xl max-h-[92vh] overflow-y-auto gap-0 p-0 rounded-2xl"
+        showCloseButton={false}
+        onInteractOutside={(e) => {
+          if (retrying) e.preventDefault();
+        }}
+        onEscapeKeyDown={(e) => {
+          if (retrying) e.preventDefault();
+        }}
+      >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b">
+        <DialogHeader className="flex-row items-center justify-between space-y-0 px-6 py-4 border-b text-left">
           <div className="flex items-center gap-2">
             <FileText className="size-5 text-primary" />
             <div>
-              <h2 className="text-lg font-bold text-foreground">
+              <DialogTitle className="text-lg font-bold text-foreground">
                 Reintentar timbrado
-              </h2>
-              <p className="text-xs text-muted-foreground">
+              </DialogTitle>
+              <DialogDescription className="text-xs">
                 Venta {state.saleNumber} — ya cobrada
-              </p>
+              </DialogDescription>
             </div>
           </div>
-          <button
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8"
             onClick={() => !retrying && onClose()}
-            className="p-1 hover:bg-muted rounded-md transition-colors"
             disabled={retrying}
             aria-label="Cerrar"
           >
             <X className="size-4 text-muted-foreground" />
-          </button>
-        </div>
+          </Button>
+        </DialogHeader>
 
         {/* Body */}
         <div className="px-6 py-5 space-y-4">
@@ -156,31 +185,38 @@ export function StampRetryModal({
               />
             </FField>
             <FField label="Regimen fiscal *" full>
-              <select
+              <Select
                 value={fiscal.fiscalRegime}
-                onChange={(e) => setF('fiscalRegime', e.target.value)}
-                className="w-full h-9 px-2 border rounded-md text-sm bg-background"
+                onValueChange={(v) => setF('fiscalRegime', v)}
               >
-                <option value="">Selecciona...</option>
-                {(catalogs?.regimes ?? []).map((r) => (
-                  <option key={r.Value} value={r.Value}>
-                    {r.Value} — {r.Name}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Selecciona..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {(catalogs?.regimes ?? []).map((r) => (
+                    <SelectItem key={r.Value} value={r.Value}>
+                      {r.Value} — {r.Name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </FField>
             <FField label="Uso CFDI" full>
-              <select
+              <Select
                 value={fiscal.cfdiUse ?? 'G03'}
-                onChange={(e) => setF('cfdiUse', e.target.value)}
-                className="w-full h-9 px-2 border rounded-md text-sm bg-background"
+                onValueChange={(v) => setF('cfdiUse', v)}
               >
-                {(catalogs?.cfdiUses ?? []).map((u) => (
-                  <option key={u.Value} value={u.Value}>
-                    {u.Value} — {u.Name}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Selecciona..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {(catalogs?.cfdiUses ?? []).map((u) => (
+                    <SelectItem key={u.Value} value={u.Value}>
+                      {u.Value} — {u.Name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </FField>
             <FField label="Correo (opcional)" full>
               <Input
@@ -192,19 +228,20 @@ export function StampRetryModal({
             <FField label="Metodo de pago CFDI" full>
               <div className="flex gap-2">
                 {(['PUE', 'PPD'] as const).map((pm) => (
-                  <button
+                  <Button
                     key={pm}
                     type="button"
+                    variant="outline"
+                    size="sm"
                     onClick={() => setPaymentMethod(pm)}
-                    className={[
-                      'flex-1 py-1.5 text-xs rounded-md border transition-colors',
-                      paymentMethod === pm
-                        ? 'border-primary bg-primary/10 text-primary'
-                        : 'border-border hover:bg-muted',
-                    ].join(' ')}
+                    className={cn(
+                      'flex-1',
+                      paymentMethod === pm &&
+                        'border-primary bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary',
+                    )}
                   >
                     {pm}
-                  </button>
+                  </Button>
                 ))}
               </div>
             </FField>
@@ -212,16 +249,16 @@ export function StampRetryModal({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-2 px-6 py-4 border-t bg-muted/30 rounded-b-2xl">
+        <DialogFooter className="px-6 py-4 border-t bg-muted/30 rounded-b-2xl">
           <Button variant="outline" onClick={onClose} disabled={retrying}>
             Dejar pendiente
           </Button>
           <Button onClick={handleRetry} disabled={!complete || retrying}>
             {retrying ? 'Timbrando...' : 'Reintentar timbrado'}
           </Button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -236,9 +273,9 @@ function FField({
 }) {
   return (
     <div className={full ? 'col-span-2' : ''}>
-      <label className="block text-xs font-medium text-muted-foreground mb-1">
+      <Label className="mb-1 block text-xs font-medium text-muted-foreground">
         {label}
-      </label>
+      </Label>
       {children}
     </div>
   );

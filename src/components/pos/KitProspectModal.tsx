@@ -10,7 +10,17 @@ import { useEffect, useState } from 'react';
 import { X, UserPlus, CheckCircle2, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { useEnrollKit } from '@/hooks/usePos';
 import type {
   QuickProduct,
@@ -61,8 +71,6 @@ export function KitProspectModal({
     }
   }, [isOpen]);
 
-  if (!isOpen) return null;
-
   const set = (k: keyof typeof EMPTY_FORM, v: string) =>
     setForm((f) => ({ ...f, [k]: v }));
 
@@ -109,37 +117,49 @@ export function KitProspectModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div
-        className="fixed inset-0 bg-black/60"
-        onClick={() => !enroll.isPending && onClose()}
-      />
-      <div className="relative bg-background border rounded-2xl shadow-xl max-w-lg w-full mx-4 max-h-[92vh] overflow-y-auto">
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open && !enroll.isPending) onClose();
+      }}
+    >
+      <DialogContent
+        className="max-w-lg max-h-[92vh] overflow-y-auto gap-0 p-0 rounded-2xl"
+        showCloseButton={false}
+        onInteractOutside={(e) => {
+          if (enroll.isPending) e.preventDefault();
+        }}
+        onEscapeKeyDown={(e) => {
+          if (enroll.isPending) e.preventDefault();
+        }}
+      >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b">
+        <DialogHeader className="flex-row items-center justify-between space-y-0 px-6 py-4 border-b text-left">
           <div className="flex items-center gap-2">
             <UserPlus className="size-5 text-primary" />
             <div>
-              <h2 className="text-lg font-bold text-foreground">
+              <DialogTitle className="text-lg font-bold text-foreground">
                 Inscripcion de distribuidor
-              </h2>
+              </DialogTitle>
               {kit && (
-                <p className="text-xs text-muted-foreground">
+                <DialogDescription className="text-xs">
                   Kit {kit.sku} — {kit.name}
                   {kit.kitPosition ? ` (${kit.kitPosition})` : ''}
-                </p>
+                </DialogDescription>
               )}
             </div>
           </div>
-          <button
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8"
             onClick={() => !enroll.isPending && onClose()}
-            className="p-1 hover:bg-muted rounded-md transition-colors"
             disabled={enroll.isPending}
             aria-label="Cerrar"
           >
             <X className="size-4 text-muted-foreground" />
-          </button>
-        </div>
+          </Button>
+        </DialogHeader>
 
         {/* SUCCESS VIEW */}
         {result ? (
@@ -159,31 +179,34 @@ export function KitProspectModal({
               </p>
             </div>
 
-            <div className="rounded-lg border bg-muted/40 p-4 space-y-2 text-sm">
+            <Card className="gap-2 rounded-lg bg-muted/40 p-4 text-sm shadow-none">
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">Contrasena temporal</span>
-                <button
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
                   onClick={() => {
                     navigator.clipboard
                       .writeText(result.tempPassword)
                       .then(() => toast.success('Contrasena copiada'))
                       .catch(() => {});
                   }}
-                  className="flex items-center gap-1 font-mono font-semibold text-foreground hover:text-primary"
+                  className="h-auto gap-1 p-0 font-mono font-semibold text-foreground hover:text-primary"
                 >
                   {result.tempPassword}
                   <Copy className="size-3.5" />
-                </button>
+                </Button>
               </div>
               <p className="text-[11px] text-muted-foreground">
                 {result.emailSent
                   ? 'Las credenciales se enviaron por correo al distribuidor.'
                   : 'Anota la contrasena: no se volvera a mostrar.'}
               </p>
-            </div>
+            </Card>
 
             {result.sponsorBonus && (
-              <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm">
+              <Card className="gap-0 rounded-lg border-emerald-200 bg-emerald-50 p-4 text-sm shadow-none">
                 <p className="font-semibold text-emerald-900 mb-1">
                   Bono al patrocinador
                 </p>
@@ -200,7 +223,7 @@ export function KitProspectModal({
                 <p className="text-[11px] text-emerald-700 mt-1">
                   El pago se procesa en el siguiente ciclo de comisiones.
                 </p>
-              </div>
+              </Card>
             )}
 
             <p className="text-xs text-muted-foreground text-center">
@@ -216,12 +239,12 @@ export function KitProspectModal({
           /* FORM VIEW */
           <div className="px-6 py-5 space-y-4">
             {/* Patrocinador */}
-            <div className="rounded-lg border bg-primary/5 px-4 py-2.5 text-sm">
+            <Card className="block gap-0 rounded-lg bg-primary/5 px-4 py-2.5 text-sm shadow-none">
               <span className="text-muted-foreground">Patrocinador: </span>
               <span className="font-medium text-foreground">
                 {sponsor?.name ?? '— sin patrocinador —'}
               </span>
-            </div>
+            </Card>
 
             {!sponsor && (
               <p className="text-xs text-destructive">
@@ -275,15 +298,13 @@ export function KitProspectModal({
               </Field>
             </div>
 
-            <label className="flex items-center gap-2 text-sm text-foreground">
-              <input
-                type="checkbox"
+            <Label className="flex items-center gap-2 text-sm text-foreground">
+              <Checkbox
                 checked={sendEmail}
-                onChange={(e) => setSendEmail(e.target.checked)}
-                className="size-4 accent-[var(--primary)]"
+                onCheckedChange={(c) => setSendEmail(c === true)}
               />
               Enviar credenciales por correo al distribuidor
-            </label>
+            </Label>
 
             <div className="flex items-center justify-end gap-2 pt-2">
               <Button
@@ -299,8 +320,8 @@ export function KitProspectModal({
             </div>
           </div>
         )}
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -313,9 +334,9 @@ function Field({
 }) {
   return (
     <div>
-      <label className="block text-xs font-medium text-muted-foreground mb-1">
+      <Label className="block text-xs font-medium text-muted-foreground mb-1">
         {label}
-      </label>
+      </Label>
       {children}
     </div>
   );

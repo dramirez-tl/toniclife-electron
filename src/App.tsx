@@ -22,6 +22,7 @@
 // por una caida transitoria del backend).
 
 import { useEffect, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { LogoMark } from '@/components/LogoMark';
 import type {
@@ -57,6 +58,7 @@ export function App() {
   const [windowTitle, setWindowTitle] = useState('Tonic Life POS');
   const [lock, setLock] = useState<PosLockState>({ locked: false, message: null });
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const queryClient = useQueryClient();
 
   // ------------------------------------------------------------------
   // Bootstrap: hardware + sesion + revalidacion contra server
@@ -111,6 +113,7 @@ export function App() {
             timezone: result.data.branch.timezone,
             currencyCode: result.data.branch.currencyCode,
             ticketName: result.data.branch.ticketName,
+            legacyKey: result.data.branch.legacyKey,
           },
         };
         await window.toniclife.session.save(updated);
@@ -120,7 +123,9 @@ export function App() {
           message: result.data.branch.lockMessage ?? null,
         });
         setState({ kind: 'pos', session: updated });
-        setWindowTitle(`Tonic Life POS · Sucursal ${updated.branch.name}`);
+        setWindowTitle(
+          `Tonic Life POS · Sucursal ${updated.branch.code} — ${updated.branch.name}`,
+        );
       } else if (result.kind === 'invalid') {
         // 401: el interceptor ya limpio la sesion y mostro el toast.
         // 403: limpiamos aqui (la API rechazo por revoke/hardware mismatch).
@@ -131,7 +136,9 @@ export function App() {
         // network-error: mantener la sesion local — el heartbeat reintentara.
         toast.warning(`Sin conexion con el servidor: ${result.message}`);
         setState({ kind: 'pos', session: stored });
-        setWindowTitle(`Tonic Life POS · Sucursal ${stored.branch.name}`);
+        setWindowTitle(
+          `Tonic Life POS · Sucursal ${stored.branch.code} — ${stored.branch.name}`,
+        );
       }
     })().catch((err) => {
       console.error('Error al inicializar la terminal:', err);
@@ -196,9 +203,23 @@ export function App() {
       setLock({ locked: false, message: null });
       return;
     }
-    connectPosSocket(sessionToken, (s) => setLock(s));
+    connectPosSocket(
+      sessionToken,
+      (s) => setLock(s),
+      (event) => {
+        // Llegó un traspaso nuevo hacia esta sucursal: refrescar el badge/lista
+        // de entradas y avisar al cajero.
+        void queryClient.invalidateQueries({
+          queryKey: ['pos', 'incoming-transfers'],
+        });
+        toast.info(
+          `Traspaso entrante ${event.movementNumber} de ${event.originBranchName}`,
+          { description: `${event.totalItems} producto(s) por recibir` },
+        );
+      },
+    );
     return () => disconnectPosSocket();
-  }, [sessionToken]);
+  }, [sessionToken, queryClient]);
 
   // ------------------------------------------------------------------
   // Titulo de la ventana
@@ -220,7 +241,9 @@ export function App() {
     await window.toniclife.session.save(session);
     setDeviceToken(session.deviceToken);
     setState({ kind: 'pos', session });
-    setWindowTitle(`Tonic Life POS · Sucursal ${session.branch.name}`);
+    setWindowTitle(
+      `Tonic Life POS · Sucursal ${session.branch.code} — ${session.branch.name}`,
+    );
   }
 
   function handleConflict(conflict: LicenseConflictPayload) {

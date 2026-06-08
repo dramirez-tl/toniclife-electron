@@ -159,19 +159,20 @@ export function ActivationScreen({
               <div className="font-mono text-[10px] text-white/60 break-all">
                 {userDataPath}
               </div>
-              <button
+              <Button
                 type="button"
+                variant="link"
                 onClick={() => {
                   navigator.clipboard
                     .writeText(userDataPath)
                     .then(() => toast.success('Ruta copiada'))
                     .catch(() => {});
                 }}
-                className="flex items-center gap-1 text-[10px] text-white/70 hover:text-white"
+                className="h-auto gap-1 p-0 text-[10px] font-normal text-white/70 hover:text-white"
               >
                 <Copy className="size-3" />
                 Copiar ruta
-              </button>
+              </Button>
               <div className="text-[10px] text-white/50">
                 La licencia se guarda en{' '}
                 <span className="font-mono">session.json</span> dentro de esa

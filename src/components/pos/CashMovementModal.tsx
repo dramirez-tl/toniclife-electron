@@ -12,7 +12,17 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { cn } from '@/lib/utils';
 import {
   usePosBalance,
   usePosMovements,
@@ -58,8 +68,6 @@ export function CashMovementModal({
     }
   }, [isOpen]);
 
-  if (!isOpen) return null;
-
   const fmt = (n: number) => posApi.formatCurrency(n, currencySymbol);
   const amountNum = parseFloat(amount);
   const canSubmit =
@@ -102,25 +110,41 @@ export function CashMovementModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="fixed inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative bg-background border rounded-2xl shadow-xl max-w-lg w-full mx-4 max-h-[92vh] overflow-y-auto">
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open && !createMovement.isPending) onClose();
+      }}
+    >
+      <DialogContent
+        className="max-w-lg max-h-[92vh] overflow-y-auto gap-0 p-0 rounded-2xl"
+        showCloseButton={false}
+        onInteractOutside={(e) => {
+          if (createMovement.isPending) e.preventDefault();
+        }}
+        onEscapeKeyDown={(e) => {
+          if (createMovement.isPending) e.preventDefault();
+        }}
+      >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b">
+        <DialogHeader className="flex-row items-center justify-between space-y-0 px-6 py-4 border-b text-left">
           <div className="flex items-center gap-2">
             <Wallet className="size-5 text-primary" />
-            <h2 className="text-lg font-bold text-foreground">
+            <DialogTitle className="text-lg font-bold text-foreground">
               Movimientos de caja
-            </h2>
+            </DialogTitle>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1 hover:bg-muted rounded-md transition-colors"
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8"
+            onClick={() => !createMovement.isPending && onClose()}
+            disabled={createMovement.isPending}
             aria-label="Cerrar"
           >
             <X className="size-4 text-muted-foreground" />
-          </button>
-        </div>
+          </Button>
+        </DialogHeader>
 
         {!sessionId ? (
           <div className="px-6 py-8 text-center text-sm text-muted-foreground">
@@ -131,71 +155,75 @@ export function CashMovementModal({
           <div className="px-6 py-5 space-y-5">
             {/* Balance actual */}
             {balance && (
-              <div className="rounded-lg border bg-primary/5 px-4 py-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">
-                    Balance en caja
-                  </span>
-                  <span className="text-xl font-bold text-primary tabular-nums">
-                    {fmt(Number(balance.currentBalance))}
-                  </span>
-                </div>
-                <div className="mt-1.5 grid grid-cols-3 gap-2 text-[11px] text-muted-foreground">
-                  <div>
-                    Depositos:{' '}
-                    <span className="text-foreground tabular-nums">
-                      {fmt(Number(balance.totalDeposits))}
+              <Card className="gap-0 rounded-lg bg-primary/5 py-3 shadow-none">
+                <CardContent className="px-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">
+                      Balance en caja
+                    </span>
+                    <span className="text-xl font-bold text-primary tabular-nums">
+                      {fmt(Number(balance.currentBalance))}
                     </span>
                   </div>
-                  <div>
-                    Retiros:{' '}
-                    <span className="text-foreground tabular-nums">
-                      {fmt(Number(balance.totalWithdrawals))}
-                    </span>
+                  <div className="mt-1.5 grid grid-cols-3 gap-2 text-[11px] text-muted-foreground">
+                    <div>
+                      Depositos:{' '}
+                      <span className="text-foreground tabular-nums">
+                        {fmt(Number(balance.totalDeposits))}
+                      </span>
+                    </div>
+                    <div>
+                      Retiros:{' '}
+                      <span className="text-foreground tabular-nums">
+                        {fmt(Number(balance.totalWithdrawals))}
+                      </span>
+                    </div>
+                    <div>
+                      Pendientes:{' '}
+                      <span className="text-foreground tabular-nums">
+                        {fmt(Number(balance.pendingWithdrawals))}
+                      </span>
+                    </div>
                   </div>
-                  <div>
-                    Pendientes:{' '}
-                    <span className="text-foreground tabular-nums">
-                      {fmt(Number(balance.pendingWithdrawals))}
-                    </span>
-                  </div>
-                </div>
-              </div>
+                </CardContent>
+              </Card>
             )}
 
             {/* Formulario */}
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-2">
-                <button
+                <Button
+                  type="button"
+                  variant="outline"
                   onClick={() => setType(CashMovementType.DEPOSIT)}
-                  className={[
-                    'flex items-center justify-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors',
-                    type === CashMovementType.DEPOSIT
-                      ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
-                      : 'border-border hover:bg-muted text-foreground',
-                  ].join(' ')}
+                  className={cn(
+                    'flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium',
+                    type === CashMovementType.DEPOSIT &&
+                      'border-emerald-500 bg-emerald-50 text-emerald-700 hover:bg-emerald-50',
+                  )}
                 >
                   <ArrowDownToLine className="size-4" />
                   Deposito
-                </button>
-                <button
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
                   onClick={() => setType(CashMovementType.WITHDRAWAL)}
-                  className={[
-                    'flex items-center justify-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors',
-                    type === CashMovementType.WITHDRAWAL
-                      ? 'border-amber-500 bg-amber-50 text-amber-700'
-                      : 'border-border hover:bg-muted text-foreground',
-                  ].join(' ')}
+                  className={cn(
+                    'flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium',
+                    type === CashMovementType.WITHDRAWAL &&
+                      'border-amber-500 bg-amber-50 text-amber-700 hover:bg-amber-50',
+                  )}
                 >
                   <ArrowUpFromLine className="size-4" />
                   Retiro
-                </button>
+                </Button>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">
+                <Label className="block text-sm font-medium text-foreground mb-1">
                   Monto
-                </label>
+                </Label>
                 <Input
                   type="number"
                   inputMode="decimal"
@@ -207,9 +235,9 @@ export function CashMovementModal({
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">
+                <Label className="block text-sm font-medium text-foreground mb-1">
                   Descripcion
-                </label>
+                </Label>
                 <Input
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
@@ -219,9 +247,9 @@ export function CashMovementModal({
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">
+                <Label className="block text-sm font-medium text-foreground mb-1">
                   Referencia (opcional)
-                </label>
+                </Label>
                 <Input
                   value={reference}
                   onChange={(e) => setReference(e.target.value)}
@@ -301,12 +329,12 @@ export function CashMovementModal({
         )}
 
         {/* Footer */}
-        <div className="flex items-center justify-end px-6 py-4 border-t bg-muted/30 rounded-b-2xl">
+        <DialogFooter className="px-6 py-4 border-t bg-muted/30 rounded-b-2xl">
           <Button variant="outline" onClick={onClose}>
             Cerrar
           </Button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -15,6 +15,10 @@ export interface AvailablePromotionForCustomer {
   minPointsRequired: number;
   currentPoints: number;
   consumesPoints: boolean;
+  /** Cuántos derechos activos no vencidos tiene de esta promo (≥1). */
+  availableCount?: number;
+  /** Vencimiento del próximo derecho a vencer (ISO). */
+  expiresAt?: string;
 }
 
 class PromotionsApi {

@@ -27,6 +27,8 @@ export const posKeys = {
   movements: (sessionId: string) =>
     [...posKeys.all, 'movements', sessionId] as const,
   fiscalCatalogs: () => [...posKeys.all, 'fiscal-catalogs'] as const,
+  incomingTransfers: (branchId: string) =>
+    [...posKeys.all, 'incoming-transfers', branchId] as const,
 };
 
 /**
@@ -231,6 +233,33 @@ export const useProcessPayment = () => {
       // Refrescar promos canjeables: la venta pudo haber sumado puntos que
       // desbloquean nuevas promos, o canjeado una con consumes_points=true.
       qc.invalidateQueries({ queryKey: ['promotions'] });
+    },
+  });
+};
+
+// ============================================================================
+// TRASPASOS — ENTRADAS A LA SUCURSAL
+// ============================================================================
+
+/** Traspasos En Tránsito dirigidos a esta sucursal, pendientes de aceptar. */
+export const useIncomingTransfers = (branchId: string | undefined) =>
+  useQuery({
+    queryKey: posKeys.incomingTransfers(branchId ?? ''),
+    queryFn: () => posApi.getIncomingTransfers(branchId),
+    enabled: !!branchId,
+    staleTime: 30 * 1000,
+    // Respaldo por si el evento de socket no llega (red intermitente).
+    refetchInterval: 60 * 1000,
+  });
+
+/** Acepta la entrada de un traspaso (aplica e ingresa stock al destino). */
+export const useReceiveTransfer = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => posApi.receiveTransfer(id),
+    onSuccess: () => {
+      // El stock del destino cambió: refrescar entradas pendientes y catálogo.
+      qc.invalidateQueries({ queryKey: posKeys.all });
     },
   });
 };

@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { ShoppingCart, Trash2, Plus, Minus, X, Tag } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
 import { usePosCartStore } from '@/stores/pos-cart.store';
 import { posApi } from '@/lib/posApi';
 import { CustomerSelector } from './CustomerSelector';
@@ -72,13 +73,16 @@ export function Cart({
           )}
         </div>
         {cart.items.length > 0 && (
-          <button
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
             onClick={clearCart}
-            className="text-xs text-muted-foreground hover:text-destructive flex items-center gap-1 transition-colors"
+            className="h-auto p-0 gap-1 text-xs text-muted-foreground hover:bg-transparent hover:text-destructive"
           >
             <Trash2 className="size-3.5" />
             Vaciar
-          </button>
+          </Button>
         )}
       </div>
 
@@ -132,40 +136,49 @@ export function Cart({
                         {item.productSku}
                       </div>
                     </div>
-                    <button
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
                       onClick={() => removeItem(item.productId)}
-                      className="text-muted-foreground hover:text-destructive transition-colors shrink-0"
+                      className="size-6 shrink-0 text-muted-foreground hover:bg-transparent hover:text-destructive"
                       title="Quitar"
                     >
                       <X className="size-4" />
-                    </button>
+                    </Button>
                   </div>
 
                   <div className="mt-1.5 flex items-center justify-between">
                     {/* Stepper de cantidad */}
                     <div className="flex items-center border rounded-md">
-                      <button
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
                         onClick={() =>
                           updateItemQuantity(item.productId, item.quantity - 1)
                         }
-                        className="px-1.5 py-1 hover:bg-muted transition-colors"
+                        className="size-7 rounded-none hover:bg-muted"
                       >
                         <Minus className="size-3" />
-                      </button>
+                      </Button>
                       <span className="px-2 text-sm font-medium tabular-nums min-w-[2rem] text-center">
                         {item.quantity}
                       </span>
-                      <button
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
                         onClick={() =>
                           updateItemQuantity(item.productId, item.quantity + 1)
                         }
                         disabled={
                           item.stock != null && item.quantity >= item.stock
                         }
-                        className="px-1.5 py-1 hover:bg-muted transition-colors disabled:opacity-40"
+                        className="size-7 rounded-none hover:bg-muted disabled:opacity-40"
                       >
                         <Plus className="size-3" />
-                      </button>
+                      </Button>
                     </div>
 
                     <div className="text-right">
@@ -197,30 +210,49 @@ export function Cart({
                   : ''}
                 {cart.discountReason ? ` — ${cart.discountReason}` : ''}
               </span>
-              <button
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
                 onClick={clearDiscount}
-                className="text-muted-foreground hover:text-destructive"
+                className="size-6 text-muted-foreground hover:bg-transparent hover:text-destructive"
                 title="Quitar descuento"
               >
                 <X className="size-4" />
-              </button>
+              </Button>
             </div>
           ) : showDiscount ? (
             <div className="space-y-2">
               <div className="flex gap-2">
                 <div className="flex border rounded-md overflow-hidden">
-                  <button
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
                     onClick={() => setDiscountType('percent')}
-                    className={`px-2.5 text-sm ${discountType === 'percent' ? 'bg-primary text-primary-foreground' : 'bg-background'}`}
+                    className={cn(
+                      'h-8 rounded-none px-2.5 text-sm',
+                      discountType === 'percent'
+                        ? 'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground'
+                        : 'bg-background',
+                    )}
                   >
                     %
-                  </button>
-                  <button
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
                     onClick={() => setDiscountType('amount')}
-                    className={`px-2.5 text-sm ${discountType === 'amount' ? 'bg-primary text-primary-foreground' : 'bg-background'}`}
+                    className={cn(
+                      'h-8 rounded-none px-2.5 text-sm',
+                      discountType === 'amount'
+                        ? 'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground'
+                        : 'bg-background',
+                    )}
                   >
                     {currencySymbol.trim() || '$'}
-                  </button>
+                  </Button>
                 </div>
                 <Input
                   type="number"
@@ -252,13 +284,16 @@ export function Cart({
               </div>
             </div>
           ) : (
-            <button
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
               onClick={() => setShowDiscount(true)}
-              className="flex items-center gap-1.5 text-xs text-primary hover:underline"
+              className="h-auto gap-1.5 p-0 text-xs"
             >
               <Tag className="size-3.5" />
               Aplicar descuento
-            </button>
+            </Button>
           )}
         </div>
       )}

@@ -2,6 +2,8 @@
 // del periodo (3,300 pts). Portado de toniclife-next PosPointsBar.
 
 import { Award, TrendingUp } from 'lucide-react';
+import { Progress } from '@/components/ui/progress';
+import { cn } from '@/lib/utils';
 import { useCustomerPeriodStats } from '@/hooks/usePos';
 
 interface PosPointsBarProps {
@@ -49,17 +51,14 @@ export function PosPointsBar({ customerId, cartPoints }: PosPointsBarProps) {
         )}
       </div>
 
-      <div className="h-2 rounded-full bg-muted overflow-hidden">
-        <div
-          className={[
-            'h-full rounded-full transition-all',
-            alreadyQualified || willQualify
-              ? 'bg-emerald-500'
-              : 'bg-primary',
-          ].join(' ')}
-          style={{ width: `${pct}%` }}
-        />
-      </div>
+      <Progress
+        value={pct}
+        className={cn(
+          'h-2 rounded-full bg-muted',
+          (alreadyQualified || willQualify) &&
+            '[&>[data-slot=progress-indicator]]:bg-emerald-500',
+        )}
+      />
 
       <div className="flex items-center justify-between text-[11px] text-muted-foreground mt-1">
         <span className="tabular-nums">

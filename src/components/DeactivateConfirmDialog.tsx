@@ -8,6 +8,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 interface DeactivateConfirmDialogProps {
   isOpen: boolean;
@@ -33,18 +41,6 @@ export function DeactivateConfirmDialog({
     }
   }, [isOpen]);
 
-  // Cerrar con Esc.
-  useEffect(() => {
-    if (!isOpen) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !submitting) onClose();
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [isOpen, submitting, onClose]);
-
-  if (!isOpen) return null;
-
   const isMatch = typed.trim().toUpperCase() === licenseKey.toUpperCase();
   const canConfirm = isMatch && !submitting;
 
@@ -60,36 +56,48 @@ export function DeactivateConfirmDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div
-        className="fixed inset-0 bg-black/60"
-        onClick={() => !submitting && onClose()}
-      />
-      <div className="relative bg-background border rounded-2xl shadow-xl max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open && !submitting) onClose();
+      }}
+    >
+      <DialogContent
+        className="max-w-lg max-h-[92vh] overflow-y-auto gap-0 p-0 rounded-2xl"
+        showCloseButton={false}
+        onInteractOutside={(e) => {
+          if (submitting) e.preventDefault();
+        }}
+        onEscapeKeyDown={(e) => {
+          if (submitting) e.preventDefault();
+        }}
+      >
         {/* Header */}
-        <div className="flex items-start justify-between px-6 py-4 border-b">
+        <DialogHeader className="flex-row items-center justify-between space-y-0 px-6 py-4 border-b text-left">
           <div className="flex items-center gap-3">
             <div className="rounded-full bg-destructive/10 border border-destructive/20 p-2 text-destructive">
               <AlertTriangle className="size-5" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-foreground">
+              <DialogTitle className="text-lg font-bold text-foreground">
                 Desactivar terminal
-              </h2>
-              <p className="text-xs text-muted-foreground mt-0.5">
+              </DialogTitle>
+              <DialogDescription className="text-xs">
                 Esta accion es permanente y libera la licencia.
-              </p>
+              </DialogDescription>
             </div>
           </div>
-          <button
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8"
             onClick={() => !submitting && onClose()}
-            className="p-1 hover:bg-muted rounded-md transition-colors"
             disabled={submitting}
             aria-label="Cerrar"
           >
             <X className="size-4 text-muted-foreground" />
-          </button>
-        </div>
+          </Button>
+        </DialogHeader>
 
         {/* Body */}
         <div className="px-6 py-5 space-y-4">
@@ -146,7 +154,7 @@ export function DeactivateConfirmDialog({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-2 px-6 py-4 border-t bg-muted/30 rounded-b-2xl">
+        <DialogFooter className="px-6 py-4 border-t bg-muted/30 rounded-b-2xl">
           <Button
             variant="outline"
             onClick={onClose}
@@ -161,8 +169,8 @@ export function DeactivateConfirmDialog({
           >
             {submitting ? 'Desactivando...' : 'Si, desactivar terminal'}
           </Button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

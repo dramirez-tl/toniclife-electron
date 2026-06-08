@@ -8,9 +8,27 @@
 //     venta, procesa el pago y (si aplica) guarda datos fiscales + timbra.
 
 import { useEffect, useMemo, useState } from 'react';
-import { X, Banknote, CreditCard, ArrowLeftRight, Check, FileText } from 'lucide-react';
+import { Banknote, CreditCard, ArrowLeftRight, Check, FileText, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { cn } from '@/lib/utils';
 import { posApi } from '@/lib/posApi';
 import { useFiscalCatalogs, usePosCustomerFiscalData } from '@/hooks/usePos';
 import {
@@ -127,15 +145,6 @@ export function PaymentModal({
     }
   }, [wantsInvoice, prefilled, existingFiscal]);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !isProcessing) onClose();
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [isOpen, isProcessing, onClose]);
-
   const fmt = (n: number) => posApi.formatCurrency(n, currencySymbol);
   const isCash =
     method === PosPaymentMethod.CASH || method === PosPaymentMethod.USD_CASH;
@@ -169,8 +178,6 @@ export function PaymentModal({
     (splitMode ? splitOk : isCash ? receivedNum >= total : true) &&
     fiscalComplete &&
     !isProcessing;
-
-  if (!isOpen) return null;
 
   function setF(k: keyof typeof EMPTY_FISCAL, v: string) {
     setFiscal((f) => ({ ...f, [k]: v }));
@@ -248,29 +255,43 @@ export function PaymentModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div
-        className="fixed inset-0 bg-black/60"
-        onClick={() => !isProcessing && onClose()}
-      />
-      <div className="relative bg-background border rounded-2xl shadow-xl max-w-xl w-full mx-4 max-h-[92vh] overflow-y-auto">
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open && !isProcessing) onClose();
+      }}
+    >
+      <DialogContent
+        className="max-w-xl max-h-[92vh] overflow-y-auto gap-0 p-0 rounded-2xl"
+        showCloseButton={false}
+        onInteractOutside={(e) => {
+          if (isProcessing) e.preventDefault();
+        }}
+        onEscapeKeyDown={(e) => {
+          if (isProcessing) e.preventDefault();
+        }}
+      >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b">
+        <DialogHeader className="flex-row items-center justify-between space-y-0 px-6 py-4 border-b text-left">
           <div>
-            <h2 className="text-lg font-bold text-foreground">Cobrar venta</h2>
-            <p className="text-xs text-muted-foreground">
+            <DialogTitle className="text-lg font-bold text-foreground">
+              Cobrar venta
+            </DialogTitle>
+            <DialogDescription className="text-xs">
               Selecciona el metodo de pago
-            </p>
+            </DialogDescription>
           </div>
-          <button
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8"
             onClick={() => !isProcessing && onClose()}
-            className="p-1 hover:bg-muted rounded-md transition-colors"
             disabled={isProcessing}
             aria-label="Cerrar"
           >
             <X className="size-4 text-muted-foreground" />
-          </button>
-        </div>
+          </Button>
+        </DialogHeader>
 
         {/* Total */}
         <div className="px-6 py-4 bg-primary/5 border-b text-center">
@@ -292,30 +313,29 @@ export function PaymentModal({
             <>
               <div className="grid grid-cols-3 gap-2">
                 {METHODS.map((m) => (
-                  <button
+                  <Button
                     key={m.method}
+                    type="button"
+                    variant="outline"
                     onClick={() => setMethod(m.method)}
                     disabled={isProcessing}
-                    className={[
-                      'flex flex-col items-center gap-1 rounded-xl border px-2 py-3 text-xs font-medium transition-colors',
-                      method === m.method
-                        ? 'border-primary bg-primary/10 text-primary'
-                        : 'border-border hover:bg-muted text-foreground',
-                    ].join(' ')}
+                    className={cn(
+                      'flex h-auto flex-col items-center gap-1 rounded-xl px-2 py-3 text-xs font-medium',
+                      method === m.method &&
+                        'border-primary bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary',
+                    )}
                   >
                     {methodIcon(m.method)}
                     {m.label}
-                  </button>
+                  </Button>
                 ))}
               </div>
 
               {/* Efectivo: monto recibido + cambio */}
               {isCash && (
                 <div className="mt-4 space-y-3">
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-1">
-                      Monto recibido
-                    </label>
+                  <div className="space-y-1">
+                    <Label className="text-sm">Monto recibido</Label>
                     <Input
                       type="number"
                       inputMode="decimal"
@@ -327,20 +347,24 @@ export function PaymentModal({
                     />
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <button
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
                       onClick={() => setReceived(total.toFixed(2))}
-                      className="px-3 py-1.5 text-xs rounded-lg border hover:bg-muted transition-colors"
                     >
                       Exacto
-                    </button>
+                    </Button>
                     {QUICK_AMOUNTS.map((amt) => (
-                      <button
+                      <Button
                         key={amt}
+                        type="button"
+                        variant="outline"
+                        size="sm"
                         onClick={() => setReceived(String(amt))}
-                        className="px-3 py-1.5 text-xs rounded-lg border hover:bg-muted transition-colors"
                       >
                         {fmt(amt)}
-                      </button>
+                      </Button>
                     ))}
                   </div>
                   <div className="flex justify-between items-baseline rounded-lg bg-muted/50 px-4 py-2.5">
@@ -348,12 +372,12 @@ export function PaymentModal({
                       Cambio
                     </span>
                     <span
-                      className={[
+                      className={cn(
                         'text-xl font-bold tabular-nums',
                         receivedNum >= total
                           ? 'text-emerald-600'
                           : 'text-muted-foreground',
-                      ].join(' ')}
+                      )}
                     >
                       {fmt(change)}
                     </span>
@@ -366,13 +390,16 @@ export function PaymentModal({
                 </div>
               )}
 
-              <button
+              <Button
+                type="button"
+                variant="link"
+                size="sm"
                 onClick={enterSplitMode}
                 disabled={isProcessing}
-                className="mt-3 text-xs text-primary hover:underline"
+                className="mt-3 h-auto p-0 text-xs"
               >
                 Dividir en varios metodos de pago
-              </button>
+              </Button>
             </>
           )}
 
@@ -381,22 +408,24 @@ export function PaymentModal({
             <div className="space-y-3">
               {splitPayments.map((row, idx) => (
                 <div key={idx} className="flex items-center gap-2">
-                  <select
+                  <Select
                     value={row.method}
-                    onChange={(e) =>
-                      updateSplitRow(idx, {
-                        method: e.target.value as PosPaymentMethod,
-                      })
+                    onValueChange={(v) =>
+                      updateSplitRow(idx, { method: v as PosPaymentMethod })
                     }
                     disabled={isProcessing}
-                    className="h-9 px-2 border rounded-md text-sm bg-background"
                   >
-                    {METHODS.map((m) => (
-                      <option key={m.method} value={m.method}>
-                        {m.label}
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger className="w-40">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {METHODS.map((m) => (
+                        <SelectItem key={m.method} value={m.method}>
+                          {m.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <Input
                     type="number"
                     inputMode="decimal"
@@ -409,41 +438,50 @@ export function PaymentModal({
                     disabled={isProcessing}
                   />
                   {splitPayments.length > 1 && (
-                    <button
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
                       onClick={() => removeSplitRow(idx)}
                       disabled={isProcessing}
                       className="text-muted-foreground hover:text-destructive"
                     >
                       <X className="size-4" />
-                    </button>
+                    </Button>
                   )}
                 </div>
               ))}
 
               <div className="flex items-center justify-between">
-                <button
+                <Button
+                  type="button"
+                  variant="link"
+                  size="sm"
                   onClick={addSplitRow}
                   disabled={isProcessing}
-                  className="text-xs text-primary hover:underline"
+                  className="h-auto p-0 text-xs"
                 >
                   + Agregar metodo de pago
-                </button>
-                <button
+                </Button>
+                <Button
+                  type="button"
+                  variant="link"
+                  size="sm"
                   onClick={() => setSplitMode(false)}
                   disabled={isProcessing}
-                  className="text-xs text-muted-foreground hover:underline"
+                  className="h-auto p-0 text-xs text-muted-foreground"
                 >
                   Volver a pago simple
-                </button>
+                </Button>
               </div>
 
               <div
-                className={[
+                className={cn(
                   'flex items-center justify-between rounded-lg px-4 py-2.5 text-sm',
                   splitOk
                     ? 'bg-emerald-50 text-emerald-700'
                     : 'bg-muted/60 text-muted-foreground',
-                ].join(' ')}
+                )}
               >
                 <span>
                   Ingresado {fmt(splitTotal)} de {fmt(total)}
@@ -462,16 +500,14 @@ export function PaymentModal({
           {/* Facturacion CFDI — solo si hay cliente */}
           {customerId && (
             <div className="mt-4 border-t pt-4">
-              <label className="flex items-center gap-2 text-sm font-medium text-foreground">
-                <input
-                  type="checkbox"
+              <Label className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <Checkbox
                   checked={wantsInvoice}
-                  onChange={(e) => setWantsInvoice(e.target.checked)}
-                  className="size-4 accent-[var(--primary)]"
+                  onCheckedChange={(c) => setWantsInvoice(c === true)}
                 />
                 <FileText className="size-4 text-primary" />
                 Requiere factura (CFDI)
-              </label>
+              </Label>
 
               {wantsInvoice && (
                 <div className="mt-3 grid grid-cols-2 gap-3">
@@ -506,31 +542,38 @@ export function PaymentModal({
                     />
                   </FField>
                   <FField label="Regimen fiscal *" full>
-                    <select
+                    <Select
                       value={fiscal.fiscalRegime}
-                      onChange={(e) => setF('fiscalRegime', e.target.value)}
-                      className="w-full h-9 px-2 border rounded-md text-sm bg-background"
+                      onValueChange={(v) => setF('fiscalRegime', v)}
                     >
-                      <option value="">Selecciona...</option>
-                      {(catalogs?.regimes ?? []).map((r) => (
-                        <option key={r.Value} value={r.Value}>
-                          {r.Value} — {r.Name}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Selecciona..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(catalogs?.regimes ?? []).map((r) => (
+                          <SelectItem key={r.Value} value={r.Value}>
+                            {r.Value} — {r.Name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </FField>
                   <FField label="Uso CFDI" full>
-                    <select
+                    <Select
                       value={fiscal.cfdiUse}
-                      onChange={(e) => setF('cfdiUse', e.target.value)}
-                      className="w-full h-9 px-2 border rounded-md text-sm bg-background"
+                      onValueChange={(v) => setF('cfdiUse', v)}
                     >
-                      {(catalogs?.cfdiUses ?? []).map((u) => (
-                        <option key={u.Value} value={u.Value}>
-                          {u.Value} — {u.Name}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Selecciona..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(catalogs?.cfdiUses ?? []).map((u) => (
+                          <SelectItem key={u.Value} value={u.Value}>
+                            {u.Value} — {u.Name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </FField>
                   <FField label="Correo (opcional)" full>
                     <Input
@@ -542,22 +585,23 @@ export function PaymentModal({
                   <FField label="Metodo de pago CFDI" full>
                     <div className="flex gap-2">
                       {(['PUE', 'PPD'] as const).map((pm) => (
-                        <button
+                        <Button
                           key={pm}
                           type="button"
+                          variant="outline"
+                          size="sm"
                           onClick={() => setInvoicePaymentMethod(pm)}
-                          className={[
-                            'flex-1 py-1.5 text-xs rounded-md border transition-colors',
-                            invoicePaymentMethod === pm
-                              ? 'border-primary bg-primary/10 text-primary'
-                              : 'border-border hover:bg-muted',
-                          ].join(' ')}
+                          className={cn(
+                            'flex-1',
+                            invoicePaymentMethod === pm &&
+                              'border-primary bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary',
+                          )}
                         >
                           {pm}
                           {pm === 'PUE'
                             ? ' — una exhibicion'
                             : ' — diferido'}
-                        </button>
+                        </Button>
                       ))}
                     </div>
                   </FField>
@@ -568,7 +612,7 @@ export function PaymentModal({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-2 px-6 py-4 border-t bg-muted/30 rounded-b-2xl">
+        <DialogFooter className="px-6 py-4 border-t bg-muted/30 rounded-b-2xl">
           <Button variant="outline" onClick={onClose} disabled={isProcessing}>
             Cancelar
           </Button>
@@ -580,9 +624,9 @@ export function PaymentModal({
             <Check />
             {isProcessing ? 'Procesando...' : `Confirmar pago ${fmt(total)}`}
           </Button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -597,9 +641,9 @@ function FField({
 }) {
   return (
     <div className={full ? 'col-span-2' : ''}>
-      <label className="block text-xs font-medium text-muted-foreground mb-1">
+      <Label className="mb-1 block text-xs font-medium text-muted-foreground">
         {label}
-      </label>
+      </Label>
       {children}
     </div>
   );

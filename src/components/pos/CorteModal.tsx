@@ -7,6 +7,22 @@ import { useState } from 'react';
 import { X, ClipboardList, Printer, Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { usePosDailySummary, usePosSales } from '@/hooks/usePos';
 import { posApi } from '@/lib/posApi';
 import { formatTime } from '@/lib/date';
@@ -48,8 +64,7 @@ export function CorteModal({
   const sales: Sale[] = salesResp?.data ?? [];
   const fmt = (n: number) => posApi.formatCurrency(n, currencySymbol);
 
-  if (!isOpen) return null;
-
+  const busy = printing || exporting;
   const hasData = !!summary && !loadingSummary;
 
   const paymentRows: Array<{ label: string; value: number }> = summary
@@ -139,30 +154,46 @@ export function CorteModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="fixed inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative bg-background border rounded-2xl shadow-xl max-w-2xl w-full mx-4 max-h-[92vh] overflow-y-auto">
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open && !busy) onClose();
+      }}
+    >
+      <DialogContent
+        className="max-w-2xl max-h-[92vh] overflow-y-auto gap-0 p-0 rounded-2xl"
+        showCloseButton={false}
+        onInteractOutside={(e) => {
+          if (busy) e.preventDefault();
+        }}
+        onEscapeKeyDown={(e) => {
+          if (busy) e.preventDefault();
+        }}
+      >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b">
+        <DialogHeader className="flex-row items-center justify-between space-y-0 px-6 py-4 border-b text-left">
           <div className="flex items-center gap-2">
             <ClipboardList className="size-5 text-primary" />
             <div>
-              <h2 className="text-lg font-bold text-foreground">
+              <DialogTitle className="text-lg font-bold text-foreground">
                 Corte del dia
-              </h2>
-              <p className="text-xs text-muted-foreground">
+              </DialogTitle>
+              <DialogDescription className="text-xs">
                 {branchName} · {date}
-              </p>
+              </DialogDescription>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1 hover:bg-muted rounded-md transition-colors"
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8"
+            onClick={() => !busy && onClose()}
+            disabled={busy}
             aria-label="Cerrar"
           >
             <X className="size-4 text-muted-foreground" />
-          </button>
-        </div>
+          </Button>
+        </DialogHeader>
 
         {/* Body */}
         <div className="px-6 py-5 space-y-5">
@@ -248,26 +279,26 @@ export function CorteModal({
                   </p>
                 ) : (
                   <div className="rounded-lg border overflow-hidden">
-                    <table className="w-full text-sm">
-                      <thead className="bg-muted/60">
-                        <tr>
-                          <th className="text-left px-3 py-1.5 font-medium text-muted-foreground">
+                    <Table className="text-sm">
+                      <TableHeader className="bg-muted/60">
+                        <TableRow>
+                          <TableHead className="text-left px-3 py-1.5 font-medium text-muted-foreground">
                             Folio
-                          </th>
-                          <th className="text-left px-3 py-1.5 font-medium text-muted-foreground">
+                          </TableHead>
+                          <TableHead className="text-left px-3 py-1.5 font-medium text-muted-foreground">
                             Hora
-                          </th>
-                          <th className="text-left px-3 py-1.5 font-medium text-muted-foreground">
+                          </TableHead>
+                          <TableHead className="text-left px-3 py-1.5 font-medium text-muted-foreground">
                             Cliente
-                          </th>
-                          <th className="text-right px-3 py-1.5 font-medium text-muted-foreground">
+                          </TableHead>
+                          <TableHead className="text-right px-3 py-1.5 font-medium text-muted-foreground">
                             Total
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
+                          </TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody className="divide-y">
                         {sales.map((s) => (
-                          <tr
+                          <TableRow
                             key={s.id}
                             onClick={() => onSelectSale?.(s.id)}
                             className={
@@ -279,22 +310,22 @@ export function CorteModal({
                               onSelectSale ? 'Ver detalle de la venta' : undefined
                             }
                           >
-                            <td className="px-3 py-1.5 font-mono text-xs">
+                            <TableCell className="px-3 py-1.5 font-mono text-xs">
                               {s.saleNumber}
-                            </td>
-                            <td className="px-3 py-1.5 text-muted-foreground">
+                            </TableCell>
+                            <TableCell className="px-3 py-1.5 text-muted-foreground">
                               {formatTime(s.createdAt)}
-                            </td>
-                            <td className="px-3 py-1.5 text-muted-foreground truncate max-w-[10rem]">
+                            </TableCell>
+                            <TableCell className="px-3 py-1.5 text-muted-foreground truncate max-w-[10rem]">
                               {s.customerName ?? 'Publico'}
-                            </td>
-                            <td className="px-3 py-1.5 text-right font-medium tabular-nums">
+                            </TableCell>
+                            <TableCell className="px-3 py-1.5 text-right font-medium tabular-nums">
                               {fmt(Number(s.total))}
-                            </td>
-                          </tr>
+                            </TableCell>
+                          </TableRow>
                         ))}
-                      </tbody>
-                    </table>
+                      </TableBody>
+                    </Table>
                   </div>
                 )}
               </div>
@@ -303,7 +334,7 @@ export function CorteModal({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between gap-2 px-6 py-4 border-t bg-muted/30 rounded-b-2xl">
+        <DialogFooter className="flex-row items-center justify-between gap-2 px-6 py-4 border-t bg-muted/30 rounded-b-2xl">
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
@@ -326,9 +357,9 @@ export function CorteModal({
           <Button variant="outline" onClick={onClose} disabled={printing}>
             Cerrar
           </Button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
