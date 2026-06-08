@@ -281,9 +281,10 @@ export function PosScreen({ session, onLogout }: PosScreenProps) {
     // kit al carrito para cobrar la inscripcion.
     setCustomer(
       result.customerId,
-      `${result.fullName} (${result.customerNumber})`,
+      result.fullName,
       undefined,
       cart.priceTypeId,
+      result.customerNumber,
     );
     addItem(kit, 1);
     toast.success(`Kit ${kit.sku} agregado para ${result.fullName}`);
@@ -422,6 +423,15 @@ export function PosScreen({ session, onLogout }: PosScreenProps) {
             isProcessing={isProcessing}
             onCheckout={() => {
               if (cart.items.length === 0) return;
+              // Venta en $0 por promo: no hay nada que cobrar ni facturar →
+              // se completa directo, sin abrir el modal de pago.
+              const hasPromo = cart.items.some(
+                (it) => it.productType === 'promotional',
+              );
+              if (cart.total === 0 && hasPromo) {
+                void handlePaymentConfirm([]);
+                return;
+              }
               setPaymentOpen(true);
             }}
           />

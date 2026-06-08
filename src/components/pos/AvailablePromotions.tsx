@@ -83,6 +83,7 @@ export function AvailablePromotions({
       productType: 'promotional',
       // Sin tope de stock: la promo descuenta componentes, no a si misma.
       stock: undefined,
+      components: promo.items,
     };
 
     addItem(item, 1);
@@ -137,6 +138,16 @@ export function AvailablePromotions({
               <p className="text-xs text-muted-foreground">
                 Requiere {fmt(promo.minPointsRequired)} pts
               </p>
+              {promo.items && promo.items.length > 0 && (
+                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  <span className="font-medium text-foreground">Incluye:</span>{' '}
+                  {promo.items
+                    .map((it) =>
+                      it.quantity > 1 ? `${it.name} ×${it.quantity}` : it.name,
+                    )
+                    .join(', ')}
+                </p>
+              )}
               {(() => {
                 const e = expiryInfo(promo.expiresAt);
                 return e ? (

@@ -19,6 +19,8 @@ export interface AvailablePromotionForCustomer {
   availableCount?: number;
   /** Vencimiento del próximo derecho a vencer (ISO). */
   expiresAt?: string;
+  /** Productos que incluye la promo (BoM). */
+  items?: Array<{ code: string; name: string; quantity: number }>;
 }
 
 class PromotionsApi {

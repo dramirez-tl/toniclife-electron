@@ -311,6 +311,10 @@ export interface PosCartItem {
   stock?: number;
   points: number;
   businessVolume: number;
+  /** Tipo de producto (ej. 'promotional'); usado para retirar promos al cambiar/quitar el distribuidor. */
+  productType?: string;
+  /** Productos que incluye (BoM) — para mostrar/imprimir "qué incluye" la promo. */
+  components?: Array<{ code: string; name: string; quantity: number }>;
   lotId?: string;
   notes?: string;
 }
@@ -319,6 +323,7 @@ export interface PosCart {
   items: PosCartItem[];
   customerId?: string;
   customerName?: string;
+  customerNumber?: string;
   customerRfc?: string;
   priceTypeId?: string;
   isPublicPrice?: boolean;
@@ -354,6 +359,8 @@ export interface QuickProduct {
   businessVolume?: number;
   productType?: string;
   kitPosition?: string;
+  /** Productos que incluye (BoM) — para promos/kits, mostrar "qué incluye". */
+  components?: Array<{ code: string; name: string; quantity: number }>;
   /**
    * TRUE solo para kits de inscripción reales (gate autoritativo, mig 037).
    * Dispara el flujo de enrolamiento de distribuidor en POS.

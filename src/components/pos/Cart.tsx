@@ -2,7 +2,17 @@
 // Portado de toniclife-next PosCart: items + cliente + descuento + totales.
 
 import { useState } from 'react';
-import { ShoppingCart, Trash2, Plus, Minus, X, Tag } from 'lucide-react';
+import {
+  ShoppingCart,
+  Trash2,
+  Plus,
+  Minus,
+  X,
+  Tag,
+  Package,
+  ChevronDown,
+  ChevronUp,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -29,6 +39,12 @@ export function Cart({
   const removeItem = usePosCartStore((s) => s.removeItem);
   const clearCart = usePosCartStore((s) => s.clearCart);
   const setDiscount = usePosCartStore((s) => s.setDiscount);
+
+  const [expandedIncludes, setExpandedIncludes] = useState<
+    Record<string, boolean>
+  >({});
+  const toggleIncludes = (productId: string) =>
+    setExpandedIncludes((prev) => ({ ...prev, [productId]: !prev[productId] }));
 
   const [showDiscount, setShowDiscount] = useState(false);
   const [discountType, setDiscountType] = useState<'percent' | 'amount'>(
@@ -147,6 +163,47 @@ export function Cart({
                       <X className="size-4" />
                     </Button>
                   </div>
+
+                  {/* "Incluye" — componentes de la promo/kit */}
+                  {item.components && item.components.length > 0 && (
+                    <div className="mt-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => toggleIncludes(item.productId)}
+                        className="h-auto gap-1 p-0 text-[11px] font-medium text-primary hover:bg-transparent"
+                      >
+                        <Package className="size-3" />
+                        Incluye ({item.components.length})
+                        {expandedIncludes[item.productId] ? (
+                          <ChevronUp className="size-3" />
+                        ) : (
+                          <ChevronDown className="size-3" />
+                        )}
+                      </Button>
+                      {expandedIncludes[item.productId] && (
+                        <ul className="mt-1 space-y-0.5 rounded-md bg-muted/50 px-2 py-1.5 text-[11px] text-muted-foreground">
+                          {item.components.map((c) => (
+                            <li
+                              key={c.code}
+                              className="flex justify-between gap-2"
+                            >
+                              <span className="truncate">
+                                {c.name}{' '}
+                                <span className="font-mono text-muted-foreground/80">
+                                  ({c.code})
+                                </span>
+                              </span>
+                              <span className="shrink-0 tabular-nums">
+                                ×{c.quantity}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
 
                   <div className="mt-1.5 flex items-center justify-between">
                     {/* Stepper de cantidad */}

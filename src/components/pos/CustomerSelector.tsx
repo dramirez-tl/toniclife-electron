@@ -29,6 +29,7 @@ export function CustomerSelector() {
       customer.fullName,
       customer.rfc,
       customer.priceTypeId,
+      customer.customerNumber,
     );
     setOpen(false);
     setQuery('');
@@ -49,9 +50,9 @@ export function CustomerSelector() {
           <div className="text-sm font-medium text-foreground truncate">
             {cart.customerName}
           </div>
-          {cart.customerRfc && (
+          {cart.customerNumber && (
             <div className="text-[11px] text-muted-foreground font-mono">
-              {cart.customerRfc}
+              #{cart.customerNumber}
             </div>
           )}
         </div>

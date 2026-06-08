@@ -17,6 +17,7 @@ interface PosCartStore {
     customerName?: string,
     customerRfc?: string,
     priceTypeId?: string,
+    customerNumber?: string,
   ) => void;
   setPublicPrice: (isPublic: boolean) => void;
   setDiscount: (
@@ -172,6 +173,8 @@ export const usePosCartStore = create<PosCartStore>()(
               stock: product.stock,
               points: product.points ?? 0,
               businessVolume: product.businessVolume ?? 0,
+              productType: product.productType,
+              components: product.components,
             });
             newItems = [...state.cart.items, newItem];
           }
@@ -225,34 +228,58 @@ export const usePosCartStore = create<PosCartStore>()(
         set({ cart: initialCart });
       },
 
-      setCustomer: (customerId, customerName, customerRfc, priceTypeId) => {
-        set((state) => ({
-          cart: {
-            ...state.cart,
-            customerId,
-            customerName,
-            customerRfc,
-            priceTypeId,
-            isPublicPrice: false,
-          },
-        }));
+      setCustomer: (
+        customerId,
+        customerName,
+        customerRfc,
+        priceTypeId,
+        customerNumber,
+      ) => {
+        set((state) => {
+          // Las promociones son derechos del distribuidor seleccionado. Al
+          // cambiar o quitar el distribuidor se retiran del carrito para que no
+          // las canjee otro cliente.
+          const items = state.cart.items.filter(
+            (i) => i.productType !== 'promotional',
+          );
+          return {
+            cart: calculateCartTotals({
+              ...state.cart,
+              items,
+              customerId,
+              customerName,
+              customerNumber,
+              customerRfc,
+              priceTypeId,
+              isPublicPrice: false,
+            }),
+          };
+        });
       },
 
       setPublicPrice: (isPublic) => {
-        set((state) => ({
-          cart: {
-            ...state.cart,
-            isPublicPrice: isPublic,
-            ...(isPublic
-              ? {
-                  customerId: undefined,
-                  customerName: undefined,
-                  customerRfc: undefined,
-                  priceTypeId: undefined,
-                }
-              : {}),
-          },
-        }));
+        set((state) => {
+          // Al pasar a venta pública (sin distribuidor) se retiran las promos.
+          const items = isPublic
+            ? state.cart.items.filter((i) => i.productType !== 'promotional')
+            : state.cart.items;
+          return {
+            cart: calculateCartTotals({
+              ...state.cart,
+              items,
+              isPublicPrice: isPublic,
+              ...(isPublic
+                ? {
+                    customerId: undefined,
+                    customerName: undefined,
+                    customerNumber: undefined,
+                    customerRfc: undefined,
+                    priceTypeId: undefined,
+                  }
+                : {}),
+            }),
+          };
+        });
       },
 
       setDiscount: (discountPercent, discountAmount, discountReason) => {
