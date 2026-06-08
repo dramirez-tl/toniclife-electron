@@ -11,6 +11,7 @@ import {
   PanelLeftOpen,
   Receipt,
   PackageCheck,
+  UserPlus,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { LogoMark } from '@/components/LogoMark';
@@ -28,6 +29,7 @@ import { RecentSales } from '@/components/pos/RecentSales';
 import { CorteModal } from '@/components/pos/CorteModal';
 import { CashMovementModal } from '@/components/pos/CashMovementModal';
 import { KitProspectModal } from '@/components/pos/KitProspectModal';
+import { RegisterDistributorModal } from '@/components/pos/RegisterDistributorModal';
 import { SaleDetailModal } from '@/components/pos/SaleDetailModal';
 import {
   StampRetryModal,
@@ -40,6 +42,7 @@ import {
   useProcessPayment,
   usePosActiveSession,
   useIncomingTransfers,
+  usePosCatalog,
 } from '@/hooks/usePos';
 import { posApi } from '@/lib/posApi';
 import { todayLocal } from '@/lib/date';
@@ -77,6 +80,7 @@ export function PosScreen({ session, onLogout }: PosScreenProps) {
   const [transfersOpen, setTransfersOpen] = useState(false);
   const [printerSettingsOpen, setPrinterSettingsOpen] = useState(false);
   const [pendingKit, setPendingKit] = useState<QuickProduct | null>(null);
+  const [registerOpen, setRegisterOpen] = useState(false);
   const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null);
   const [stampRetry, setStampRetry] = useState<StampRetryState | null>(null);
   const [salesDate, setSalesDate] = useState(todayLocal());
@@ -132,6 +136,10 @@ export function PosScreen({ session, onLogout }: PosScreenProps) {
   const { data: activeSession } = usePosActiveSession(branchId);
   const { data: incomingTransfers = [] } = useIncomingTransfers(branchId);
   const incomingCount = incomingTransfers.length;
+
+  // Kits de inscripcion del catalogo (para "Registrar distribuidor" + cobrar kit).
+  const { data: catalogProducts = [] } = usePosCatalog(branchId);
+  const enrollmentKits = catalogProducts.filter((p) => p.isEnrollmentKit);
 
   // Re-cotiza los items del carrito cuando cambia el tipo de precio (asignar o
   // quitar distribuidor). Lee el estado fresco del store para no depender de
@@ -291,6 +299,30 @@ export function PosScreen({ session, onLogout }: PosScreenProps) {
     setPendingKit(null);
   }
 
+  function handleDistributorRegistered(
+    result: KitEnrollmentResponse,
+    kit: QuickProduct | null,
+  ) {
+    if (kit) {
+      // Alta + cobro de kit: pasar al nuevo distribuidor como cliente y
+      // agregar el kit al carrito para cobrarlo.
+      setCustomer(
+        result.customerId,
+        result.fullName,
+        undefined,
+        cart.priceTypeId,
+        result.customerNumber,
+      );
+      addItem(kit, 1);
+      toast.success(`Kit ${kit.sku} agregado para ${result.fullName}`);
+    } else {
+      toast.success(
+        `Distribuidor ${result.customerNumber} registrado (pendiente de kit)`,
+      );
+    }
+    setRegisterOpen(false);
+  }
+
   return (
     <div className="h-full w-full flex flex-col bg-muted/30">
       {/* Barra superior */}
@@ -325,6 +357,16 @@ export function PosScreen({ session, onLogout }: PosScreenProps) {
           <div className="font-mono">{session.license.licenseKey}</div>
           {session.license.label && <div>{session.license.label}</div>}
         </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setRegisterOpen(true)}
+          className="text-white/80 hover:text-white hover:bg-white/10"
+          title="Registrar distribuidor"
+        >
+          <UserPlus />
+          Registrar distribuidor
+        </Button>
         <Button
           variant="ghost"
           size="icon"
@@ -489,6 +531,15 @@ export function PosScreen({ session, onLogout }: PosScreenProps) {
         kit={pendingKit}
         branchId={branchId}
         onEnrolled={handleKitEnrolled}
+      />
+
+      {/* Modal de alta de distribuidor (patrocinador por numero, kit opcional) */}
+      <RegisterDistributorModal
+        isOpen={registerOpen}
+        onClose={() => setRegisterOpen(false)}
+        branchId={branchId}
+        enrollmentKits={enrollmentKits}
+        onRegistered={handleDistributorRegistered}
       />
 
       {/* Modal de detalle / cancelacion de venta */}

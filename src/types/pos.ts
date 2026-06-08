@@ -451,6 +451,32 @@ export interface KitEnrollmentResponse {
   } | null;
 }
 
+/** Alta de distribuidor desde POS con patrocinador por NUMERO de cliente. */
+export interface PosRegisterDistributorRequest {
+  sponsorCustomerNumber: string;
+  firstName: string;
+  lastName: string;
+  mothersLastName?: string;
+  email: string;
+  phone: string;
+  rfc?: string;
+  branchId?: string;
+  /** Si se incluye, se cobra el kit en el momento; si no, queda pendiente. */
+  kitProductId?: string;
+  sendCredentialsByEmail?: boolean;
+}
+
+/** Resultado de validar un patrocinador por numero de cliente. */
+export interface SponsorLookup {
+  id: string;
+  customerNumber: string;
+  name: string;
+  customerType: string;
+  status: string;
+  /** true solo si es distribuidor activo (apto para patrocinar). */
+  isValid: boolean;
+}
+
 // ============================================================================
 // CFDI / DATOS FISCALES
 // ============================================================================

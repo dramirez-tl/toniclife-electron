@@ -8,6 +8,7 @@ import type {
   ProcessPaymentInput,
   CreateCashMovementInput,
   KitEnrollmentRequest,
+  PosRegisterDistributorRequest,
 } from '@/types/pos';
 
 export const posKeys = {
@@ -157,6 +158,13 @@ export const useCreateMovement = () => {
 export const useEnrollKit = () =>
   useMutation({
     mutationFn: (input: KitEnrollmentRequest) => posApi.enrollKit(input),
+  });
+
+/** Alta de distribuidor desde POS (patrocinador por numero, kit opcional). */
+export const useRegisterDistributor = () =>
+  useMutation({
+    mutationFn: (input: PosRegisterDistributorRequest) =>
+      posApi.registerDistributor(input),
   });
 
 // ----------------------------------------------------------------------------

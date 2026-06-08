@@ -22,6 +22,8 @@ import type {
   CashBalance,
   KitEnrollmentRequest,
   KitEnrollmentResponse,
+  PosRegisterDistributorRequest,
+  SponsorLookup,
   SatCatalogItem,
   FiscalData,
   CreateFiscalDataInput,
@@ -305,6 +307,22 @@ class PosApi {
     input: KitEnrollmentRequest,
   ): Promise<KitEnrollmentResponse> {
     const { data } = await api.post('/customers/kit-enrollment', input);
+    return data;
+  }
+
+  /** Valida un patrocinador por numero de cliente (para mostrar su nombre). */
+  async lookupSponsor(customerNumber: string): Promise<SponsorLookup> {
+    const { data } = await api.get(
+      `/customers/pos-sponsor/${encodeURIComponent(customerNumber.trim())}`,
+    );
+    return data;
+  }
+
+  /** Alta de distribuidor desde POS (patrocinador por numero, kit opcional). */
+  async registerDistributor(
+    input: PosRegisterDistributorRequest,
+  ): Promise<KitEnrollmentResponse> {
+    const { data } = await api.post('/customers/pos-register-distributor', input);
     return data;
   }
 
