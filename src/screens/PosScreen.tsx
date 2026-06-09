@@ -316,9 +316,7 @@ export function PosScreen({ session, onLogout }: PosScreenProps) {
       addItem(kit, 1);
       toast.success(`Kit ${kit.sku} agregado para ${result.fullName}`);
     } else {
-      toast.success(
-        `Distribuidor ${result.customerNumber} registrado (pendiente de kit)`,
-      );
+      toast.success(`Registro completo: ${result.customerNumber}`);
     }
     setRegisterOpen(false);
   }
@@ -362,10 +360,10 @@ export function PosScreen({ session, onLogout }: PosScreenProps) {
           size="sm"
           onClick={() => setRegisterOpen(true)}
           className="text-white/80 hover:text-white hover:bg-white/10"
-          title="Registrar distribuidor"
+          title="Registrar distribuidor o cliente preferente"
         >
           <UserPlus />
-          Registrar distribuidor
+          Registrar
         </Button>
         <Button
           variant="ghost"

@@ -27,7 +27,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { useRegisterDistributor } from '@/hooks/usePos';
+import { useRegisterDistributor, useRegisterPreferred } from '@/hooks/usePos';
 import { posApi } from '@/lib/posApi';
 import type {
   QuickProduct,
@@ -66,16 +66,21 @@ export function RegisterDistributorModal({
   const [sponsorError, setSponsorError] = useState<string | null>(null);
   const [lookingUp, setLookingUp] = useState(false);
 
+  const [tipo, setTipo] = useState<'distribuidor' | 'preferente'>('distribuidor');
   const [form, setForm] = useState(EMPTY_FORM);
   const [sendEmail, setSendEmail] = useState(true);
   const [chargeKit, setChargeKit] = useState(false);
   const [kitId, setKitId] = useState<string>('');
   const [result, setResult] = useState<KitEnrollmentResponse | null>(null);
 
-  const register = useRegisterDistributor();
+  const registerDistributor = useRegisterDistributor();
+  const registerPreferred = useRegisterPreferred();
+  const isPending = registerDistributor.isPending || registerPreferred.isPending;
+  const tipoLabel = tipo === 'distribuidor' ? 'Distribuidor' : 'Cliente preferente';
 
   useEffect(() => {
     if (isOpen) {
+      setTipo('distribuidor');
       setSponsorNumber('');
       setSponsor(null);
       setSponsorError(null);
@@ -118,41 +123,50 @@ export function RegisterDistributorModal({
 
   const selectedKit = enrollmentKits.find((k) => k.id === kitId) ?? null;
 
+  const isDistribuidor = tipo === 'distribuidor';
   const canSubmit =
     !!sponsor?.isValid &&
     form.firstName.trim().length > 0 &&
     form.lastName.trim().length > 0 &&
     form.email.trim().length > 0 &&
     form.phone.trim().length > 0 &&
-    (!chargeKit || !!kitId) &&
-    !register.isPending;
+    (!isDistribuidor || !chargeKit || !!kitId) &&
+    !isPending;
 
   async function handleSubmit() {
     if (!canSubmit || !sponsor) return;
+    const base = {
+      sponsorCustomerNumber: sponsor.customerNumber,
+      firstName: form.firstName.trim(),
+      lastName: form.lastName.trim(),
+      mothersLastName: form.mothersLastName.trim() || undefined,
+      email: form.email.trim(),
+      phone: form.phone.trim(),
+      rfc: form.rfc.trim() || undefined,
+      branchId,
+      sendCredentialsByEmail: sendEmail,
+    };
     try {
-      const resp = await register.mutateAsync({
-        sponsorCustomerNumber: sponsor.customerNumber,
-        firstName: form.firstName.trim(),
-        lastName: form.lastName.trim(),
-        mothersLastName: form.mothersLastName.trim() || undefined,
-        email: form.email.trim(),
-        phone: form.phone.trim(),
-        rfc: form.rfc.trim() || undefined,
-        branchId,
-        kitProductId: chargeKit && kitId ? kitId : undefined,
-        sendCredentialsByEmail: sendEmail,
-      });
+      const resp = isDistribuidor
+        ? await registerDistributor.mutateAsync({
+            ...base,
+            kitProductId: chargeKit && kitId ? kitId : undefined,
+          })
+        : await registerPreferred.mutateAsync(base);
       setResult(resp);
-      toast.success(`Distribuidor registrado: ${resp.customerNumber}`);
+      toast.success(`${tipoLabel} registrado: ${resp.customerNumber}`);
     } catch (err) {
       const e = err as { response?: { data?: { message?: string } } };
-      toast.error(e.response?.data?.message || 'Error al registrar al distribuidor');
+      toast.error(
+        e.response?.data?.message ||
+          `Error al registrar ${isDistribuidor ? 'al distribuidor' : 'al cliente preferente'}`,
+      );
     }
   }
 
   function handleContinue() {
     if (result) {
-      onRegistered(result, chargeKit ? selectedKit : null);
+      onRegistered(result, isDistribuidor && chargeKit ? selectedKit : null);
     }
     onClose();
   }
@@ -161,17 +175,17 @@ export function RegisterDistributorModal({
     <Dialog
       open={isOpen}
       onOpenChange={(open) => {
-        if (!open && !register.isPending) onClose();
+        if (!open && !isPending) onClose();
       }}
     >
       <DialogContent
         className="max-w-lg max-h-[92vh] overflow-y-auto gap-0 p-0 rounded-2xl"
         showCloseButton={false}
         onInteractOutside={(e) => {
-          if (register.isPending) e.preventDefault();
+          if (isPending) e.preventDefault();
         }}
         onEscapeKeyDown={(e) => {
-          if (register.isPending) e.preventDefault();
+          if (isPending) e.preventDefault();
         }}
       >
         {/* Header */}
@@ -180,11 +194,10 @@ export function RegisterDistributorModal({
             <UserPlus className="size-5 text-primary" />
             <div>
               <DialogTitle className="text-lg font-bold text-foreground">
-                Registrar distribuidor
+                Registrar {isDistribuidor ? 'distribuidor' : 'cliente preferente'}
               </DialogTitle>
               <DialogDescription className="text-xs">
-                Alta vinculada a un patrocinador. El kit se puede cobrar ahora o
-                después.
+                Alta vinculada a un distribuidor patrocinador por su número.
               </DialogDescription>
             </div>
           </div>
@@ -192,8 +205,8 @@ export function RegisterDistributorModal({
             variant="ghost"
             size="icon"
             className="size-8"
-            onClick={() => !register.isPending && onClose()}
-            disabled={register.isPending}
+            onClick={() => !isPending && onClose()}
+            disabled={isPending}
             aria-label="Cerrar"
           >
             <X className="size-4 text-muted-foreground" />
@@ -261,18 +274,52 @@ export function RegisterDistributorModal({
             )}
 
             <p className="text-xs text-muted-foreground text-center">
-              {chargeKit && selectedKit
-                ? 'El kit se agregará al carrito y el cliente cambiará al nuevo distribuidor para cobrar la inscripción.'
-                : 'El distribuidor quedó pendiente. Podrá comprar su kit después para activarse.'}
+              {!isDistribuidor
+                ? 'Cliente preferente activo. Ya puede comprar con precio preferente.'
+                : chargeKit && selectedKit
+                  ? 'El kit se agregará al carrito y el cliente cambiará al nuevo distribuidor para cobrar la inscripción.'
+                  : 'El distribuidor quedó pendiente. Podrá comprar su kit después para activarse.'}
             </p>
 
             <Button className="w-full" onClick={handleContinue}>
-              {chargeKit && selectedKit ? 'Continuar al cobro del kit' : 'Listo'}
+              {isDistribuidor && chargeKit && selectedKit
+                ? 'Continuar al cobro del kit'
+                : 'Listo'}
             </Button>
           </div>
         ) : (
           /* FORM VIEW */
           <div className="px-6 py-5 space-y-4">
+            {/* Tipo de alta */}
+            <div className="flex rounded-lg bg-muted p-1">
+              <button
+                type="button"
+                onClick={() => setTipo('distribuidor')}
+                className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                  isDistribuidor
+                    ? 'bg-background text-foreground shadow'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Distribuidor
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setTipo('preferente');
+                  setChargeKit(false);
+                  setKitId('');
+                }}
+                className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                  !isDistribuidor
+                    ? 'bg-background text-foreground shadow'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Cliente preferente
+              </button>
+            </div>
+
             {/* Patrocinador por numero */}
             <div>
               <Label className="block text-xs font-medium text-muted-foreground mb-1">
@@ -345,7 +392,8 @@ export function RegisterDistributorModal({
               </Field>
             </div>
 
-            {/* Kit opcional */}
+            {/* Kit opcional (solo distribuidor) */}
+            {isDistribuidor && (
             <Card className="gap-3 rounded-lg bg-muted/30 p-4 shadow-none">
               <Label className="flex items-center gap-2 text-sm text-foreground">
                 <Checkbox
@@ -384,6 +432,7 @@ export function RegisterDistributorModal({
                 </p>
               )}
             </Card>
+            )}
 
             <Label className="flex items-center gap-2 text-sm text-foreground">
               <Checkbox
@@ -394,13 +443,13 @@ export function RegisterDistributorModal({
             </Label>
 
             <div className="flex items-center justify-end gap-2 pt-2">
-              <Button variant="outline" onClick={onClose} disabled={register.isPending}>
+              <Button variant="outline" onClick={onClose} disabled={isPending}>
                 Cancelar
               </Button>
               <Button onClick={handleSubmit} disabled={!canSubmit}>
-                {register.isPending
+                {isPending
                   ? 'Registrando...'
-                  : chargeKit
+                  : isDistribuidor && chargeKit
                     ? 'Registrar y cobrar kit'
                     : 'Registrar'}
               </Button>

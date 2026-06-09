@@ -23,6 +23,7 @@ import type {
   KitEnrollmentRequest,
   KitEnrollmentResponse,
   PosRegisterDistributorRequest,
+  PosRegisterPreferredRequest,
   SponsorLookup,
   SatCatalogItem,
   FiscalData,
@@ -323,6 +324,14 @@ class PosApi {
     input: PosRegisterDistributorRequest,
   ): Promise<KitEnrollmentResponse> {
     const { data } = await api.post('/customers/pos-register-distributor', input);
+    return data;
+  }
+
+  /** Alta de cliente preferente desde POS (patrocinador por numero, sin kit). */
+  async registerPreferred(
+    input: PosRegisterPreferredRequest,
+  ): Promise<KitEnrollmentResponse> {
+    const { data } = await api.post('/customers/pos-register-preferred', input);
     return data;
   }
 

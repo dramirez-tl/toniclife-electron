@@ -466,6 +466,19 @@ export interface PosRegisterDistributorRequest {
   sendCredentialsByEmail?: boolean;
 }
 
+/** Alta de cliente preferente desde POS con patrocinador por NUMERO. */
+export interface PosRegisterPreferredRequest {
+  sponsorCustomerNumber: string;
+  firstName: string;
+  lastName: string;
+  mothersLastName?: string;
+  email: string;
+  phone: string;
+  rfc?: string;
+  branchId?: string;
+  sendCredentialsByEmail?: boolean;
+}
+
 /** Resultado de validar un patrocinador por numero de cliente. */
 export interface SponsorLookup {
   id: string;
