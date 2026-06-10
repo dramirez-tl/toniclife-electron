@@ -8,7 +8,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { HardwareFingerprint } from './hardware';
 import type { StoredSession } from './storage';
 import type { PrinterConfig, OsPrinterInfo } from './printer';
-import type { CorteReceiptInput } from './receipts';
+import type { CorteReceiptInput, SaleReceiptInput } from './receipts';
 
 type PrinterOpResult = { ok: true } | { ok: false; error: string };
 
@@ -46,6 +46,11 @@ const api = {
       corte: Omit<CorteReceiptInput, 'paperWidth'>,
     ): Promise<PrinterOpResult> =>
       ipcRenderer.invoke('printer:printCorte', corte),
+    printSale: (
+      sale: Omit<SaleReceiptInput, 'paperWidth'>,
+      openDrawer: boolean,
+    ): Promise<PrinterOpResult> =>
+      ipcRenderer.invoke('printer:printSale', sale, openDrawer),
   },
 };
 

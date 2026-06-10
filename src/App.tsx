@@ -203,6 +203,9 @@ export function App() {
       setLock({ locked: false, message: null });
       return;
     }
+    // Avisar al cajero solo en TRANSICIONES (caída sostenida / recuperación),
+    // no en cada reintento de socket.io.
+    let socketDown = false;
     connectPosSocket(
       sessionToken,
       (s) => setLock(s),
@@ -216,6 +219,26 @@ export function App() {
           `Traspaso entrante ${event.movementNumber} de ${event.originBranchName}`,
           { description: `${event.totalItems} producto(s) por recibir` },
         );
+      },
+      (status, detail) => {
+        if (status === 'connected') {
+          if (socketDown) {
+            socketDown = false;
+            toast.success('Conexión en tiempo real restablecida');
+          }
+          return;
+        }
+        if (!socketDown) {
+          socketDown = true;
+          toast.warning(
+            'Sin conexión en tiempo real con el servidor',
+            {
+              description:
+                'Bloqueos de inventario y traspasos pueden llegar con retraso. ' +
+                (detail ? `Detalle: ${detail}` : 'Reintentando…'),
+            },
+          );
+        }
       },
     );
     return () => disconnectPosSocket();

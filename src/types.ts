@@ -153,6 +153,32 @@ export interface CorteReceiptPayload {
   }>;
 }
 
+/** Payload del ticket de venta (espejo de electron/receipts.ts
+ *  SaleReceiptInput sin paperWidth — la elige el main desde la config). */
+export interface SaleReceiptPayload {
+  branchName: string;
+  ticketName?: string;
+  saleNumber: string;
+  createdAt: string;
+  cashier?: string;
+  customerName?: string;
+  currencySymbol: string;
+  items: Array<{
+    name: string;
+    quantity: number;
+    unitPrice: number;
+    total: number;
+  }>;
+  subtotal: number;
+  discountAmount: number;
+  taxAmount: number;
+  total: number;
+  payments: Array<{ label: string; amount: number }>;
+  amountReceived?: number;
+  changeGiven: number;
+  accumulatedPoints?: number;
+}
+
 declare global {
   interface Window {
     toniclife: {
@@ -182,6 +208,10 @@ declare global {
         openCashDrawer: (config: PrinterConfig) => Promise<PrinterOpResult>;
         printCorte: (
           corte: CorteReceiptPayload,
+        ) => Promise<PrinterOpResult>;
+        printSale: (
+          sale: SaleReceiptPayload,
+          openDrawer: boolean,
         ) => Promise<PrinterOpResult>;
       };
     };

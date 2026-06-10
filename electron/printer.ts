@@ -22,7 +22,9 @@ import {
   buildTestReceiptBytes,
   buildTestReceiptHtml,
   buildCorteReceiptBytes,
+  buildSaleReceiptBytes,
   type CorteReceiptInput,
+  type SaleReceiptInput,
 } from './receipts';
 import { sendRawToWindowsPrinter } from './printraw';
 
@@ -347,6 +349,52 @@ export async function printCorte(
       );
       throw err;
     }
+  }
+  throw new Error(
+    'Impresion sistema solo soportada en Windows. Configura impresora de red.',
+  );
+}
+
+/**
+ * Imprime el ticket de una venta cobrada. Mismo pipeline que printCorte
+ * (network ESC/POS; en Windows RAW al spooler). Si `openDrawer` es true y la
+ * impresora es de red con cajon configurado, el kick va APPENDED a los bytes
+ * del ticket (un solo viaje TCP, el cajon abre junto con la impresion).
+ */
+export async function printSale(
+  sale: Omit<SaleReceiptInput, 'paperWidth'>,
+  openDrawer: boolean,
+): Promise<void> {
+  const config = loadPrinterConfig();
+  if (!config) {
+    throw new Error(
+      'No hay impresora configurada. Abre Configuracion de impresora primero.',
+    );
+  }
+
+  let bytes = buildSaleReceiptBytes({
+    ...sale,
+    paperWidth: config.paperWidth,
+  });
+
+  if (config.connection === 'network') {
+    if (!config.host || !config.port) {
+      throw new Error('Faltan host y puerto de la impresora de red.');
+    }
+    if (openDrawer && config.hasCashDrawer) {
+      bytes = Buffer.concat([bytes, buildKickDrawer()]);
+    }
+    await sendNetwork(config.host, config.port, bytes);
+    return;
+  }
+
+  // system (el cajon no es posible: los drivers no propagan el kick raw)
+  if (!config.deviceName) {
+    throw new Error('Selecciona una impresora del sistema.');
+  }
+  if (process.platform === 'win32') {
+    await sendRawToWindowsPrinter(config.deviceName, bytes);
+    return;
   }
   throw new Error(
     'Impresion sistema solo soportada en Windows. Configura impresora de red.',

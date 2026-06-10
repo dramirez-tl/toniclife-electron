@@ -280,6 +280,61 @@ export function PosScreen({ session, onLogout }: PosScreenProps) {
           : '';
       toast.success(`Venta ${result.saleNumber} cobrada${changeMsg}`);
 
+      // Ticket de venta + cajón (fire-and-forget: si la impresora falla, la
+      // venta YA quedó cobrada; solo se avisa). Snapshot del carrito ANTES de
+      // limpiarlo. El cajón solo abre si hubo efectivo.
+      const PAYMENT_LABELS: Record<string, string> = {
+        cash: 'Efectivo',
+        card: 'Tarjeta',
+        transfer: 'Transferencia',
+        credit: 'Crédito',
+        mercado_pago: 'Mercado Pago',
+        usd_cash: 'Efectivo USD',
+        cashback: 'Monedero',
+        promotion: 'Promoción',
+      };
+      const hadCash = payments.some((p) => p.paymentMethod === 'cash');
+      const cashReceived = payments.reduce(
+        (s, p) => s + (p.amountReceived ?? 0),
+        0,
+      );
+      void window.toniclife.printer
+        .printSale(
+          {
+            branchName: session.branch.name,
+            ticketName: session.branch.ticketName,
+            saleNumber: result.saleNumber,
+            createdAt: new Date().toISOString(),
+            customerName: cart.customerName,
+            currencySymbol,
+            items: cart.items.map((it) => ({
+              name: it.productName,
+              quantity: it.quantity,
+              unitPrice: it.unitPrice,
+              total: it.total,
+            })),
+            subtotal: cart.subtotal,
+            discountAmount: cart.discountAmount ?? 0,
+            taxAmount: cart.taxAmount,
+            total: cart.total,
+            payments: payments.map((p) => ({
+              label: PAYMENT_LABELS[p.paymentMethod] ?? p.paymentMethod,
+              amount: p.amount,
+            })),
+            amountReceived: cashReceived > 0 ? cashReceived : undefined,
+            changeGiven: result.changeGiven,
+            accumulatedPoints: result.accumulatedPoints,
+          },
+          hadCash,
+        )
+        .then((r) => {
+          if (!r.ok) {
+            toast.warning('La venta se cobró pero el ticket no se imprimió', {
+              description: r.error,
+            });
+          }
+        });
+
       clearCart();
       setPaymentOpen(false);
 

@@ -8,6 +8,7 @@
 
 import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'node:path';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { computeHardwareFingerprint } from './hardware';
 import { loadSession, saveSession, clearSession, type StoredSession } from './storage';
@@ -16,11 +17,12 @@ import {
   savePrinterConfig,
   testPrint,
   printCorte,
+  printSale,
   openCashDrawer,
   listOsPrinters,
   type PrinterConfig,
 } from './printer';
-import type { CorteReceiptInput } from './receipts';
+import type { CorteReceiptInput, SaleReceiptInput } from './receipts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -29,6 +31,48 @@ const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL;
 const RENDERER_DIST = path.join(__dirname, '..', 'dist');
 
 let mainWindow: BrowserWindow | null = null;
+
+// ============================================================================
+// SINGLE INSTANCE + LOG DE ERRORES
+// ============================================================================
+
+// Dos instancias del POS = dos sesiones de caja/heartbeats compitiendo. La
+// segunda instancia sale de inmediato y la primera recupera el foco.
+const gotInstanceLock = app.requestSingleInstanceLock();
+if (!gotInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+}
+
+// Errores no capturados del proceso main: log a archivo (userData/logs) para
+// poder diagnosticar caídas en sucursal sin DevTools. No se relanza la app.
+function logFatal(kind: string, err: unknown): void {
+  try {
+    const logsDir = path.join(app.getPath('userData'), 'logs');
+    fs.mkdirSync(logsDir, { recursive: true });
+    const msg =
+      err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err);
+    fs.appendFileSync(
+      path.join(logsDir, 'main.log'),
+      `[${new Date().toISOString()}] ${kind}: ${msg}\n`,
+      'utf-8',
+    );
+  } catch {
+    // sin permisos de escritura: no hay nada más que hacer
+  }
+  console.error(`[main] ${kind}:`, err);
+}
+
+process.on('uncaughtException', (err) => logFatal('uncaughtException', err));
+process.on('unhandledRejection', (reason) =>
+  logFatal('unhandledRejection', reason),
+);
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -124,6 +168,21 @@ ipcMain.handle(
   async (_evt, corte: Omit<CorteReceiptInput, 'paperWidth'>) => {
     try {
       await printCorte(corte);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+);
+ipcMain.handle(
+  'printer:printSale',
+  async (
+    _evt,
+    sale: Omit<SaleReceiptInput, 'paperWidth'>,
+    openDrawer: boolean,
+  ) => {
+    try {
+      await printSale(sale, !!openDrawer);
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };

@@ -352,6 +352,137 @@ export function buildCorteReceiptBytes(input: CorteReceiptInput): Buffer {
   return p.bytes();
 }
 
+// ============================================================================
+// TICKET DE VENTA (ESC/POS)
+// ============================================================================
+
+export interface SaleReceiptItemRow {
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+}
+
+export interface SaleReceiptPaymentRow {
+  label: string;
+  amount: number;
+}
+
+export interface SaleReceiptInput {
+  branchName: string;
+  /** Nombre comercial para el encabezado del ticket (branch.ticketName). */
+  ticketName?: string;
+  saleNumber: string;
+  /** ISO string de la venta. */
+  createdAt: string;
+  cashier?: string;
+  customerName?: string;
+  paperWidth: 58 | 80;
+  currencySymbol: string;
+
+  items: SaleReceiptItemRow[];
+  subtotal: number;
+  discountAmount: number;
+  taxAmount: number;
+  total: number;
+
+  payments: SaleReceiptPaymentRow[];
+  amountReceived?: number;
+  changeGiven: number;
+  /** Puntos acumulados por la venta (si aplica, distribuidores). */
+  accumulatedPoints?: number;
+}
+
+export function buildSaleReceiptBytes(input: SaleReceiptInput): Buffer {
+  const cols = colsFor(input.paperWidth);
+  const sep = '-'.repeat(cols);
+  const p = new Escpos().init();
+  const fmt = (n: number) => formatMoney(n, input.currencySymbol);
+  const fecha = new Date(input.createdAt).toLocaleString('es-MX', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  // Logo encabezado (mismo asset que test/corte).
+  const logoWidth = input.paperWidth === 80 ? 400 : 300;
+  const logoBytes = buildLogoBitmapBytes(logoWidth, 'logo-text-light-r.png');
+  if (logoBytes) {
+    p.align('center');
+    p.rawBuffer(logoBytes);
+    p.line('');
+  }
+
+  p.align('center');
+  if (input.ticketName) p.bold(true).line(input.ticketName).bold(false);
+  p.line(input.branchName);
+  p.line(sep);
+  p.size(2, 2).line(input.saleNumber).size(1, 1);
+  p.line(fecha);
+  p.line(sep);
+
+  p.align('left');
+  if (input.customerName) p.line(`Cliente: ${input.customerName}`.slice(0, cols));
+  if (input.cashier) p.line(`Cajero:  ${input.cashier}`.slice(0, cols));
+  if (input.customerName || input.cashier) p.line(sep);
+
+  // --- ITEMS ---
+  for (const it of input.items) {
+    p.line(
+      itemLine(
+        it.name,
+        String(it.quantity),
+        fmt(it.unitPrice),
+        fmt(it.total),
+        cols,
+      ),
+    );
+  }
+  p.line(sep);
+
+  // --- TOTALES ---
+  p.line(labelValue('Subtotal', fmt(input.subtotal), cols));
+  if (input.discountAmount > 0) {
+    p.line(labelValue('Descuento', fmt(-input.discountAmount), cols));
+  }
+  if (input.taxAmount > 0) {
+    p.line(labelValue('IVA', fmt(input.taxAmount), cols));
+  }
+  p.bold(true).line(labelValue('TOTAL', fmt(input.total), cols)).bold(false);
+  p.line(sep);
+
+  // --- PAGOS ---
+  for (const pay of input.payments) {
+    p.line(labelValue(pay.label, fmt(pay.amount), cols));
+  }
+  if (input.amountReceived !== undefined && input.amountReceived > 0) {
+    p.line(labelValue('Recibido', fmt(input.amountReceived), cols));
+  }
+  if (input.changeGiven > 0) {
+    p.bold(true)
+      .line(labelValue('CAMBIO', fmt(input.changeGiven), cols))
+      .bold(false);
+  }
+
+  if (input.accumulatedPoints && input.accumulatedPoints > 0) {
+    p.line(sep);
+    p.line(
+      labelValue('Puntos de la compra', input.accumulatedPoints.toFixed(2), cols),
+    );
+  }
+
+  p.line(sep);
+  p.align('center');
+  p.line('¡Gracias por su compra!');
+  p.line('toniclife.com');
+
+  p.feed(6);
+  p.cut(true);
+  return p.bytes();
+}
+
 /** 3-col row con anchos fijos: folio / hora / total (total right-aligned). */
 function itemLineFixed(
   folio: string,

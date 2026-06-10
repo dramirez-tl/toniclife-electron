@@ -17,12 +17,15 @@ export interface PosLockState {
   message: string | null;
 }
 
+export type PosSocketStatus = 'connected' | 'disconnected' | 'error';
+
 let socket: Socket | null = null;
 
 export function connectPosSocket(
   deviceToken: string,
   onLock: (state: PosLockState) => void,
   onTransferIncoming?: (event: TransferIncomingEvent) => void,
+  onStatus?: (status: PosSocketStatus, detail?: string) => void,
 ): void {
   disconnectPosSocket();
   socket = io(`${API_ORIGIN}/pos`, {
@@ -38,6 +41,18 @@ export function connectPosSocket(
       onTransferIncoming(event);
     });
   }
+  // Antes el POS callaba ante fallos del socket: si el token era rechazado en
+  // el handshake, operaba para siempre sin lock ni traspasos en tiempo real.
+  // Ahora se notifica al caller para avisar al cajero y dejar rastro.
+  socket.on('connect', () => onStatus?.('connected'));
+  socket.on('disconnect', (reason) => {
+    console.warn(`[posSocket] desconectado: ${reason}`);
+    onStatus?.('disconnected', reason);
+  });
+  socket.on('connect_error', (err) => {
+    console.warn(`[posSocket] error de conexión: ${err.message}`);
+    onStatus?.('error', err.message);
+  });
 }
 
 export function disconnectPosSocket(): void {
