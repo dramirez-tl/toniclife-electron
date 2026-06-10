@@ -13,6 +13,7 @@ import {
   Printer,
   Wifi,
   Monitor,
+  Ban,
   Printer as PrinterIcon,
   Banknote,
   CheckCircle2,
@@ -94,7 +95,13 @@ export function PrinterSettingsModal({
     !!config.host && !!config.port && config.port > 0 && config.port < 65536;
   const systemConfigured = !!config.deviceName;
   const canTest =
-    config.connection === 'network' ? networkConfigured : systemConfigured;
+    config.connection === 'network'
+      ? networkConfigured
+      : config.connection === 'system'
+        ? systemConfigured
+        : false;
+  // "Sin impresora" no requiere configuracion: se puede guardar directo.
+  const canSave = config.connection === 'none' || canTest;
 
   async function handleTestPrint() {
     if (!canTest) {
@@ -134,7 +141,7 @@ export function PrinterSettingsModal({
   }
 
   async function handleSave() {
-    if (!canTest) {
+    if (!canSave) {
       toast.error('Completa la configuracion antes de guardar.');
       return;
     }
@@ -194,7 +201,7 @@ export function PrinterSettingsModal({
           {/* Tipo de conexion */}
           <div>
             <Label className="block mb-2">Tipo de conexion</Label>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <Button
                 type="button"
                 variant="outline"
@@ -223,14 +230,35 @@ export function PrinterSettingsModal({
                 <Monitor className="size-4" />
                 Impresora del sistema
               </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  set('connection', 'none');
+                  set('hasCashDrawer', false);
+                }}
+                disabled={busy}
+                className={cn(
+                  'h-auto flex-col items-center gap-1 rounded-lg px-3 py-3 text-sm font-medium',
+                  config.connection === 'none' &&
+                    'border-primary bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary',
+                )}
+              >
+                <Ban className="size-4" />
+                Sin impresora
+              </Button>
             </div>
             <p className="text-[11px] text-muted-foreground mt-1.5">
               {config.connection === 'network'
                 ? 'ESC/POS directo via TCP. Soporta cajon de dinero.'
-                : 'Usa el driver instalado en el sistema. No soporta cajon de dinero.'}
+                : config.connection === 'system'
+                  ? 'Usa el driver instalado en el sistema. No soporta cajon de dinero.'
+                  : 'Esta terminal no imprimira tickets ni abrira cajon de dinero.'}
             </p>
           </div>
 
+          {config.connection !== 'none' && (
+          <>
           {/* Config segun tipo */}
           {config.connection === 'network' ? (
             <div className="grid grid-cols-3 gap-3">
@@ -400,6 +428,19 @@ export function PrinterSettingsModal({
               )}
             </div>
           </div>
+          </>
+          )}
+
+          {config.connection === 'none' && (
+            <div className="rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground flex items-start gap-2">
+              <Ban className="size-4 shrink-0 mt-0.5" />
+              <span>
+                Esta terminal quedara <strong>sin impresora</strong>: las ventas
+                se cobran normal pero no se imprime ticket ni se abre cajon. Lo
+                puedes cambiar despues cuando conectes una impresora.
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -407,7 +448,7 @@ export function PrinterSettingsModal({
           <Button variant="outline" onClick={onClose} disabled={busy}>
             Cancelar
           </Button>
-          <Button onClick={handleSave} disabled={!canTest || busy}>
+          <Button onClick={handleSave} disabled={!canSave || busy}>
             {saving ? 'Guardando...' : 'Guardar configuracion'}
           </Button>
         </DialogFooter>

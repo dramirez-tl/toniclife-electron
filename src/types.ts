@@ -112,7 +112,7 @@ export interface HeartbeatResponse {
 // ============================================================================
 
 export interface PrinterConfig {
-  connection: 'network' | 'system';
+  connection: 'network' | 'system' | 'none';
   host?: string;
   port?: number;
   deviceName?: string;

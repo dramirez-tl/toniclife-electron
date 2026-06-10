@@ -31,7 +31,7 @@ import { sendRawToWindowsPrinter } from './printraw';
 // ============================================================================
 
 export interface PrinterConfig {
-  connection: 'network' | 'system';
+  connection: 'network' | 'system' | 'none';
   /** Solo para 'network'. */
   host?: string;
   port?: number;
@@ -60,7 +60,11 @@ export function loadPrinterConfig(): PrinterConfig | null {
     if (!fs.existsSync(p)) return null;
     const raw = fs.readFileSync(p, 'utf-8');
     const parsed = JSON.parse(raw) as PrinterConfig;
-    if (parsed.connection !== 'network' && parsed.connection !== 'system') {
+    if (
+      parsed.connection !== 'network' &&
+      parsed.connection !== 'system' &&
+      parsed.connection !== 'none'
+    ) {
       return null;
     }
     return parsed;
