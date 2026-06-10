@@ -3,7 +3,7 @@
 // Phase 4 completa: catalogo + carrito + cliente + cobro + sesiones + corte
 // + ventas recientes + movimientos de caja + kits de inscripcion + CFDI.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   LogOut,
   Clock,
@@ -129,6 +129,17 @@ export function PosScreen({ session, onLogout }: PosScreenProps) {
   const createSale = useCreateSale();
   const processPayment = useProcessPayment();
 
+  // Intento de cobro en curso. Conserva la venta creada y su clave de
+  // idempotencia entre reintentos: si processPayment falla por timeout/red,
+  // el reintento reutiliza la MISMA venta en vez de crear una segunda (y el
+  // API ignora cobros duplicados). El fingerprint invalida el intento si el
+  // cajero modifica el carrito antes de reintentar.
+  const saleAttemptRef = useRef<{
+    clientRequestId: string;
+    saleId?: string;
+    fingerprint: string;
+  } | null>(null);
+
   const branchId = session.branch.id;
   const currencyCode = session.branch.currencyCode ?? 'MXN';
   const currencySymbol = currencySymbolFor(session.branch.currencyCode);
@@ -201,29 +212,67 @@ export function PosScreen({ session, onLogout }: PosScreenProps) {
     try {
       const sessionId = await ensureSession();
 
-      const sale = await createSale.mutateAsync({
-        sessionId,
+      // Si el carrito cambió desde el último intento fallido, el intento
+      // anterior ya no aplica (la venta pendiente vieja queda para limpieza
+      // del corte); se genera una clave nueva.
+      const fingerprint = JSON.stringify({
         customerId: cart.customerId,
-        customerName: cart.customerName,
-        customerRfc: cart.customerRfc,
-        items: cart.items.map((it) => ({
-          productId: it.productId,
-          quantity: it.quantity,
-          discountPercent: it.discountPercent,
-          discountAmount: it.discountAmount,
-          notes: it.notes,
-        })),
-        discountPercent: cart.discountPercent,
-        discountAmount: cart.discountAmount,
-        discountReason: cart.discountReason,
-        requiresInvoice: !!invoice,
-        notes: cart.notes,
+        items: cart.items.map((it) => [
+          it.productId,
+          it.quantity,
+          it.discountPercent ?? null,
+          it.discountAmount ?? null,
+        ]),
+        discountPercent: cart.discountPercent ?? null,
+        discountAmount: cart.discountAmount ?? null,
       });
+      if (
+        !saleAttemptRef.current ||
+        saleAttemptRef.current.fingerprint !== fingerprint
+      ) {
+        saleAttemptRef.current = {
+          clientRequestId: crypto.randomUUID(),
+          fingerprint,
+        };
+      }
+      const attempt = saleAttemptRef.current;
+
+      // Reutiliza la venta del intento anterior si ya se había creado;
+      // si la respuesta de createSale se perdió, el API la reencuentra por
+      // clientRequestId en vez de duplicarla.
+      let saleId = attempt.saleId;
+      if (!saleId) {
+        const sale = await createSale.mutateAsync({
+          sessionId,
+          customerId: cart.customerId,
+          customerName: cart.customerName,
+          customerRfc: cart.customerRfc,
+          items: cart.items.map((it) => ({
+            productId: it.productId,
+            quantity: it.quantity,
+            discountPercent: it.discountPercent,
+            discountAmount: it.discountAmount,
+            notes: it.notes,
+          })),
+          discountPercent: cart.discountPercent,
+          discountAmount: cart.discountAmount,
+          discountReason: cart.discountReason,
+          requiresInvoice: !!invoice,
+          notes: cart.notes,
+          clientRequestId: attempt.clientRequestId,
+        });
+        attempt.saleId = sale.id;
+        saleId = sale.id;
+      }
 
       const result = await processPayment.mutateAsync({
-        saleId: sale.id,
+        saleId,
         payments,
       });
+
+      // Cobro exitoso: liberar el intento para que la próxima venta genere
+      // su propia clave.
+      saleAttemptRef.current = null;
 
       const changeMsg =
         result.changeGiven > 0
@@ -239,14 +288,14 @@ export function PosScreen({ session, onLogout }: PosScreenProps) {
       if (invoice) {
         try {
           await posApi.saveFiscalData(invoice.fiscalData);
-          await posApi.stampSale(sale.id, invoice.invoicePaymentMethod);
+          await posApi.stampSale(saleId, invoice.invoicePaymentMethod);
           toast.success('Factura timbrada correctamente');
         } catch (stampErr) {
           const se = stampErr as {
             response?: { data?: { message?: string } };
           };
           setStampRetry({
-            saleId: sale.id,
+            saleId,
             saleNumber: result.saleNumber,
             fiscalData: invoice.fiscalData,
             invoicePaymentMethod: invoice.invoicePaymentMethod,

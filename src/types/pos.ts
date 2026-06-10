@@ -216,6 +216,12 @@ export interface CreateSaleInput {
   requiresInvoice?: boolean;
   notes?: string;
   currencyId?: string;
+  /**
+   * Clave de idempotencia (UUID) por intento de cobro: si el cobro falla por
+   * timeout/red y el cajero reintenta, el API devuelve la venta ya creada en
+   * vez de duplicarla.
+   */
+  clientRequestId?: string;
 }
 
 export interface CancelSaleInput {
