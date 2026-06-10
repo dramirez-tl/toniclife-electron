@@ -47,6 +47,9 @@ function createWindow(): void {
     },
   });
 
+  // Abrir maximizada (POS de mostrador). El 1280x800 queda como tamaño al restaurar.
+  mainWindow.maximize();
+
   if (VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(VITE_DEV_SERVER_URL);
     mainWindow.webContents.openDevTools({ mode: 'detach' });
