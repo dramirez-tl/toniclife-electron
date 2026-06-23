@@ -229,31 +229,46 @@ export function RegisterDistributorModal({
               </p>
             </div>
 
-            <Card className="gap-2 rounded-lg bg-muted/40 p-4 text-sm shadow-none">
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Contraseña temporal</span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    navigator.clipboard
-                      .writeText(result.tempPassword)
-                      .then(() => toast.success('Contraseña copiada'))
-                      .catch(() => {});
-                  }}
-                  className="h-auto gap-1 p-0 font-mono font-semibold text-foreground hover:text-primary"
-                >
-                  {result.tempPassword}
-                  <Copy className="size-3.5" />
-                </Button>
-              </div>
-              <p className="text-[11px] text-muted-foreground">
-                {result.emailSent
-                  ? 'Las credenciales se enviaron por correo al distribuidor.'
-                  : 'Anota la contraseña: no se volverá a mostrar.'}
-              </p>
-            </Card>
+            {result.emailSent && (
+              <Card className="gap-0 rounded-lg border-emerald-200 bg-emerald-50 p-3 text-sm shadow-none">
+                <p className="text-emerald-800">
+                  Invitación enviada por correo. El distribuidor definirá su propia
+                  contraseña desde el enlace.
+                </p>
+              </Card>
+            )}
+
+            {result.tempPassword && (
+              <Card className="gap-2 rounded-lg bg-muted/40 p-4 text-sm shadow-none">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">
+                    {result.emailSent
+                      ? 'Contraseña temporal (respaldo)'
+                      : 'Contraseña temporal'}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      navigator.clipboard
+                        .writeText(result.tempPassword ?? '')
+                        .then(() => toast.success('Contraseña copiada'))
+                        .catch(() => {});
+                    }}
+                    className="h-auto gap-1 p-0 font-mono font-semibold text-foreground hover:text-primary"
+                  >
+                    {result.tempPassword}
+                    <Copy className="size-3.5" />
+                  </Button>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  {result.emailSent
+                    ? 'Respaldo presencial: también puede iniciar con esta contraseña.'
+                    : 'Anota la contraseña: no se volverá a mostrar.'}
+                </p>
+              </Card>
+            )}
 
             {result.sponsorBonus && (
               <Card className="gap-0 rounded-lg border-emerald-200 bg-emerald-50 p-4 text-sm shadow-none">
