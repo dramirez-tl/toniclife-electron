@@ -3,7 +3,6 @@
 // de calculo de impuestos/descuentos/totales es identica para mantener paridad.
 
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 import type { PosCart, PosCartItem, QuickProduct } from '@/types/pos';
 
 interface PosCartStore {
@@ -133,8 +132,10 @@ const calculateCartTotals = (cart: PosCart): PosCart => {
   };
 };
 
+// SIN persistencia a propósito: el carrito y el distribuidor seleccionado NO
+// deben sobrevivir al cierre/reapertura del POS (cada arranque empieza limpio).
+// Antes usaba persist('pos-cart-storage') y conservaba carrito + cliente.
 export const usePosCartStore = create<PosCartStore>()(
-  persist(
     (set) => ({
       cart: initialCart,
 
@@ -333,9 +334,4 @@ export const usePosCartStore = create<PosCartStore>()(
         });
       },
     }),
-    {
-      name: 'pos-cart-storage',
-      partialize: (state) => ({ cart: state.cart }),
-    },
-  ),
 );

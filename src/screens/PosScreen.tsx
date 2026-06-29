@@ -94,7 +94,9 @@ export function PosScreen({ session, onLogout }: PosScreenProps) {
   const [registerOpen, setRegisterOpen] = useState(false);
   const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null);
   const [stampRetry, setStampRetry] = useState<StampRetryState | null>(null);
-  const [salesDate, setSalesDate] = useState(todayLocal());
+  // "Hoy" y todas las horas se calculan en la zona horaria de la SUCURSAL
+  // (no la del equipo): una venta a las 00:26 en Tulsa es del día correcto.
+  const [salesDate, setSalesDate] = useState(todayLocal(session.branch.timezone));
 
   // Panel "Ventas recientes" plegable. Se recuerda la preferencia.
   const [salesCollapsed, setSalesCollapsed] = useState<boolean>(() => {
@@ -152,6 +154,7 @@ export function PosScreen({ session, onLogout }: PosScreenProps) {
   } | null>(null);
 
   const branchId = session.branch.id;
+  const branchTz = session.branch.timezone;
   const currencyCode = session.branch.currencyCode ?? 'MXN';
   const currencySymbol = currencySymbolFor(session.branch.currencyCode);
 
@@ -546,6 +549,7 @@ export function PosScreen({ session, onLogout }: PosScreenProps) {
           <aside className="w-72 shrink-0">
             <RecentSales
               branchId={branchId}
+              branchTz={branchTz}
               currencySymbol={currencySymbol}
               date={salesDate}
               onDateChange={setSalesDate}
@@ -670,6 +674,7 @@ export function PosScreen({ session, onLogout }: PosScreenProps) {
         onClose={() => setSelectedSaleId(null)}
         saleId={selectedSaleId}
         currencySymbol={currencySymbol}
+        branchTz={branchTz}
       />
 
       {/* Modal de reintento de timbrado CFDI */}

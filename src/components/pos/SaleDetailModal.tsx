@@ -35,6 +35,8 @@ interface SaleDetailModalProps {
   onClose: () => void;
   saleId: string | null;
   currencySymbol: string;
+  /** Zona horaria de la sucursal (para mostrar la fecha/hora en su hora local). */
+  branchTz?: string;
 }
 
 const PAYMENT_LABELS: Record<string, string> = {
@@ -55,6 +57,7 @@ export function SaleDetailModal({
   onClose,
   saleId,
   currencySymbol,
+  branchTz,
 }: SaleDetailModalProps) {
   const { data: sale, isLoading } = usePosSale(saleId ?? undefined, isOpen);
   const cancelSale = useCancelSale();
@@ -122,7 +125,7 @@ export function SaleDetailModal({
               </DialogTitle>
               {sale && (
                 <DialogDescription className="text-xs">
-                  {formatDateTime(sale.createdAt)} · {sale.sellerName}
+                  {formatDateTime(sale.createdAt, branchTz)} · {sale.sellerName}
                 </DialogDescription>
               )}
             </div>

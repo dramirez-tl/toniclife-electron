@@ -26,6 +26,8 @@ import { PosSaleStatus, type Sale } from '@/types/pos';
 
 interface RecentSalesProps {
   branchId: string;
+  /** Zona horaria de la sucursal (para mostrar las horas en su hora local). */
+  branchTz?: string;
   currencySymbol: string;
   date: string;
   onDateChange: (date: string) => void;
@@ -73,6 +75,7 @@ function statusBadge(status: PosSaleStatus) {
 
 export function RecentSales({
   branchId,
+  branchTz,
   currencySymbol,
   date,
   onDateChange,
@@ -164,7 +167,7 @@ export function RecentSales({
                   </div>
                   <div className="flex items-center justify-between mt-0.5">
                     <span className="text-[11px] text-muted-foreground">
-                      {formatTime(sale.createdAt)}
+                      {formatTime(sale.createdAt, branchTz)}
                       {sale.customerName ? ` · ${sale.customerName}` : ''}
                     </span>
                     <span className="text-sm font-semibold text-foreground tabular-nums">
