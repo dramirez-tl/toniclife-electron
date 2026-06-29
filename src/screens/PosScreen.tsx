@@ -71,6 +71,17 @@ function currencySymbolFor(code?: string): string {
   return code + ' ';
 }
 
+/** Bandera (emoji) del país ISO-2 de la sucursal. */
+const COUNTRY_FLAGS: Record<string, string> = {
+  MX: '🇲🇽',
+  US: '🇺🇸',
+  CO: '🇨🇴',
+  GT: '🇬🇹',
+};
+function countryFlag(code?: string): string {
+  return (code && COUNTRY_FLAGS[code.toUpperCase()]) || '🏳️';
+}
+
 export function PosScreen({ session, onLogout }: PosScreenProps) {
   const [showConfirm, setShowConfirm] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
@@ -435,6 +446,14 @@ export function PosScreen({ session, onLogout }: PosScreenProps) {
             Tonic Life POS
           </div>
           <div className="flex items-center gap-1.5 text-xs text-white/80">
+            {session.branch.country && (
+              <span
+                className="shrink-0 rounded bg-white/15 px-1.5 py-0.5 text-[11px] font-semibold text-white"
+                title={session.branch.country.name}
+              >
+                {countryFlag(session.branch.country.code)} {session.branch.country.name}
+              </span>
+            )}
             {session.branch.legacyKey && (
               <span className="shrink-0 rounded bg-white/15 px-1.5 py-0.5 text-[11px] font-semibold text-white">
                 Clave {session.branch.legacyKey}
@@ -589,6 +608,7 @@ export function PosScreen({ session, onLogout }: PosScreenProps) {
         total={cart.total}
         currencySymbol={currencySymbol}
         currencyCode={currencyCode}
+        branchCountry={session.branch.country?.code}
         customerId={cart.customerId}
         customerRfc={cart.customerRfc}
         isProcessing={isProcessing}

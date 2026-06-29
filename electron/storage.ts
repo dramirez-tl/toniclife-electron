@@ -32,6 +32,8 @@ export interface StoredSession {
     timezone?: string;
     currencyCode?: string;
     ticketName?: string;
+    legacyKey?: string;
+    country?: { code: string; name: string };
   };
 }
 

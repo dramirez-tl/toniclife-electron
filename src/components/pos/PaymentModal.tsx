@@ -43,6 +43,8 @@ interface PaymentModalProps {
   total: number;
   currencySymbol: string;
   currencyCode: string;
+  /** País de la sucursal (ISO-2). 'MX' = facturación CFDI; otros (US) = QuickBooks (próximamente). */
+  branchCountry?: string;
   customerId?: string;
   customerRfc?: string;
   isProcessing: boolean;
@@ -91,11 +93,15 @@ export function PaymentModal({
   total,
   currencySymbol,
   currencyCode,
+  branchCountry,
   customerId,
   customerRfc,
   isProcessing,
   onConfirm,
 }: PaymentModalProps) {
+  // México = CFDI (Facturama). Otros países (p. ej. US) no usan CFDI: su
+  // facturación (QuickBooks) se habilitará después. Default MX si no llega país.
+  const isMx = (branchCountry ?? 'MX').toUpperCase() === 'MX';
   const [method, setMethod] = useState<PosPaymentMethod>(PosPaymentMethod.CASH);
   const [received, setReceived] = useState('');
   const [splitMode, setSplitMode] = useState(false);
@@ -497,8 +503,24 @@ export function PaymentModal({
             </div>
           )}
 
-          {/* Facturacion CFDI — solo si hay cliente */}
-          {customerId && (
+          {/* Facturación fuera de México (US): CFDI no aplica; QuickBooks próximamente */}
+          {!isMx && (
+            <div className="mt-4 border-t pt-4">
+              <div className="flex items-start gap-2 rounded-md bg-muted/50 p-3 text-sm">
+                <FileText className="size-4 text-primary mt-0.5 shrink-0" />
+                <div className="text-muted-foreground">
+                  <p className="font-medium text-foreground">Facturación</p>
+                  <p>
+                    La factura CFDI solo aplica en México. La facturación electrónica
+                    de esta sucursal (QuickBooks) estará disponible próximamente.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Facturacion CFDI — solo México y solo si hay cliente */}
+          {isMx && customerId && (
             <div className="mt-4 border-t pt-4">
               <Label className="flex items-center gap-2 text-sm font-medium text-foreground">
                 <Checkbox

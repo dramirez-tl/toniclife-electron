@@ -34,6 +34,8 @@ export interface StoredSession {
     ticketName?: string;
     /** Clave legacy de la sucursal (ej. "254"). */
     legacyKey?: string;
+    /** País de la sucursal (branches.country_id → countries). undefined si no asignado. */
+    country?: { code: string; name: string };
   };
 }
 
@@ -68,6 +70,8 @@ export interface ActivationResponse {
     ticketName?: string;
     /** Clave legacy de la sucursal (ej. "254"). */
     legacyKey?: string;
+    /** País de la sucursal (branches.country_id → countries). undefined si no asignado. */
+    country?: { code: string; name: string };
   };
 }
 
@@ -88,6 +92,8 @@ export interface TerminalLicenseInfo {
     ticketName?: string;
     /** Clave legacy de la sucursal (ej. "254"). */
     legacyKey?: string;
+    /** País de la sucursal (branches.country_id → countries). undefined si no asignado. */
+    country?: { code: string; name: string };
     isPosEnabled: boolean;
     posInventoryLocked: boolean;
     lockMessage: string | null;

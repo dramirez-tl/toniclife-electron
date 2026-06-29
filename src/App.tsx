@@ -114,6 +114,7 @@ export function App() {
             currencyCode: result.data.branch.currencyCode,
             ticketName: result.data.branch.ticketName,
             legacyKey: result.data.branch.legacyKey,
+            country: result.data.branch.country,
           },
         };
         await window.toniclife.session.save(updated);
