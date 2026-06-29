@@ -40,6 +40,11 @@ interface PosCartStore {
 
 const DEFAULT_TAX_RATE = 0; // El API manda el rate correcto por pais.
 
+// Redondeo a 2 decimales (dinero). Con sales tax US (impuesto añadido) el total
+// sale con >2 decimales (ej. 48 * 0.0852 = 52.0896); sin redondear, el monto del
+// pago se rechazaba en el API ("payments.0.amount must be a number ...").
+const round2 = (n: number): number => Math.round((n + Number.EPSILON) * 100) / 100;
+
 const initialCart: PosCart = {
   items: [],
   subtotal: 0,
@@ -119,10 +124,10 @@ const calculateCartTotals = (cart: PosCart): PosCart => {
 
   return {
     ...cart,
-    subtotal,
-    discountAmount: globalDiscount || undefined,
-    taxAmount,
-    total: Math.max(0, total),
+    subtotal: round2(subtotal),
+    discountAmount: globalDiscount ? round2(globalDiscount) : undefined,
+    taxAmount: round2(taxAmount),
+    total: round2(Math.max(0, total)),
     totalPoints,
     totalBusinessVolume,
   };
