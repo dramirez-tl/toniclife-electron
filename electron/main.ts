@@ -27,6 +27,14 @@ import type { CorteReceiptInput, SaleReceiptInput } from './receipts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// Dev y app INSTALADA no comparten estado (sesión/licencia/impresora): en dev
+// el userData lleva sufijo -dev. Sin esto, en la máquina de desarrollo ambas
+// leen el mismo session.bin y un "Cerrar sesión" en dev liberaría la licencia
+// de la instalación real (y viceversa).
+if (!app.isPackaged) {
+  app.setPath('userData', `${app.getPath('userData')}-dev`);
+}
+
 // VITE_DEV_SERVER_URL es inyectado por vite-plugin-electron en dev.
 const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL;
 const RENDERER_DIST = path.join(__dirname, '..', 'dist');
