@@ -219,6 +219,12 @@ declare global {
       app: {
         getUserDataPath: () => Promise<string>;
       };
+      updater: {
+        onUpdateDownloaded: (
+          cb: (info: { version: string }) => void,
+        ) => () => void;
+        install: () => Promise<void>;
+      };
       printer: {
         list: () => Promise<OsPrinterInfo[]>;
         loadConfig: () => Promise<PrinterConfig | null>;

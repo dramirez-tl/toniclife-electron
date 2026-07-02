@@ -29,6 +29,18 @@ const api = {
     getUserDataPath: (): Promise<string> =>
       ipcRenderer.invoke('app:getUserDataPath'),
   },
+  updater: {
+    /** Suscribe al aviso "actualización descargada". Devuelve un unsubscribe. */
+    onUpdateDownloaded: (
+      cb: (info: { version: string }) => void,
+    ): (() => void) => {
+      const listener = (_evt: unknown, info: { version: string }) => cb(info);
+      ipcRenderer.on('updater:downloaded', listener);
+      return () => ipcRenderer.removeListener('updater:downloaded', listener);
+    },
+    /** Reinicia la app e instala la actualización descargada. */
+    install: (): Promise<void> => ipcRenderer.invoke('updater:install'),
+  },
   printer: {
     list: (): Promise<OsPrinterInfo[]> => ipcRenderer.invoke('printer:list'),
     loadConfig: (): Promise<PrinterConfig | null> =>

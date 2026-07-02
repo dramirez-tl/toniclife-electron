@@ -33,7 +33,9 @@ export default defineConfig({
               // iconv-lite carga tablas de encoding via require dinamico;
               // bundlearlo puede romper en runtime. Lo dejamos en node_modules
               // y Node lo carga normal al iniciar el main process.
-              external: ['electron', 'iconv-lite'],
+              // electron-updater igual (CJS con requires dinamicos); va en
+              // dependencies para que electron-builder lo empaquete en el asar.
+              external: ['electron', 'iconv-lite', 'electron-updater'],
             },
           },
         },

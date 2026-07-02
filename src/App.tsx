@@ -172,6 +172,30 @@ export function App() {
   }, []);
 
   // ------------------------------------------------------------------
+  // Auto-update: cuando el main avisa que hay versión descargada, se
+  // muestra un aviso persistente. El cajero decide cuándo reiniciar
+  // (nunca interrumpimos una venta); si no reinicia, la actualización
+  // se aplica sola al cerrar la app.
+  // ------------------------------------------------------------------
+  useEffect(() => {
+    const unsubscribe = window.toniclife.updater.onUpdateDownloaded(
+      ({ version }) => {
+        toast.info(`Actualización v${version} lista`, {
+          id: 'pos-update',
+          duration: Infinity,
+          description:
+            'Se instalará al reiniciar. Puedes hacerlo ahora o al terminar tus ventas.',
+          action: {
+            label: 'Reiniciar y actualizar',
+            onClick: () => void window.toniclife.updater.install(),
+          },
+        });
+      },
+    );
+    return unsubscribe;
+  }, []);
+
+  // ------------------------------------------------------------------
   // Interceptor de 401 → limpia sesion y vuelve a activacion
   // ------------------------------------------------------------------
   useEffect(() => {

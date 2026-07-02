@@ -11,6 +11,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { computeHardwareFingerprint } from './hardware';
+import { setupAutoUpdater } from './updater';
 import { loadSession, saveSession, clearSession, type StoredSession } from './storage';
 import {
   loadPrinterConfig,
@@ -196,6 +197,9 @@ ipcMain.handle(
 
 app.whenReady().then(() => {
   createWindow();
+
+  // Auto-actualización (solo empaquetado; en dev es no-op con log).
+  setupAutoUpdater(() => mainWindow);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
