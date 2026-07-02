@@ -1,6 +1,10 @@
-// version.ts - Version del cliente Electron reportada a la API via X-App-Version.
+// version.ts - Version del cliente Electron reportada a la API via X-App-Version
+// y mostrada en el header del POS.
 //
-// Por ahora hardcoded; en una iteracion posterior podemos inyectarla en
-// build-time desde package.json via Vite define.
+// Inyectada en build-time desde package.json (vite.config.ts → define). El
+// fallback aplica solo si algún tooling evalúa este módulo fuera de Vite.
 
-export const APP_VERSION = '0.1.0';
+declare const __APP_VERSION__: string | undefined;
+
+export const APP_VERSION =
+  typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0-dev';

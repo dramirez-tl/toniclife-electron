@@ -49,6 +49,7 @@ import {
   usePosCatalog,
 } from '@/hooks/usePos';
 import { posApi } from '@/lib/posApi';
+import { APP_VERSION } from '@/lib/version';
 import { todayLocal } from '@/lib/date';
 import type { StoredSession } from '@/types';
 import type {
@@ -534,7 +535,15 @@ export function PosScreen({
         </div>
         <div className="text-xs text-white/70 text-right mr-2">
           <div className="font-mono">{session.license.licenseKey}</div>
-          {session.license.label && <div>{session.license.label}</div>}
+          <div className="flex items-center justify-end gap-1.5">
+            {session.license.label && <span>{session.license.label}</span>}
+            <span
+              className="rounded bg-white/15 px-1 py-px font-mono text-[10px] text-white/80"
+              title="Versión de la terminal"
+            >
+              v{APP_VERSION}
+            </span>
+          </div>
         </div>
         {/* Botones operativos: ocultos mientras el POS está bloqueado (rollout).
             La configuración de impresora SÍ permanece disponible. */}
