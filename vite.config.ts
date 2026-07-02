@@ -10,12 +10,20 @@ const pkg = JSON.parse(
   readFileSync(path.join(__dirname, 'package.json'), 'utf8'),
 ) as { version: string };
 
+// npm run release = paquete OFICIAL para sucursales: fuerza APP_ENV=production
+// aunque el .env.local del equipo que compila diga development/staging (evita
+// publicar por accidente un build con diagnósticos visibles).
+const isRelease = process.env.npm_lifecycle_event === 'release';
+
 export default defineConfig({
   // Rutas RELATIVAS en el bundle: la app empaquetada carga dist/index.html con
   // file:// y las rutas absolutas (/assets/...) romperían fuera del dev server.
   base: './',
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
+    ...(isRelease
+      ? { 'import.meta.env.VITE_APP_ENV': JSON.stringify('production') }
+      : {}),
   },
   plugins: [
     react(),

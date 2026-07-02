@@ -20,6 +20,7 @@ import {
   Copy,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { SHOW_DIAGNOSTICS } from '@/lib/env';
 import { LogoMark } from '@/components/LogoMark';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -149,8 +150,9 @@ export function ActivationScreen({
             <Headphones className="size-3.5" /> Soporte: soporte@toniclife.com
           </div>
 
-          {/* Diagnostico: ruta del archivo de sesion */}
-          {userDataPath && (
+          {/* Diagnostico: ruta del archivo de sesion. Solo dev/staging — en
+              producción (sucursales) se oculta (VITE_APP_ENV, ver lib/env). */}
+          {SHOW_DIAGNOSTICS && userDataPath && (
             <div className="mt-3 pt-3 border-t border-white/10 space-y-1">
               <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-white/50">
                 <FolderOpen className="size-3" />
