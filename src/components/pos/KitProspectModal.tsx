@@ -7,6 +7,7 @@
 // cambia el cliente al nuevo distribuidor y agrega el kit al carrito.
 
 import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { X, UserPlus, CheckCircle2, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -15,6 +16,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -22,6 +30,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useEnrollKit } from '@/hooks/usePos';
+import { posApi } from '@/lib/posApi';
 import type {
   QuickProduct,
   KitEnrollmentResponse,
@@ -38,6 +47,8 @@ interface KitProspectModalProps {
   sponsor: KitSponsor | null;
   kit: QuickProduct | null;
   branchId: string;
+  /** Código ISO del país de la sucursal (preselección del selector de país). */
+  branchCountryCode?: string;
   onEnrolled: (result: KitEnrollmentResponse, kit: QuickProduct) => void;
 }
 
@@ -56,20 +67,41 @@ export function KitProspectModal({
   sponsor,
   kit,
   branchId,
+  branchCountryCode,
   onEnrolled,
 }: KitProspectModalProps) {
   const [form, setForm] = useState(EMPTY_FORM);
+  const [countryId, setCountryId] = useState('');
   const [sendEmail, setSendEmail] = useState(true);
   const [result, setResult] = useState<KitEnrollmentResponse | null>(null);
   const enroll = useEnrollKit();
 
+  // País de residencia del prospecto: define portal, catálogo y precios.
+  const countriesQuery = useQuery({
+    queryKey: ['active-countries'],
+    queryFn: () => posApi.getActiveCountries(),
+    enabled: isOpen,
+    staleTime: 10 * 60 * 1000,
+  });
+  const countries = countriesQuery.data ?? [];
+
   useEffect(() => {
     if (isOpen) {
       setForm(EMPTY_FORM);
+      setCountryId('');
       setSendEmail(true);
       setResult(null);
     }
   }, [isOpen]);
+
+  // Preseleccionar el país de la sucursal en cuanto haya catálogo.
+  useEffect(() => {
+    if (!isOpen || countryId || countries.length === 0) return;
+    const branchCountry = countries.find(
+      (c) => c.code?.toUpperCase() === branchCountryCode?.toUpperCase(),
+    );
+    if (branchCountry) setCountryId(branchCountry.id);
+  }, [isOpen, countryId, countries, branchCountryCode]);
 
   const set = (k: keyof typeof EMPTY_FORM, v: string) =>
     setForm((f) => ({ ...f, [k]: v }));
@@ -82,6 +114,7 @@ export function KitProspectModal({
     form.lastName.trim().length > 0 &&
     form.email.trim().length > 0 &&
     form.phone.trim().length > 0 &&
+    !!countryId &&
     !enroll.isPending;
 
   async function handleSubmit() {
@@ -97,6 +130,7 @@ export function KitProspectModal({
         phone: form.phone.trim(),
         rfc: form.rfc.trim() || undefined,
         branchId,
+        countryId: countryId || undefined,
         sendCredentialsByEmail: sendEmail,
       });
       setResult(resp);
@@ -297,6 +331,32 @@ export function KitProspectModal({
                 />
               </Field>
             </div>
+
+            {/* País de residencia: define portal, catálogo y precios */}
+            <Field label="País de residencia *">
+              <Select value={countryId} onValueChange={setCountryId}>
+                <SelectTrigger className="w-full">
+                  <SelectValue
+                    placeholder={
+                      countriesQuery.isLoading
+                        ? 'Cargando países…'
+                        : 'Selecciona el país'
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {countries.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                      {c.currencyCode ? ` (${c.currencyCode})` : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Define la moneda y el catálogo de productos con el que verá el portal.
+              </p>
+            </Field>
 
             <Label className="flex items-center gap-2 text-sm text-foreground">
               <Checkbox

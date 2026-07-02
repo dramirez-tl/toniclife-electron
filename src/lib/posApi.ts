@@ -25,6 +25,7 @@ import type {
   PosRegisterDistributorRequest,
   PosRegisterPreferredRequest,
   SponsorLookup,
+  ActiveCountry,
   SatCatalogItem,
   FiscalData,
   CreateFiscalDataInput,
@@ -308,6 +309,12 @@ class PosApi {
     input: KitEnrollmentRequest,
   ): Promise<KitEnrollmentResponse> {
     const { data } = await api.post('/customers/kit-enrollment', input);
+    return data;
+  }
+
+  /** Países activos del catálogo (endpoint público) para el selector de país. */
+  async getActiveCountries(): Promise<ActiveCountry[]> {
+    const { data } = await api.get('/config/countries/active');
     return data;
   }
 

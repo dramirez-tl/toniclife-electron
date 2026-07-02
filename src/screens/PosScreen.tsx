@@ -754,6 +754,7 @@ export function PosScreen({
         }
         kit={pendingKit}
         branchId={branchId}
+        branchCountryCode={session.branch.country?.code}
         onEnrolled={handleKitEnrolled}
       />
 
@@ -762,6 +763,7 @@ export function PosScreen({
         isOpen={registerOpen}
         onClose={() => setRegisterOpen(false)}
         branchId={branchId}
+        branchCountryCode={session.branch.country?.code}
         enrollmentKits={enrollmentKits}
         onRegistered={handleDistributorRegistered}
       />

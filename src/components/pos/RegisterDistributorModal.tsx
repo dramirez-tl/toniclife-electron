@@ -6,6 +6,7 @@
 // registrar (el nuevo distribuidor compra su kit despues).
 
 import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { X, UserPlus, CheckCircle2, Copy, Loader2, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -39,6 +40,8 @@ interface RegisterDistributorModalProps {
   isOpen: boolean;
   onClose: () => void;
   branchId: string;
+  /** Código ISO del país de la sucursal (preselección del selector de país). */
+  branchCountryCode?: string;
   /** Kits de inscripcion disponibles (productos isEnrollmentKit). */
   enrollmentKits: QuickProduct[];
   /** Llamado al terminar: si se eligio kit, se pasa para cobrarlo. */
@@ -58,6 +61,7 @@ export function RegisterDistributorModal({
   isOpen,
   onClose,
   branchId,
+  branchCountryCode,
   enrollmentKits,
   onRegistered,
 }: RegisterDistributorModalProps) {
@@ -68,10 +72,20 @@ export function RegisterDistributorModal({
 
   const [tipo, setTipo] = useState<'distribuidor' | 'preferente'>('distribuidor');
   const [form, setForm] = useState(EMPTY_FORM);
+  const [countryId, setCountryId] = useState('');
   const [sendEmail, setSendEmail] = useState(true);
   const [chargeKit, setChargeKit] = useState(false);
   const [kitId, setKitId] = useState<string>('');
   const [result, setResult] = useState<KitEnrollmentResponse | null>(null);
+
+  // País de residencia: define el portal, catálogo y precios del nuevo registro.
+  const countriesQuery = useQuery({
+    queryKey: ['active-countries'],
+    queryFn: () => posApi.getActiveCountries(),
+    enabled: isOpen,
+    staleTime: 10 * 60 * 1000,
+  });
+  const countries = countriesQuery.data ?? [];
 
   const registerDistributor = useRegisterDistributor();
   const registerPreferred = useRegisterPreferred();
@@ -85,12 +99,23 @@ export function RegisterDistributorModal({
       setSponsor(null);
       setSponsorError(null);
       setForm(EMPTY_FORM);
+      setCountryId('');
       setSendEmail(true);
       setChargeKit(false);
       setKitId('');
       setResult(null);
     }
   }, [isOpen]);
+
+  // Preseleccionar el país de la sucursal en cuanto haya catálogo (el cajero
+  // puede cambiarlo si el nuevo registro vive en otro país).
+  useEffect(() => {
+    if (!isOpen || countryId || countries.length === 0) return;
+    const branchCountry = countries.find(
+      (c) => c.code?.toUpperCase() === branchCountryCode?.toUpperCase(),
+    );
+    if (branchCountry) setCountryId(branchCountry.id);
+  }, [isOpen, countryId, countries, branchCountryCode]);
 
   const set = (k: keyof typeof EMPTY_FORM, v: string) =>
     setForm((f) => ({ ...f, [k]: v }));
@@ -130,6 +155,7 @@ export function RegisterDistributorModal({
     form.lastName.trim().length > 0 &&
     form.email.trim().length > 0 &&
     form.phone.trim().length > 0 &&
+    !!countryId &&
     (!isDistribuidor || !chargeKit || !!kitId) &&
     !isPending;
 
@@ -144,6 +170,7 @@ export function RegisterDistributorModal({
       phone: form.phone.trim(),
       rfc: form.rfc.trim() || undefined,
       branchId,
+      countryId: countryId || undefined,
       sendCredentialsByEmail: sendEmail,
     };
     try {
@@ -406,6 +433,32 @@ export function RegisterDistributorModal({
                 <Input value={form.phone} onChange={(e) => set('phone', e.target.value)} />
               </Field>
             </div>
+
+            {/* País de residencia: define portal, catálogo y precios */}
+            <Field label="País de residencia *">
+              <Select value={countryId} onValueChange={setCountryId}>
+                <SelectTrigger className="w-full">
+                  <SelectValue
+                    placeholder={
+                      countriesQuery.isLoading
+                        ? 'Cargando países…'
+                        : 'Selecciona el país'
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {countries.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                      {c.currencyCode ? ` (${c.currencyCode})` : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Define la moneda y el catálogo de productos con el que verá el portal.
+              </p>
+            </Field>
 
             {/* Kit opcional (solo distribuidor) */}
             {isDistribuidor && (
