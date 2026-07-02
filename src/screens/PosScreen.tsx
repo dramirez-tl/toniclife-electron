@@ -36,6 +36,7 @@ import {
   type StampRetryState,
 } from '@/components/pos/StampRetryModal';
 import { PrinterSettingsModal } from '@/components/pos/PrinterSettingsModal';
+import { ComingSoonGate } from '@/components/pos/ComingSoonGate';
 import { usePosCartStore } from '@/stores/pos-cart.store';
 import {
   useCreateSale,
@@ -57,6 +58,9 @@ import type {
 interface PosScreenProps {
   session: StoredSession;
   onLogout: () => Promise<void> | void;
+  /** Interruptor global de operación. false = cuerpo bloqueado ("próximamente"). */
+  operationsEnabled: boolean;
+  operationsMessage?: string | null;
 }
 
 // Limites del ancho del panel del carrito (px).
@@ -82,7 +86,15 @@ function countryFlag(code?: string): string {
   return (code && COUNTRY_FLAGS[code.toUpperCase()]) || '🏳️';
 }
 
-export function PosScreen({ session, onLogout }: PosScreenProps) {
+export function PosScreen({
+  session,
+  onLogout,
+  operationsEnabled,
+  operationsMessage,
+}: PosScreenProps) {
+  // Rollout: cuerpo bloqueado ("próximamente"). El header sigue vivo para poder
+  // configurar la impresora. Se libera solo cuando el super admin habilita.
+  const posLocked = !operationsEnabled;
   const [showConfirm, setShowConfirm] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -481,30 +493,36 @@ export function PosScreen({ session, onLogout }: PosScreenProps) {
           <div className="font-mono">{session.license.licenseKey}</div>
           {session.license.label && <div>{session.license.label}</div>}
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setRegisterOpen(true)}
-          className="text-white/80 hover:text-white hover:bg-white/10"
-          title="Registrar distribuidor o cliente preferente"
-        >
-          <UserPlus />
-          Registrar
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setTransfersOpen(true)}
-          className="relative text-white/80 hover:text-white hover:bg-white/10"
-          title="Entradas de inventario (traspasos)"
-        >
-          <PackageCheck />
-          {incomingCount > 0 && (
-            <span className="absolute -right-0.5 -top-0.5 flex min-w-4 items-center justify-center rounded-full bg-amber-400 px-1 text-[10px] font-bold leading-4 text-amber-950">
-              {incomingCount > 9 ? '9+' : incomingCount}
-            </span>
-          )}
-        </Button>
+        {/* Botones operativos: ocultos mientras el POS está bloqueado (rollout).
+            La configuración de impresora SÍ permanece disponible. */}
+        {!posLocked && (
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setRegisterOpen(true)}
+              className="text-white/80 hover:text-white hover:bg-white/10"
+              title="Registrar distribuidor o cliente preferente"
+            >
+              <UserPlus />
+              Registrar
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setTransfersOpen(true)}
+              className="relative text-white/80 hover:text-white hover:bg-white/10"
+              title="Entradas de inventario (traspasos)"
+            >
+              <PackageCheck />
+              {incomingCount > 0 && (
+                <span className="absolute -right-0.5 -top-0.5 flex min-w-4 items-center justify-center rounded-full bg-amber-400 px-1 text-[10px] font-bold leading-4 text-amber-950">
+                  {incomingCount > 9 ? '9+' : incomingCount}
+                </span>
+              )}
+            </Button>
+          </>
+        )}
         <Button
           variant="ghost"
           size="icon"
@@ -525,7 +543,15 @@ export function PosScreen({ session, onLogout }: PosScreenProps) {
         </Button>
       </header>
 
-      {/* Cuerpo: ventas recientes + catalogo + carrito */}
+      {/* Cuerpo: bloqueado durante el rollout, o la operación normal. */}
+      {posLocked ? (
+        <div className="flex-1 min-h-0">
+          <ComingSoonGate
+            message={operationsMessage}
+            branchName={session.branch.name}
+          />
+        </div>
+      ) : (
       <div className="flex-1 flex min-h-0">
         {salesCollapsed ? (
           <aside className="w-11 shrink-0 border-r bg-card flex flex-col items-center gap-3 py-3">
@@ -604,6 +630,7 @@ export function PosScreen({ session, onLogout }: PosScreenProps) {
           />
         </aside>
       </div>
+      )}
 
       {/* Modal de cobro (incluye seccion CFDI) */}
       <PaymentModal

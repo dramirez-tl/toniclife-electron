@@ -37,6 +37,15 @@ export interface StoredSession {
     /** País de la sucursal (branches.country_id → countries). undefined si no asignado. */
     country?: { code: string; name: string };
   };
+  /**
+   * Último estado conocido del interruptor global de operación del POS.
+   * Se persiste para que, en un arranque sin conexión, la terminal recuerde si
+   * estaba liberada o bloqueada (se reconfirma con el server en cuanto conecta).
+   */
+  operations?: {
+    enabled: boolean;
+    message?: string;
+  };
 }
 
 export interface LicenseConflictPayload {
@@ -102,6 +111,10 @@ export interface TerminalLicenseInfo {
     fingerprint: string;
     info: Record<string, unknown>;
   };
+  /** Interruptor global de operación del POS (system_settings pos.operations_enabled). */
+  operationsEnabled: boolean;
+  /** Leyenda a mostrar cuando operationsEnabled=false. */
+  operationsMessage?: string;
   serverTime: string;
 }
 
@@ -111,6 +124,9 @@ export interface HeartbeatResponse {
   serverTime: string;
   status: 'active';
   nextHeartbeatInSeconds: number;
+  /** Interruptor global de operación del POS (re-aplicado en cada latido). */
+  operationsEnabled: boolean;
+  operationsMessage?: string;
 }
 
 // ============================================================================

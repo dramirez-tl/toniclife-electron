@@ -50,6 +50,9 @@ type AppState =
   | { kind: 'conflict'; conflict: LicenseConflictPayload }
   | { kind: 'pos'; session: StoredSession };
 
+/** Estado del interruptor global de operación del POS (liberado/bloqueado). */
+type PosOperations = { enabled: boolean; message: string | null };
+
 const HEARTBEAT_INTERVAL_MS = 60_000; // 60s
 
 export function App() {
@@ -57,6 +60,12 @@ export function App() {
   const [hardware, setHardware] = useState<HardwareFingerprint | null>(null);
   const [windowTitle, setWindowTitle] = useState('Tonic Life POS');
   const [lock, setLock] = useState<PosLockState>({ locked: false, message: null });
+  // Interruptor de liberación del POS. Default BLOQUEADO: una terminal recién
+  // activada no debe operar hasta que el server confirme que está liberada.
+  const [posOps, setPosOps] = useState<PosOperations>({
+    enabled: false,
+    message: null,
+  });
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const queryClient = useQueryClient();
 
@@ -92,6 +101,13 @@ export function App() {
 
       // Hay sesion local — colocar token y validar contra server.
       setDeviceToken(stored.deviceToken);
+      // Estado de liberación conocido (evita parpadeo mientras validamos).
+      if (stored.operations) {
+        setPosOps({
+          enabled: stored.operations.enabled,
+          message: stored.operations.message ?? null,
+        });
+      }
       const result = await validateLicense();
       console.log('[POS] Resultado de validateLicense:', result.kind);
 
@@ -116,8 +132,16 @@ export function App() {
             legacyKey: result.data.branch.legacyKey,
             country: result.data.branch.country,
           },
+          operations: {
+            enabled: result.data.operationsEnabled,
+            message: result.data.operationsMessage,
+          },
         };
         await window.toniclife.session.save(updated);
+        setPosOps({
+          enabled: result.data.operationsEnabled,
+          message: result.data.operationsMessage ?? null,
+        });
         // Estado de bloqueo inicial (el socket lo confirmará/actualizará al conectar).
         setLock({
           locked: result.data.branch.posInventoryLocked ?? false,
@@ -182,6 +206,28 @@ export function App() {
         await window.toniclife.session.clear();
         toast.error('La licencia fue revocada. Vuelve a activar la terminal.');
         setState({ kind: 'activation' });
+        return;
+      }
+      if (r.kind === 'ok') {
+        // Re-aplicar el interruptor global de operación (liberar/bloquear sin
+        // reiniciar). Persistir (merge sobre la sesión más reciente) para
+        // recordar el estado en un arranque offline.
+        setPosOps({
+          enabled: r.data.operationsEnabled,
+          message: r.data.operationsMessage ?? null,
+        });
+        const latest = await window.toniclife.session.load();
+        if (latest) {
+          await window.toniclife.session
+            .save({
+              ...latest,
+              operations: {
+                enabled: r.data.operationsEnabled,
+                message: r.data.operationsMessage,
+              },
+            })
+            .catch(() => {});
+        }
       }
       // network-error: ignorar; el siguiente tick reintentara.
     }, HEARTBEAT_INTERVAL_MS);
@@ -325,7 +371,12 @@ export function App() {
           />
         )}
         {state.kind === 'pos' && (
-          <PosScreen session={state.session} onLogout={handleLogout} />
+          <PosScreen
+            session={state.session}
+            onLogout={handleLogout}
+            operationsEnabled={posOps.enabled}
+            operationsMessage={posOps.message}
+          />
         )}
       </div>
       {state.kind === 'pos' && lock.locked && (
