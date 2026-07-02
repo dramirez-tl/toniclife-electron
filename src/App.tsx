@@ -41,6 +41,7 @@ import { ActivationScreen } from '@/screens/ActivationScreen';
 import { LicenseConflictScreen } from '@/screens/LicenseConflictScreen';
 import { PosScreen } from '@/screens/PosScreen';
 import { InventoryLockScreen } from '@/screens/InventoryLockScreen';
+import { UpdateRequiredScreen } from '@/screens/UpdateRequiredScreen';
 import { connectPosSocket, disconnectPosSocket, type PosLockState } from '@/lib/posSocket';
 import { Toaster } from '@/components/ui/sonner';
 
@@ -173,24 +174,14 @@ export function App() {
 
   // ------------------------------------------------------------------
   // Auto-update: cuando el main avisa que hay versión descargada, se
-  // muestra un aviso persistente. El cajero decide cuándo reiniciar
-  // (nunca interrumpimos una venta); si no reinicia, la actualización
-  // se aplica sola al cerrar la app.
+  // muestra un overlay BLOQUEANTE de pantalla completa (política de
+  // operación: la terminal no sigue trabajando con versión vieja). La
+  // única salida es "Reiniciar y actualizar"; el carrito persiste.
   // ------------------------------------------------------------------
+  const [updateReady, setUpdateReady] = useState<string | null>(null);
   useEffect(() => {
     const unsubscribe = window.toniclife.updater.onUpdateDownloaded(
-      ({ version }) => {
-        toast.info(`Actualización v${version} lista`, {
-          id: 'pos-update',
-          duration: Infinity,
-          description:
-            'Se instalará al reiniciar. Puedes hacerlo ahora o al terminar tus ventas.',
-          action: {
-            label: 'Reiniciar y actualizar',
-            onClick: () => void window.toniclife.updater.install(),
-          },
-        });
-      },
+      ({ version }) => setUpdateReady(version),
     );
     return unsubscribe;
   }, []);
@@ -452,6 +443,12 @@ export function App() {
             message={lock.message}
             branchName={state.session.branch.name}
           />
+        </div>
+      )}
+      {/* Actualización lista: overlay bloqueante por ENCIMA de todo. */}
+      {updateReady && (
+        <div className="fixed inset-0 z-[100]">
+          <UpdateRequiredScreen version={updateReady} />
         </div>
       )}
       <Toaster />
