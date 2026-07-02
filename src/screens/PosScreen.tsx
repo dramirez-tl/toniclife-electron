@@ -12,6 +12,7 @@ import {
   Receipt,
   PackageCheck,
   UserPlus,
+  RefreshCw,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { LogoMark } from '@/components/LogoMark';
@@ -61,6 +62,12 @@ interface PosScreenProps {
   /** Interruptor global de operación. false = cuerpo bloqueado ("próximamente"). */
   operationsEnabled: boolean;
   operationsMessage?: string | null;
+  /** Re-valida contra el server (gate + datos) sin recargar la app. */
+  onRefresh?: () => Promise<{
+    ok: boolean;
+    enabled?: boolean;
+    reason?: 'invalid' | 'network';
+  }>;
 }
 
 // Limites del ancho del panel del carrito (px).
@@ -91,10 +98,29 @@ export function PosScreen({
   onLogout,
   operationsEnabled,
   operationsMessage,
+  onRefresh,
 }: PosScreenProps) {
   // Rollout: cuerpo bloqueado ("próximamente"). El header sigue vivo para poder
   // configurar la impresora. Se libera solo cuando el super admin habilita.
   const posLocked = !operationsEnabled;
+  const [refreshing, setRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    if (!onRefresh || refreshing) return;
+    setRefreshing(true);
+    try {
+      const r = await onRefresh();
+      if (r.ok) {
+        toast.success(
+          r.enabled ? 'Punto de venta activo' : 'Aún no se libera esta terminal',
+        );
+      } else if (r.reason === 'network') {
+        toast.warning('Sin conexión con el servidor. Intenta de nuevo.');
+      }
+    } finally {
+      setRefreshing(false);
+    }
+  };
   const [showConfirm, setShowConfirm] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -522,6 +548,18 @@ export function PosScreen({
               )}
             </Button>
           </>
+        )}
+        {onRefresh && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="text-white/80 hover:text-white hover:bg-white/10"
+            title="Actualizar estado y datos"
+          >
+            <RefreshCw className={refreshing ? 'animate-spin' : ''} />
+          </Button>
         )}
         <Button
           variant="ghost"

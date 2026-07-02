@@ -21,7 +21,7 @@
 // hace logout. Si falla con 'network-error', ignora (no cortar la terminal
 // por una caida transitoria del backend).
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { LogoMark } from '@/components/LogoMark';
@@ -292,6 +292,48 @@ export function App() {
   }, [sessionToken, queryClient]);
 
   // ------------------------------------------------------------------
+  // Refresco manual (botón "Actualizar" del header): re-valida contra el
+  // server de inmediato (sin esperar el heartbeat de 60s) — re-aplica el
+  // interruptor de operación y refresca catálogo/ventas. Equivale a un F5
+  // pero sin recargar toda la app (conserva la sesión y el carrito).
+  // ------------------------------------------------------------------
+  const refreshStatus = useCallback(async (): Promise<{
+    ok: boolean;
+    enabled?: boolean;
+    reason?: 'invalid' | 'network';
+  }> => {
+    const result = await validateLicense();
+    if (result.kind === 'ok') {
+      setPosOps({
+        enabled: result.data.operationsEnabled,
+        message: result.data.operationsMessage ?? null,
+      });
+      const latest = await window.toniclife.session.load();
+      if (latest) {
+        await window.toniclife.session
+          .save({
+            ...latest,
+            operations: {
+              enabled: result.data.operationsEnabled,
+              message: result.data.operationsMessage,
+            },
+          })
+          .catch(() => {});
+      }
+      // Refrescar datos de negocio (catálogo, ventas recientes, etc.).
+      await queryClient.invalidateQueries();
+      return { ok: true, enabled: result.data.operationsEnabled };
+    }
+    if (result.kind === 'invalid') {
+      setDeviceToken(null);
+      await window.toniclife.session.clear();
+      setState({ kind: 'activation' });
+      return { ok: false, reason: 'invalid' };
+    }
+    return { ok: false, reason: 'network' };
+  }, [queryClient]);
+
+  // ------------------------------------------------------------------
   // Titulo de la ventana
   // ------------------------------------------------------------------
   useEffect(() => {
@@ -376,6 +418,7 @@ export function App() {
             onLogout={handleLogout}
             operationsEnabled={posOps.enabled}
             operationsMessage={posOps.message}
+            onRefresh={refreshStatus}
           />
         )}
       </div>
