@@ -13,6 +13,7 @@ import {
   PackageCheck,
   UserPlus,
   RefreshCw,
+  CircleHelp,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { LogoMark } from '@/components/LogoMark';
@@ -38,6 +39,7 @@ import {
 } from '@/components/pos/StampRetryModal';
 import { PrinterSettingsModal } from '@/components/pos/PrinterSettingsModal';
 import { ComingSoonGate } from '@/components/pos/ComingSoonGate';
+import { hasSeenPosTour, startPosTour } from '@/lib/posTour';
 import { usePosCartStore } from '@/stores/pos-cart.store';
 import {
   useCreateSale,
@@ -104,6 +106,19 @@ export function PosScreen({
   // configurar la impresora. Se libera solo cuando el super admin habilita.
   const posLocked = !operationsEnabled;
   const [refreshing, setRefreshing] = useState(false);
+
+  // Tour de primera vez: solo cuando la terminal está LIBERADA (con el gate
+  // "próximamente" no hay pantalla que recorrer). Espera un tick a que el
+  // catálogo/carrito estén en el DOM.
+  useEffect(() => {
+    if (posLocked || hasSeenPosTour()) return;
+    const timer = window.setTimeout(() => {
+      if (document.querySelector('[data-tour="pos-catalog"]')) {
+        startPosTour();
+      }
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [posLocked]);
 
   const handleRefresh = async () => {
     if (!onRefresh || refreshing) return;
@@ -482,7 +497,7 @@ export function PosScreen({
       {/* Barra superior */}
       <header className="h-14 bg-primary text-primary-foreground flex items-center px-5 gap-4 shrink-0">
         <LogoMark size={44} variant="icon-blue" avatar />
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0" data-tour="pos-branch">
           <div className="text-sm font-semibold leading-tight">
             Tonic Life POS
           </div>
@@ -505,15 +520,17 @@ export function PosScreen({
             </span>
           </div>
         </div>
-        <ConnectionStatus />
-        <div className="h-5 w-px bg-white/20" />
-        <div className="flex items-center gap-1.5 text-sm text-white/85 mr-1">
-          <Clock className="size-4 shrink-0" />
-          <LiveClock
-            timezone={session.branch.timezone}
-            showDate
-            dateClassName="text-[11px] text-white/70"
-          />
+        <div className="flex items-center gap-4" data-tour="pos-status">
+          <ConnectionStatus />
+          <div className="h-5 w-px bg-white/20" />
+          <div className="flex items-center gap-1.5 text-sm text-white/85 mr-1">
+            <Clock className="size-4 shrink-0" />
+            <LiveClock
+              timezone={session.branch.timezone}
+              showDate
+              dateClassName="text-[11px] text-white/70"
+            />
+          </div>
         </div>
         <div className="text-xs text-white/70 text-right mr-2">
           <div className="font-mono">{session.license.licenseKey}</div>
@@ -529,6 +546,7 @@ export function PosScreen({
               onClick={() => setRegisterOpen(true)}
               className="text-white/80 hover:text-white hover:bg-white/10"
               title="Registrar distribuidor o cliente preferente"
+              data-tour="pos-register"
             >
               <UserPlus />
               Registrar
@@ -539,6 +557,7 @@ export function PosScreen({
               onClick={() => setTransfersOpen(true)}
               className="relative text-white/80 hover:text-white hover:bg-white/10"
               title="Entradas de inventario (traspasos)"
+              data-tour="pos-transfers"
             >
               <PackageCheck />
               {incomingCount > 0 && (
@@ -557,8 +576,21 @@ export function PosScreen({
             disabled={refreshing}
             className="text-white/80 hover:text-white hover:bg-white/10"
             title="Actualizar estado y datos"
+            data-tour="pos-refresh"
           >
             <RefreshCw className={refreshing ? 'animate-spin' : ''} />
+          </Button>
+        )}
+        {!posLocked && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => startPosTour()}
+            className="text-white/80 hover:text-white hover:bg-white/10"
+            title="Ver recorrido de uso"
+            data-tour="pos-help"
+          >
+            <CircleHelp />
           </Button>
         )}
         <Button
@@ -567,6 +599,7 @@ export function PosScreen({
           onClick={() => setPrinterSettingsOpen(true)}
           className="text-white/80 hover:text-white hover:bg-white/10"
           title="Configurar impresora termica"
+          data-tour="pos-printer"
         >
           <Settings />
         </Button>
@@ -610,7 +643,7 @@ export function PosScreen({
             </div>
           </aside>
         ) : (
-          <aside className="w-72 shrink-0">
+          <aside className="w-72 shrink-0" data-tour="pos-sales-panel">
             <RecentSales
               branchId={branchId}
               branchTz={branchTz}
@@ -624,7 +657,7 @@ export function PosScreen({
             />
           </aside>
         )}
-        <main className="flex-1 min-w-0 flex flex-col">
+        <main className="flex-1 min-w-0 flex flex-col" data-tour="pos-catalog">
           {cart.customerId && (
             <AvailablePromotions
               customerId={cart.customerId}
@@ -647,7 +680,7 @@ export function PosScreen({
           onResize={setCartWidth}
           onCommit={persistCartWidth}
         />
-        <aside className="shrink-0" style={{ width: cartWidth }}>
+        <aside className="shrink-0" style={{ width: cartWidth }} data-tour="pos-cart">
           <Cart
             currencySymbol={currencySymbol}
             currencyCode={currencyCode}

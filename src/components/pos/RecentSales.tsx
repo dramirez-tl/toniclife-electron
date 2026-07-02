@@ -193,7 +193,12 @@ export function RecentSales({
             Movimientos de caja
           </Button>
         )}
-        <Button variant="secondary" className="w-full" onClick={onOpenCorte}>
+        <Button
+          variant="secondary"
+          className="w-full"
+          onClick={onOpenCorte}
+          data-tour="pos-corte"
+        >
           <ClipboardList />
           Corte del dia
         </Button>

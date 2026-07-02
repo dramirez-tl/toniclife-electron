@@ -96,3 +96,63 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background-color: rgba(0, 0, 0, 0.25);
 }
+
+/* ── Tour guiado (driver.js) — misma marca que el panel del distribuidor ───── */
+.driver-popover.tl-tour {
+  border-radius: 0.75rem;
+  box-shadow: 0 20px 45px -12px rgba(0, 42, 92, 0.45);
+  max-width: 340px;
+}
+
+.driver-popover.tl-tour .driver-popover-title {
+  color: #3e667d;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.driver-popover.tl-tour .driver-popover-description {
+  color: #475862;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.driver-popover.tl-tour .driver-popover-progress-text {
+  color: #94a3b8;
+  font-size: 0.75rem;
+}
+
+.driver-popover.tl-tour .driver-popover-next-btn {
+  background: linear-gradient(to right, #3e667d, #0a4b94);
+  color: #ffffff;
+  border: none;
+  border-radius: 0.5rem;
+  padding: 0.4rem 0.9rem;
+  font-weight: 600;
+  text-shadow: none;
+}
+
+.driver-popover.tl-tour .driver-popover-next-btn:hover {
+  background: linear-gradient(to right, #355a70, #093f7d);
+}
+
+.driver-popover.tl-tour .driver-popover-prev-btn {
+  background: transparent;
+  color: #3e667d;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  padding: 0.4rem 0.9rem;
+  font-weight: 600;
+  text-shadow: none;
+}
+
+.driver-popover.tl-tour .driver-popover-close-btn {
+  color: #94a3b8;
+}
+
+.driver-popover.tl-tour .driver-popover-close-btn:hover {
+  color: #3e667d;
+}
+
+.driver-popover.tl-tour .driver-popover-arrow {
+  border-color: #ffffff;
+}
