@@ -1,6 +1,6 @@
 {
   "name": "toniclife-electron",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Tonic Life POS - Terminal Electron para sucursales",
   "main": "dist-electron/main.js",
@@ -90,5 +90,6 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
     }
-  }
+  },
+  "author": "Tonic Life"
 }

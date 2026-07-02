@@ -11,6 +11,9 @@ const pkg = JSON.parse(
 ) as { version: string };
 
 export default defineConfig({
+  // Rutas RELATIVAS en el bundle: la app empaquetada carga dist/index.html con
+  // file:// y las rutas absolutas (/assets/...) romperían fuera del dev server.
+  base: './',
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
   },

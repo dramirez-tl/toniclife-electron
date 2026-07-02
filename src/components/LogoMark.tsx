@@ -31,14 +31,18 @@ interface LogoMarkProps {
   avatar?: boolean;
 }
 
+// Rutas RELATIVAS (sin "/" inicial): la app empaquetada carga con file:// y
+// una ruta absoluta apuntaría a la raíz del disco. El POS es una SPA con el
+// index.html en la raíz de dist/, así que lo relativo siempre resuelve bien
+// (también en el dev server).
 const LOGO_SRC: Record<LogoVariant, string> = {
-  white: '/images/logo/svg/logo-circle-white.svg',
-  dark: '/images/logo/svg/logo-circle-dark-filled.svg',
-  'blue-outline': '/images/logo/svg/logo-circle-blue-outline.svg',
-  'icon-green': '/images/logo/svg/logo-icon-green-solid.svg',
-  'icon-blue': '/images/logo/svg/logo-icon-blue-solid.svg',
-  'text-light': '/images/logo/svg/logo-text-light.svg',
-  'text-dark': '/images/logo/svg/logo-text-dark.svg',
+  white: 'images/logo/svg/logo-circle-white.svg',
+  dark: 'images/logo/svg/logo-circle-dark-filled.svg',
+  'blue-outline': 'images/logo/svg/logo-circle-blue-outline.svg',
+  'icon-green': 'images/logo/svg/logo-icon-green-solid.svg',
+  'icon-blue': 'images/logo/svg/logo-icon-blue-solid.svg',
+  'text-light': 'images/logo/svg/logo-text-light.svg',
+  'text-dark': 'images/logo/svg/logo-text-dark.svg',
 };
 
 export function LogoMark({
