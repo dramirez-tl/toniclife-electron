@@ -22,7 +22,7 @@ arrancar y cada 4 horas, descarga en silencio y le muestra al cajero el aviso
 
 Pasos para sacar versión:
 
-1. Sube la versión en `package.json` (ej. `0.1.0` → `0.1.1`). Esa versión se
+1. Sube la versión en `package.json` (ej. `2.0.1` → `2.0.2`). Esa versión se
    inyecta en build-time al header y al `X-App-Version`.
 2. Exporta un token de GitHub con permiso de escribir releases en el repo de
    releases (classic PAT con scope `repo`, o fine-grained con Contents RW):
