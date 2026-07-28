@@ -137,6 +137,27 @@ export function PosScreen({
       } else if (r.reason === 'network') {
         toast.warning('Sin conexión con el servidor. Intenta de nuevo.');
       }
+
+      // Además: buscar actualización del POS al momento (sin esperar el
+      // ciclo automático de 4h). Si hay versión nueva se descarga sola y
+      // aparecerá la pantalla de "Reiniciar y actualizar".
+      try {
+        const u = await window.toniclife.updater.check();
+        if (u.status === 'update-available') {
+          toast.info(
+            `Actualización v${u.latestVersion} encontrada — descargando…`,
+            { description: 'En cuanto termine te pedirá reiniciar.' },
+          );
+        } else if (u.status === 'up-to-date') {
+          toast.success(`El POS está al día (v${u.currentVersion})`);
+        } else if (u.status === 'error') {
+          toast.warning('No se pudo verificar actualizaciones', {
+            description: u.message,
+          });
+        }
+      } catch {
+        /* preload viejo o modo dev: sin verificación manual */
+      }
     } finally {
       setRefreshing(false);
     }
@@ -588,7 +609,7 @@ export function PosScreen({
             onClick={handleRefresh}
             disabled={refreshing}
             className="text-white/80 hover:text-white hover:bg-white/10"
-            title="Actualizar estado y datos"
+            title="Actualizar estado, datos y buscar nueva versión del POS"
             data-tour="pos-refresh"
           >
             <RefreshCw className={refreshing ? 'animate-spin' : ''} />

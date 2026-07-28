@@ -40,6 +40,13 @@ const api = {
     },
     /** Reinicia la app e instala la actualización descargada. */
     install: (): Promise<void> => ipcRenderer.invoke('updater:install'),
+    /** Verificación manual de actualizaciones (botón ⟳ del header). */
+    check: (): Promise<{
+      status: 'dev' | 'up-to-date' | 'update-available' | 'error';
+      currentVersion: string;
+      latestVersion?: string | null;
+      message?: string;
+    }> => ipcRenderer.invoke('updater:check'),
   },
   printer: {
     list: (): Promise<OsPrinterInfo[]> => ipcRenderer.invoke('printer:list'),

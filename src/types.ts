@@ -231,6 +231,13 @@ declare global {
           cb: (info: { version: string }) => void,
         ) => () => void;
         install: () => Promise<void>;
+        /** Verificación manual de actualizaciones (no espera el ciclo de 4h). */
+        check: () => Promise<{
+          status: 'dev' | 'up-to-date' | 'update-available' | 'error';
+          currentVersion: string;
+          latestVersion?: string | null;
+          message?: string;
+        }>;
       };
       printer: {
         list: () => Promise<OsPrinterInfo[]>;

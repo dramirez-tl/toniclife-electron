@@ -35,13 +35,53 @@ function logUpdater(line: string): void {
   console.log(`[updater] ${line}`);
 }
 
+/** ¿`latest` es más nueva que `current`? Comparación por segmentos numéricos. */
+function isNewerVersion(latest: string, current: string): boolean {
+  const a = latest.split('.').map((n) => parseInt(n, 10) || 0);
+  const b = current.split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const d = (a[i] ?? 0) - (b[i] ?? 0);
+    if (d !== 0) return d > 0;
+  }
+  return false;
+}
+
 export function setupAutoUpdater(getWindow: () => BrowserWindow | null): void {
-  // Instalar el handler SIEMPRE (aunque no esté empaquetado) para que el
-  // renderer pueda llamarlo sin explotar; en dev simplemente no hace nada.
+  // Instalar los handlers SIEMPRE (aunque no esté empaquetado) para que el
+  // renderer pueda llamarlos sin explotar; en dev simplemente no hacen nada.
   ipcMain.handle('updater:install', () => {
     if (!app.isPackaged) return;
     logUpdater('quitAndInstall solicitado por el usuario');
     autoUpdater.quitAndInstall();
+  });
+
+  // Verificación MANUAL (botón ⟳ del header): consulta el feed al momento en
+  // vez de esperar el ciclo de 4h. Si hay versión nueva, autoDownload la baja
+  // y el flujo normal ('update-downloaded' → pantalla de reinicio) continúa.
+  ipcMain.handle('updater:check', async () => {
+    const currentVersion = app.getVersion();
+    if (!app.isPackaged) {
+      return { status: 'dev', currentVersion };
+    }
+    try {
+      const result = await autoUpdater.checkForUpdates();
+      const latestVersion = result?.updateInfo?.version ?? null;
+      const available =
+        !!latestVersion && isNewerVersion(latestVersion, currentVersion);
+      logUpdater(
+        `check manual: v${currentVersion} vs feed v${latestVersion ?? '?'} → ` +
+          (available ? 'actualización disponible' : 'al día'),
+      );
+      return {
+        status: available ? 'update-available' : 'up-to-date',
+        currentVersion,
+        latestVersion,
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logUpdater(`check manual falló: ${message}`);
+      return { status: 'error', currentVersion, message };
+    }
   });
 
   if (!app.isPackaged) {
