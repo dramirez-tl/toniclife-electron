@@ -6,7 +6,7 @@
 //   - Aplicar reglas de seguridad: contextIsolation, nodeIntegration off.
 //   - En dev: cargar Vite dev server. En prod: cargar el build estatico.
 
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -102,6 +102,28 @@ function createWindow(): void {
 
   // Abrir maximizada (POS de mostrador). El 1280x800 queda como tamaño al restaurar.
   mainWindow.maximize();
+
+  // Menú contextual (clic derecho) en campos de texto: Electron NO trae uno
+  // por defecto, así que "pegar" con el mouse no existía — el cajero copiaba
+  // un número de distribuidor y no podía pegarlo en el buscador. Cortar/
+  // Copiar/Pegar en cualquier input editable; Copiar sobre texto seleccionado.
+  mainWindow.webContents.on('context-menu', (_event, params) => {
+    if (params.isEditable) {
+      Menu.buildFromTemplate([
+        { label: 'Cortar', role: 'cut', enabled: params.editFlags.canCut },
+        { label: 'Copiar', role: 'copy', enabled: params.editFlags.canCopy },
+        { label: 'Pegar', role: 'paste', enabled: params.editFlags.canPaste },
+        { type: 'separator' },
+        {
+          label: 'Seleccionar todo',
+          role: 'selectAll',
+          enabled: params.editFlags.canSelectAll,
+        },
+      ]).popup();
+    } else if (params.selectionText.trim()) {
+      Menu.buildFromTemplate([{ label: 'Copiar', role: 'copy' }]).popup();
+    }
+  });
 
   if (VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(VITE_DEV_SERVER_URL);
