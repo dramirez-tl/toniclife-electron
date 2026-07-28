@@ -47,6 +47,10 @@ interface PaymentModalProps {
   branchCountry?: string;
   customerId?: string;
   customerRfc?: string;
+  /** Facturación habilitada en esta terminal. false = ocultar "Requiere
+   *  factura" (piloto doble captura: la factura se emite en el legacy para
+   *  no timbrar dos veces la misma venta ante el SAT). */
+  invoicingEnabled?: boolean;
   isProcessing: boolean;
   onConfirm: (
     payments: CreatePaymentInput[],
@@ -96,6 +100,7 @@ export function PaymentModal({
   branchCountry,
   customerId,
   customerRfc,
+  invoicingEnabled = true,
   isProcessing,
   onConfirm,
 }: PaymentModalProps) {
@@ -243,7 +248,7 @@ export function PaymentModal({
     }
 
     let invoice: InvoiceRequest | undefined;
-    if (wantsInvoice && customerId) {
+    if (wantsInvoice && customerId && invoicingEnabled) {
       invoice = {
         fiscalData: {
           customerId,
@@ -519,8 +524,27 @@ export function PaymentModal({
             </div>
           )}
 
-          {/* Facturacion CFDI — solo México y solo si hay cliente */}
-          {isMx && customerId && (
+          {/* Facturacion deshabilitada en esta terminal (piloto doble captura):
+              la factura se emite en el sistema anterior, NO aqui (evita CFDI
+              duplicado ante el SAT sobre la misma venta). */}
+          {isMx && !invoicingEnabled && (
+            <div className="mt-4 border-t pt-4">
+              <div className="flex items-start gap-2 rounded-md bg-muted/50 p-3 text-sm">
+                <FileText className="size-4 text-primary mt-0.5 shrink-0" />
+                <div className="text-muted-foreground">
+                  <p className="font-medium text-foreground">Facturación</p>
+                  <p>
+                    La facturación está deshabilitada en esta terminal. Si el
+                    cliente requiere factura, emítela en el sistema anterior
+                    (evita timbrar dos veces la misma venta).
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Facturacion CFDI — solo México, con cliente y facturación habilitada */}
+          {isMx && invoicingEnabled && customerId && (
             <div className="mt-4 border-t pt-4">
               <Label className="flex items-center gap-2 text-sm font-medium text-foreground">
                 <Checkbox

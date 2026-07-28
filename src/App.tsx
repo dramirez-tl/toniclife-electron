@@ -52,7 +52,12 @@ type AppState =
   | { kind: 'pos'; session: StoredSession };
 
 /** Estado del interruptor global de operación del POS (liberado/bloqueado). */
-type PosOperations = { enabled: boolean; message: string | null };
+type PosOperations = {
+  enabled: boolean;
+  message: string | null;
+  /** Facturación habilitada en esta terminal (piloto doble captura). */
+  invoicingEnabled: boolean;
+};
 
 const HEARTBEAT_INTERVAL_MS = 60_000; // 60s
 
@@ -66,6 +71,8 @@ export function App() {
   const [posOps, setPosOps] = useState<PosOperations>({
     enabled: false,
     message: null,
+    // Default facturación ON: solo se apaga si el server lo indica (piloto).
+    invoicingEnabled: true,
   });
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const queryClient = useQueryClient();
@@ -107,6 +114,7 @@ export function App() {
         setPosOps({
           enabled: stored.operations.enabled,
           message: stored.operations.message ?? null,
+          invoicingEnabled: stored.operations.invoicingEnabled ?? true,
         });
       }
       const result = await validateLicense();
@@ -136,12 +144,14 @@ export function App() {
           operations: {
             enabled: result.data.operationsEnabled,
             message: result.data.operationsMessage,
+            invoicingEnabled: result.data.invoicingEnabled ?? true,
           },
         };
         await window.toniclife.session.save(updated);
         setPosOps({
           enabled: result.data.operationsEnabled,
           message: result.data.operationsMessage ?? null,
+          invoicingEnabled: result.data.invoicingEnabled ?? true,
         });
         // Estado de bloqueo inicial (el socket lo confirmará/actualizará al conectar).
         setLock({
@@ -230,6 +240,7 @@ export function App() {
         setPosOps({
           enabled: r.data.operationsEnabled,
           message: r.data.operationsMessage ?? null,
+          invoicingEnabled: r.data.invoicingEnabled ?? true,
         });
         const latest = await window.toniclife.session.load();
         if (latest) {
@@ -239,6 +250,7 @@ export function App() {
               operations: {
                 enabled: r.data.operationsEnabled,
                 message: r.data.operationsMessage,
+                invoicingEnabled: r.data.invoicingEnabled ?? true,
               },
             })
             .catch(() => {});
@@ -322,6 +334,7 @@ export function App() {
       setPosOps({
         enabled: result.data.operationsEnabled,
         message: result.data.operationsMessage ?? null,
+        invoicingEnabled: result.data.invoicingEnabled ?? true,
       });
       const latest = await window.toniclife.session.load();
       if (latest) {
@@ -331,6 +344,7 @@ export function App() {
             operations: {
               enabled: result.data.operationsEnabled,
               message: result.data.operationsMessage,
+              invoicingEnabled: result.data.invoicingEnabled ?? true,
             },
           })
           .catch(() => {});
@@ -433,6 +447,7 @@ export function App() {
             onLogout={handleLogout}
             operationsEnabled={posOps.enabled}
             operationsMessage={posOps.message}
+            invoicingEnabled={posOps.invoicingEnabled}
             onRefresh={refreshStatus}
           />
         )}

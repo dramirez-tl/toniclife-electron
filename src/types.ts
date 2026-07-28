@@ -45,6 +45,9 @@ export interface StoredSession {
   operations?: {
     enabled: boolean;
     message?: string;
+    /** Facturación habilitada en esta terminal (piloto doble captura: false =
+     *  ocultar "Requiere factura"; la factura se emite en el sistema legacy). */
+    invoicingEnabled?: boolean;
   };
 }
 
@@ -115,6 +118,8 @@ export interface TerminalLicenseInfo {
   operationsEnabled: boolean;
   /** Leyenda a mostrar cuando operationsEnabled=false. */
   operationsMessage?: string;
+  /** Facturación habilitada en esta terminal (undefined en APIs viejas = true). */
+  invoicingEnabled?: boolean;
   serverTime: string;
 }
 
@@ -127,6 +132,8 @@ export interface HeartbeatResponse {
   /** Interruptor global de operación del POS (re-aplicado en cada latido). */
   operationsEnabled: boolean;
   operationsMessage?: string;
+  /** Facturación habilitada en esta terminal (undefined en APIs viejas = true). */
+  invoicingEnabled?: boolean;
 }
 
 // ============================================================================

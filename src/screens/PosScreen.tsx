@@ -65,6 +65,9 @@ interface PosScreenProps {
   /** Interruptor global de operación. false = cuerpo bloqueado ("próximamente"). */
   operationsEnabled: boolean;
   operationsMessage?: string | null;
+  /** Facturación habilitada en esta terminal. false = ocultar "Requiere
+   *  factura" (piloto doble captura: la factura se emite en el legacy). */
+  invoicingEnabled?: boolean;
   /** Re-valida contra el server (gate + datos) sin recargar la app. */
   onRefresh?: () => Promise<{
     ok: boolean;
@@ -101,6 +104,7 @@ export function PosScreen({
   onLogout,
   operationsEnabled,
   operationsMessage,
+  invoicingEnabled = true,
   onRefresh,
 }: PosScreenProps) {
   // Rollout: cuerpo bloqueado ("próximamente"). El header sigue vivo para poder
@@ -722,6 +726,7 @@ export function PosScreen({
         branchCountry={session.branch.country?.code}
         customerId={cart.customerId}
         customerRfc={cart.customerRfc}
+        invoicingEnabled={invoicingEnabled}
         isProcessing={isProcessing}
         onConfirm={handlePaymentConfirm}
       />
