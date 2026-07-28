@@ -166,13 +166,9 @@ class PosApi {
   // CLIENTES
   // --------------------------------------------------------------------------
 
-  /** Busqueda de clientes/distribuidores por nombre o numero. */
-  async searchCustomers(query: string, limit = 12): Promise<PosCustomer[]> {
-    const { data } = await api.get('/customers', {
-      params: { search: query, limit, status: 'active' },
-    });
-    /* eslint-disable @typescript-eslint/no-explicit-any */
-    return (data.data ?? []).map((c: any) => ({
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  private mapCustomer(c: any): PosCustomer {
+    return {
       id: c.id,
       customerNumber: c.customerNumber ?? c.customer_number,
       firstName: c.firstName ?? c.first_name ?? '',
@@ -188,8 +184,29 @@ class PosApi {
       rfc: c.rfc,
       priceTypeId: c.priceTypeId ?? c.price_type_id,
       status: c.status,
-    }));
-    /* eslint-enable @typescript-eslint/no-explicit-any */
+    };
+  }
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+
+  /** Busqueda de clientes/distribuidores por nombre o numero (parcial). */
+  async searchCustomers(query: string, limit = 12): Promise<PosCustomer[]> {
+    const { data } = await api.get('/customers', {
+      params: { search: query, limit, status: 'active' },
+    });
+    return (data.data ?? []).map((c: unknown) => this.mapCustomer(c));
+  }
+
+  /** Busqueda EXACTA por numero de distribuidor (customer_number).
+   *  SIN filtro de status a proposito: si el cliente existe pero esta
+   *  inactivo, el POS lo muestra con aviso (explica el "no aparece" de la
+   *  busqueda general, que solo lista activos) — la seleccion se bloquea en
+   *  la UI. toUpperCase: los numeros con letras (codigos hex de respaldo) se
+   *  guardan en mayusculas. */
+  async searchCustomerByNumber(customerNumber: string, limit = 5): Promise<PosCustomer[]> {
+    const { data } = await api.get('/customers', {
+      params: { customerNumber: customerNumber.trim().toUpperCase(), limit },
+    });
+    return (data.data ?? []).map((c: unknown) => this.mapCustomer(c));
   }
 
   /** Progreso de puntos del distribuidor en el periodo activo. */

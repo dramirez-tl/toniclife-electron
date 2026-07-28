@@ -19,6 +19,8 @@ export const posKeys = {
   search: (branchId: string, query: string) =>
     [...posKeys.all, 'search', branchId, query] as const,
   customers: (query: string) => [...posKeys.all, 'customers', query] as const,
+  customerByNumber: (num: string) =>
+    [...posKeys.all, 'customer-by-number', num] as const,
   activeSession: (branchId: string) =>
     [...posKeys.all, 'active-session', branchId] as const,
   sales: (branchId: string, date: string) =>
@@ -67,6 +69,16 @@ export const usePosCustomerSearch = (query: string) =>
     queryKey: posKeys.customers(query),
     queryFn: () => posApi.searchCustomers(query),
     enabled: query.trim().length >= 1,
+    staleTime: 30 * 1000,
+  });
+
+/** Busqueda EXACTA por numero de distribuidor: "2" trae SOLO al socio #2
+ *  (la busqueda general es parcial y puede enterrar el numero corto). */
+export const usePosCustomerByNumber = (customerNumber: string) =>
+  useQuery({
+    queryKey: posKeys.customerByNumber(customerNumber.trim().toUpperCase()),
+    queryFn: () => posApi.searchCustomerByNumber(customerNumber),
+    enabled: customerNumber.trim().length >= 1,
     staleTime: 30 * 1000,
   });
 
