@@ -789,6 +789,8 @@ export function PosScreen({
         saleId={selectedSaleId}
         currencySymbol={currencySymbol}
         branchTz={branchTz}
+        branchName={session.branch.name}
+        ticketName={session.branch.ticketName}
       />
 
       {/* Modal de reintento de timbrado CFDI */}

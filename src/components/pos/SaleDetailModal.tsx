@@ -1,8 +1,8 @@
-// SaleDetailModal - Detalle de una venta + cancelacion.
+// SaleDetailModal - Detalle de una venta + reimpresion de ticket + cancelacion.
 // Se abre al hacer click en una venta de la barra lateral de ventas recientes.
 
 import { useEffect, useState } from 'react';
-import { X, Ban, Receipt } from 'lucide-react';
+import { X, Ban, Receipt, Printer } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -37,6 +37,9 @@ interface SaleDetailModalProps {
   currencySymbol: string;
   /** Zona horaria de la sucursal (para mostrar la fecha/hora en su hora local). */
   branchTz?: string;
+  /** Datos de la sucursal para la REIMPRESION del ticket. */
+  branchName: string;
+  ticketName?: string;
 }
 
 const PAYMENT_LABELS: Record<string, string> = {
@@ -58,11 +61,14 @@ export function SaleDetailModal({
   saleId,
   currencySymbol,
   branchTz,
+  branchName,
+  ticketName,
 }: SaleDetailModalProps) {
   const { data: sale, isLoading } = usePosSale(saleId ?? undefined, isOpen);
   const cancelSale = useCancelSale();
   const [showCancel, setShowCancel] = useState(false);
   const [reason, setReason] = useState('');
+  const [reprinting, setReprinting] = useState(false);
 
   useEffect(() => {
     if (!isOpen) {
@@ -71,12 +77,70 @@ export function SaleDetailModal({
     }
   }, [isOpen]);
 
-  const busy = cancelSale.isPending;
+  const busy = cancelSale.isPending || reprinting;
   const fmt = (n: number) => posApi.formatCurrency(n, currencySymbol);
   const canCancel =
     sale &&
     (sale.status === PosSaleStatus.COMPLETED ||
       sale.status === PosSaleStatus.PENDING);
+  // Reimprimir: solo ventas COMPLETADAS (pendientes no tienen cobro y
+  // canceladas no deben regenerar ticket).
+  const canReprint = sale && sale.status === PosSaleStatus.COMPLETED;
+
+  async function handleReprint() {
+    if (!sale) return;
+    setReprinting(true);
+    try {
+      const cashReceived = sale.payments.reduce(
+        (s, p) => s + (Number(p.amountReceived) || 0),
+        0,
+      );
+      const changeGiven = sale.payments.reduce(
+        (s, p) => s + (Number(p.changeGiven) || 0),
+        0,
+      );
+      // openDrawer=false: una reimpresion NUNCA abre el cajon de dinero.
+      const r = await window.toniclife.printer.printSale(
+        {
+          branchName,
+          ticketName,
+          saleNumber: sale.saleNumber,
+          createdAt: sale.createdAt,
+          customerName: sale.customerName ?? undefined,
+          currencySymbol,
+          items: sale.items.map((it) => ({
+            name: it.productName,
+            quantity: it.quantity,
+            unitPrice: Number(it.unitPrice),
+            total: Number(it.total),
+          })),
+          subtotal: Number(sale.subtotal),
+          discountAmount: Number(sale.discountAmount) || 0,
+          taxAmount: Number(sale.taxAmount),
+          total: Number(sale.total),
+          payments: sale.payments.map((p) => ({
+            label: PAYMENT_LABELS[p.paymentMethod] ?? p.paymentMethod,
+            amount: Number(p.amount),
+          })),
+          amountReceived: cashReceived > 0 ? cashReceived : undefined,
+          changeGiven,
+          accumulatedPoints: sale.accumulatedPoints,
+        },
+        false,
+      );
+      if (r.ok) {
+        toast.success(`Ticket ${sale.saleNumber} reimpreso`);
+      } else {
+        toast.error('No se pudo imprimir el ticket', { description: r.error });
+      }
+    } catch (err) {
+      toast.error(
+        `Error al imprimir: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      setReprinting(false);
+    }
+  }
 
   async function handleCancel() {
     if (!sale || !reason.trim()) {
@@ -318,6 +382,7 @@ export function SaleDetailModal({
               variant="outline"
               size="sm"
               onClick={() => setShowCancel(true)}
+              disabled={busy}
               className="text-destructive border-destructive/40 hover:bg-destructive/5"
             >
               <Ban />
@@ -326,9 +391,22 @@ export function SaleDetailModal({
           ) : (
             <span />
           )}
-          <Button variant="outline" onClick={onClose}>
-            Cerrar
-          </Button>
+          <div className="flex items-center gap-2">
+            {canReprint && (
+              <Button
+                variant="outline"
+                onClick={handleReprint}
+                disabled={busy}
+                data-tour="pos-reprint"
+              >
+                <Printer />
+                {reprinting ? 'Imprimiendo…' : 'Reimprimir ticket'}
+              </Button>
+            )}
+            <Button variant="outline" onClick={onClose} disabled={busy}>
+              Cerrar
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
