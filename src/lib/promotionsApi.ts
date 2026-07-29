@@ -23,7 +23,42 @@ export interface AvailablePromotionForCustomer {
   items?: Array<{ code: string; name: string; quantity: number }>;
 }
 
+/** Promoción vigente en el país de la sucursal (solo informativo). */
+export interface CurrentPromotion {
+  productId: string;
+  code: string;
+  name: string;
+  shortName?: string;
+  description?: string;
+  /** Puntos personales del periodo requeridos para ganar el derecho. */
+  minPointsRequired: number;
+  /** Días de vigencia del derecho desde que se gana. */
+  validityDays: number;
+  /** 'per_period' = cada periodo; 'one_time' = una sola vez. */
+  recurrence: string;
+  /** Ventana de disponibilidad (YYYY-MM-DD); ausente = sin límite. */
+  availableFrom?: string;
+  availableTo?: string;
+  /** Si al canjear se descuentan los puntos del periodo. */
+  consumesPoints: boolean;
+  /** Qué incluye la promo EN ESTE PAÍS (BoM por país). */
+  items: Array<{ code: string; name: string; quantity: number }>;
+}
+
 class PromotionsApi {
+  /**
+   * Promociones VIGENTES en el país de la sucursal — solo informativo para
+   * mostrador (qué promos corren hoy, puntos y qué incluyen). El backend
+   * resuelve el país desde la licencia de la terminal (o branchId).
+   */
+  async listCurrent(branchId: string): Promise<CurrentPromotion[]> {
+    const { data } = await api.get<CurrentPromotion[]>(
+      '/pos/promotions/current',
+      { params: { branchId } },
+    );
+    return data;
+  }
+
   /**
    * Lista promociones que el cliente puede canjear HOY en la sucursal.
    * El backend resuelve country_id desde branchId.

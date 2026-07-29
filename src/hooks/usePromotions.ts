@@ -7,6 +7,22 @@ export const promotionKeys = {
   all: ['promotions'] as const,
   available: (customerId: string, branchId: string) =>
     [...promotionKeys.all, 'available', customerId, branchId] as const,
+  current: (branchId: string) =>
+    [...promotionKeys.all, 'current', branchId] as const,
+};
+
+/**
+ * Promociones VIGENTES en el país de la sucursal (solo informativo, sin
+ * cliente). Para el modal de mostrador.
+ */
+export const useCurrentPromotions = (branchId: string | undefined) => {
+  return useQuery({
+    queryKey: promotionKeys.current(branchId ?? 'disabled'),
+    queryFn: () => promotionsApi.listCurrent(branchId!),
+    enabled: !!branchId,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 15 * 60 * 1000,
+  });
 };
 
 /**

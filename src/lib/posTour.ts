@@ -85,6 +85,16 @@ export function startPosTour(): void {
       },
     },
     {
+      element: '[data-tour="pos-promos"]',
+      popover: {
+        title: 'Promociones vigentes',
+        description:
+          'Consulta qué promociones corren hoy en el país de tu sucursal: ' +
+          'puntos que piden y qué incluyen. Es solo informativo — el canje ' +
+          'aparece en la venta al asignar al distribuidor.',
+      },
+    },
+    {
       element: '[data-tour="pos-transfers"]',
       popover: {
         title: 'Entradas de inventario',

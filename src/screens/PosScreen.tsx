@@ -14,6 +14,7 @@ import {
   UserPlus,
   RefreshCw,
   CircleHelp,
+  BadgePercent,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { LogoMark } from '@/components/LogoMark';
@@ -26,6 +27,7 @@ import { AvailablePromotions } from '@/components/pos/AvailablePromotions';
 import { Cart } from '@/components/pos/Cart';
 import { ResizeHandle } from '@/components/pos/ResizeHandle';
 import { TransfersModal } from '@/components/pos/TransfersModal';
+import { CurrentPromotionsModal } from '@/components/pos/CurrentPromotionsModal';
 import { PaymentModal } from '@/components/pos/PaymentModal';
 import { RecentSales } from '@/components/pos/RecentSales';
 import { CorteModal } from '@/components/pos/CorteModal';
@@ -168,6 +170,8 @@ export function PosScreen({
   const [corteOpen, setCorteOpen] = useState(false);
   const [movementsOpen, setMovementsOpen] = useState(false);
   const [transfersOpen, setTransfersOpen] = useState(false);
+  // Promociones vigentes del país de la sucursal (modal informativo).
+  const [promosOpen, setPromosOpen] = useState(false);
   const [printerSettingsOpen, setPrinterSettingsOpen] = useState(false);
   const [pendingKit, setPendingKit] = useState<QuickProduct | null>(null);
   const [registerOpen, setRegisterOpen] = useState(false);
@@ -588,6 +592,16 @@ export function PosScreen({
             <Button
               variant="ghost"
               size="icon"
+              onClick={() => setPromosOpen(true)}
+              className="text-white/80 hover:text-white hover:bg-white/10"
+              title="Promociones vigentes en esta sucursal (informativo)"
+              data-tour="pos-promos"
+            >
+              <BadgePercent />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={() => setTransfersOpen(true)}
               className="relative text-white/80 hover:text-white hover:bg-white/10"
               title="Entradas de inventario (traspasos)"
@@ -776,6 +790,14 @@ export function PosScreen({
         isOpen={transfersOpen}
         onClose={() => setTransfersOpen(false)}
         branchId={branchId}
+      />
+
+      {/* Promociones vigentes del país de la sucursal (solo informativo) */}
+      <CurrentPromotionsModal
+        isOpen={promosOpen}
+        onClose={() => setPromosOpen(false)}
+        branchId={branchId}
+        branchName={session.branch.name}
       />
 
       {/* Modal de inscripcion por kit */}
