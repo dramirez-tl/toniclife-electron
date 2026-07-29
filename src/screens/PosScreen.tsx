@@ -403,6 +403,7 @@ export function PosScreen({
             saleNumber: result.saleNumber,
             createdAt: new Date().toISOString(),
             customerName: cart.customerName,
+            customerNumber: cart.customerNumber,
             currencySymbol,
             items: cart.items.map((it) => ({
               name: it.productName,

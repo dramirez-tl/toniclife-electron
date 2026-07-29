@@ -191,6 +191,8 @@ export interface SaleReceiptPayload {
   createdAt: string;
   cashier?: string;
   customerName?: string;
+  /** Número de distribuidor/cliente (cotejo ante homónimos). */
+  customerNumber?: string;
   currencySymbol: string;
   items: Array<{
     name: string;

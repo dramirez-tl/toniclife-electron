@@ -169,6 +169,9 @@ export function RecentSales({
                     <span className="text-[11px] text-muted-foreground">
                       {formatTime(sale.createdAt, branchTz)}
                       {sale.customerName ? ` · ${sale.customerName}` : ''}
+                      {/* Número de distribuidor SIEMPRE visible: hay homónimos
+                          en la red y el número es la única forma de cotejar. */}
+                      {sale.customerNumber ? ` #${sale.customerNumber}` : ''}
                     </span>
                     <span className="text-sm font-semibold text-foreground tabular-nums">
                       {fmt(Number(sale.total))}

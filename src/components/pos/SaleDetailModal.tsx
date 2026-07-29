@@ -107,6 +107,7 @@ export function SaleDetailModal({
           saleNumber: sale.saleNumber,
           createdAt: sale.createdAt,
           customerName: sale.customerName ?? undefined,
+          customerNumber: sale.customerNumber ?? undefined,
           currencySymbol,
           items: sale.items.map((it) => ({
             name: it.productName,
@@ -218,6 +219,11 @@ export function SaleDetailModal({
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">
                   {sale.customerName ?? 'Venta a publico'}
+                  {sale.customerNumber ? (
+                    <span className="ml-1 font-mono text-xs">
+                      #{sale.customerNumber}
+                    </span>
+                  ) : null}
                 </span>
                 {sale.status === PosSaleStatus.CANCELLED ? (
                   <Badge variant="destructive">{sale.status}</Badge>

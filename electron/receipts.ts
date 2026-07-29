@@ -377,6 +377,10 @@ export interface SaleReceiptInput {
   createdAt: string;
   cashier?: string;
   customerName?: string;
+  /** Número de distribuidor/cliente — SIEMPRE imprimirlo cuando exista:
+   *  hay homónimos en la red y el número es la única forma de cotejar a
+   *  quién se abonaron los puntos. */
+  customerNumber?: string;
   paperWidth: 58 | 80;
   currencySymbol: string;
 
@@ -425,8 +429,10 @@ export function buildSaleReceiptBytes(input: SaleReceiptInput): Buffer {
 
   p.align('left');
   if (input.customerName) p.line(`Cliente: ${input.customerName}`.slice(0, cols));
+  if (input.customerNumber)
+    p.line(`No. dist: ${input.customerNumber}`.slice(0, cols));
   if (input.cashier) p.line(`Cajero:  ${input.cashier}`.slice(0, cols));
-  if (input.customerName || input.cashier) p.line(sep);
+  if (input.customerName || input.customerNumber || input.cashier) p.line(sep);
 
   // --- ITEMS ---
   for (const it of input.items) {
