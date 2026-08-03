@@ -39,6 +39,13 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
+import {
   useRegisterDistributor,
   useRegisterPreferred,
   useSponsorSearch,
@@ -106,6 +113,8 @@ export function RegisterDistributorModal({
   const [sendEmail, setSendEmail] = useState(true);
   const [chargeKit, setChargeKit] = useState(false);
   const [kitId, setKitId] = useState<string>('');
+  // Kit en vista previa (lightbox de imagen para ver el detalle del kit).
+  const [previewKit, setPreviewKit] = useState<QuickProduct | null>(null);
   const [result, setResult] = useState<KitEnrollmentResponse | null>(null);
 
   // País de residencia: define el portal, catálogo y precios del nuevo registro.
@@ -132,6 +141,7 @@ export function RegisterDistributorModal({
       setSendEmail(true);
       setChargeKit(false);
       setKitId('');
+      setPreviewKit(null);
       setResult(null);
     }
   }, [isOpen]);
@@ -221,14 +231,17 @@ export function RegisterDistributorModal({
   }
 
   return (
-    <Dialog
+    <Sheet
       open={isOpen}
       onOpenChange={(open) => {
         if (!open && !isPending) onClose();
       }}
     >
-      <DialogContent
-        className="max-w-lg max-h-[92vh] overflow-y-auto gap-0 p-0 rounded-2xl"
+      {/* Panel lateral al 50% de la pantalla: mas espacio para el formulario
+          y para las tarjetas de kit con imagen. */}
+      <SheetContent
+        side="right"
+        className="w-1/2 gap-0 overflow-y-auto p-0 sm:max-w-none"
         showCloseButton={false}
         onInteractOutside={(e) => {
           if (isPending) e.preventDefault();
@@ -238,16 +251,16 @@ export function RegisterDistributorModal({
         }}
       >
         {/* Header */}
-        <DialogHeader className="flex-row items-center justify-between space-y-0 px-6 py-4 border-b text-left">
+        <SheetHeader className="sticky top-0 z-10 flex-row items-center justify-between space-y-0 border-b bg-background px-6 py-4 text-left">
           <div className="flex items-center gap-2">
             <UserPlus className="size-5 text-primary" />
             <div>
-              <DialogTitle className="text-lg font-bold text-foreground">
+              <SheetTitle className="text-lg font-bold text-foreground">
                 Registrar {isDistribuidor ? 'distribuidor' : 'cliente preferente'}
-              </DialogTitle>
-              <DialogDescription className="text-xs">
+              </SheetTitle>
+              <SheetDescription className="text-xs">
                 Alta vinculada a un distribuidor patrocinador por su número.
-              </DialogDescription>
+              </SheetDescription>
             </div>
           </div>
           <Button
@@ -260,11 +273,11 @@ export function RegisterDistributorModal({
           >
             <X className="size-4 text-muted-foreground" />
           </Button>
-        </DialogHeader>
+        </SheetHeader>
 
         {result ? (
           /* SUCCESS VIEW */
-          <div className="px-6 py-6 space-y-4">
+          <div className="mx-auto w-full max-w-xl px-6 py-6 space-y-4">
             <div className="flex flex-col items-center text-center gap-2">
               <div className="size-14 rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600">
                 <CheckCircle2 className="size-7" />
@@ -353,7 +366,7 @@ export function RegisterDistributorModal({
           </div>
         ) : (
           /* FORM VIEW */
-          <div className="px-6 py-5 space-y-4">
+          <div className="mx-auto w-full max-w-2xl px-6 py-5 space-y-4">
             {/* Tipo de alta */}
             <div className="flex rounded-lg bg-muted p-1">
               <button
@@ -557,25 +570,55 @@ export function RegisterDistributorModal({
                     No hay kits de inscripción disponibles en esta sucursal.
                   </div>
                 ) : (
-                  <div className="max-h-60 space-y-1.5 overflow-y-auto pr-1">
+                  <div className="grid max-h-[420px] grid-cols-2 gap-2 overflow-y-auto pr-1">
                     {sortedKits.map((k) => {
                       const selected = k.id === kitId;
                       return (
-                        <button
+                        // div clickeable (no <button>) porque la imagen lleva
+                        // su propio boton anidado para abrir el lightbox.
+                        <div
                           key={k.id}
-                          type="button"
+                          role="button"
+                          tabIndex={0}
                           onClick={() => setKitId(selected ? '' : k.id)}
-                          className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left transition-colors ${
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              setKitId(selected ? '' : k.id);
+                            }
+                          }}
+                          className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 transition-colors ${
                             selected
                               ? 'border-primary bg-primary/5 ring-1 ring-primary'
                               : 'border-border bg-background hover:bg-muted/50'
                           }`}
                         >
+                          {/* Imagen del kit: clic = ver en grande (lightbox) */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setPreviewKit(k);
+                            }}
+                            className="group relative size-16 shrink-0 overflow-hidden rounded-md border bg-muted"
+                            title="Ver imagen del kit"
+                          >
+                            {k.imageUrl ? (
+                              <img
+                                src={k.imageUrl}
+                                alt={k.name}
+                                className="size-full object-cover transition-transform group-hover:scale-105"
+                                loading="lazy"
+                              />
+                            ) : (
+                              <Package className="m-auto size-6 text-muted-foreground" />
+                            )}
+                          </button>
                           <div className="min-w-0 flex-1">
-                            <div className="truncate text-sm font-medium text-foreground">
+                            <div className="line-clamp-2 text-sm font-medium leading-snug text-foreground">
                               {k.name}
                             </div>
-                            <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                            <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted-foreground">
                               <span className="font-mono">{k.sku}</span>
                               {k.kitPosition && (
                                 <Badge
@@ -587,14 +630,14 @@ export function RegisterDistributorModal({
                                 </Badge>
                               )}
                             </div>
+                            <div className="mt-0.5 text-sm font-semibold text-foreground">
+                              {posApi.formatCurrency(k.basePrice, currencySymbol)}
+                            </div>
                           </div>
-                          <span className="shrink-0 text-sm font-semibold text-foreground">
-                            {posApi.formatCurrency(k.basePrice, currencySymbol)}
-                          </span>
                           {selected && (
                             <Check className="size-4 shrink-0 text-primary" />
                           )}
-                        </button>
+                        </div>
                       );
                     })}
                   </div>
@@ -629,8 +672,66 @@ export function RegisterDistributorModal({
             </div>
           </div>
         )}
-      </DialogContent>
-    </Dialog>
+        {/* Lightbox: imagen del kit en grande para revisar el detalle */}
+        <Dialog
+          open={!!previewKit}
+          onOpenChange={(open) => {
+            if (!open) setPreviewKit(null);
+          }}
+        >
+          <DialogContent className="max-w-2xl gap-0 overflow-hidden p-0">
+            {previewKit && (
+              <>
+                <DialogHeader className="border-b px-5 py-3 text-left">
+                  <DialogTitle className="text-base font-bold text-foreground">
+                    {previewKit.name}
+                  </DialogTitle>
+                  <DialogDescription className="flex items-center gap-2 text-xs">
+                    <span className="font-mono">{previewKit.sku}</span>
+                    {previewKit.kitPosition && (
+                      <Badge
+                        variant="secondary"
+                        className="px-1.5 py-0 text-[10px]"
+                      >
+                        {KIT_POSITION_LABEL[previewKit.kitPosition] ??
+                          previewKit.kitPosition}
+                      </Badge>
+                    )}
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="flex max-h-[65vh] items-center justify-center bg-muted/30 p-4">
+                  {previewKit.imageUrl ? (
+                    <img
+                      src={previewKit.imageUrl}
+                      alt={previewKit.name}
+                      className="max-h-[60vh] w-auto max-w-full rounded-md object-contain"
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center gap-2 py-16 text-muted-foreground">
+                      <Package className="size-10" />
+                      <span className="text-sm">Este kit no tiene imagen</span>
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-center justify-between border-t px-5 py-3">
+                  <span className="text-lg font-bold text-foreground">
+                    {posApi.formatCurrency(previewKit.basePrice, currencySymbol)}
+                  </span>
+                  <Button
+                    onClick={() => {
+                      setKitId(previewKit.id);
+                      setPreviewKit(null);
+                    }}
+                  >
+                    Seleccionar este kit
+                  </Button>
+                </div>
+              </>
+            )}
+          </DialogContent>
+        </Dialog>
+      </SheetContent>
+    </Sheet>
   );
 }
 
