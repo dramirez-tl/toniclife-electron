@@ -104,6 +104,29 @@ function createWindow(): void {
   // Abrir maximizada (POS de mostrador). El 1280x800 queda como tamaño al restaurar.
   mainWindow.maximize();
 
+  // ESCALA ADAPTATIVA para pantallas chicas (ej. monitores 1280x1024 5:4 de
+  // sucursal): la UI está diseñada para ~1440px+ de ancho; en ventanas más
+  // angostas todo se ve "grande y amontonado" (header encimado, 1.5 columnas
+  // de catálogo). Se aplica un zoom proporcional (ancho/1440, piso 0.78) para
+  // que una pantalla de 1280 se vea como una de 1440. En pantallas grandes el
+  // zoom es exactamente 1.0 — no cambia nada.
+  const applyAdaptiveZoom = () => {
+    const win = mainWindow;
+    if (!win || win.isDestroyed()) return;
+    const [width] = win.getContentSize();
+    const zoom = Math.min(1, Math.max(0.78, width / 1440));
+    win.webContents.setZoomFactor(zoom);
+  };
+  let zoomTimer: NodeJS.Timeout | null = null;
+  const applyAdaptiveZoomDebounced = () => {
+    if (zoomTimer) clearTimeout(zoomTimer);
+    zoomTimer = setTimeout(applyAdaptiveZoom, 120);
+  };
+  mainWindow.webContents.on('did-finish-load', applyAdaptiveZoom);
+  mainWindow.on('resize', applyAdaptiveZoomDebounced);
+  mainWindow.on('maximize', applyAdaptiveZoomDebounced);
+  mainWindow.on('unmaximize', applyAdaptiveZoomDebounced);
+
   // Menú contextual (clic derecho) en campos de texto: Electron NO trae uno
   // por defecto, así que "pegar" con el mouse no existía — el cajero copiaba
   // un número de distribuidor y no podía pegarlo en el buscador. Cortar/
