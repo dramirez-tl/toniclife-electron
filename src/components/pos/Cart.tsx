@@ -3,7 +3,7 @@
 // El descuento MANUAL fue retirado (decisión ago-2026): todo descuento entra
 // por CUPÓN creado en admin, validado server-side y trazado en el canje.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ShoppingCart,
   Trash2,
@@ -55,6 +55,18 @@ export function Cart({
   const [couponError, setCouponError] = useState<string | null>(null);
   const [validatingCoupon, setValidatingCoupon] = useState(false);
 
+  // El panel del cupón se resetea cuando el carrito queda vacío (cobro
+  // exitoso, Vaciar o quitar el último item): el Cart no se desmonta entre
+  // ventas y el input/error quedaban abiertos para la venta siguiente.
+  const cartEmpty = cart.items.length === 0;
+  useEffect(() => {
+    if (cartEmpty) {
+      setShowCoupon(false);
+      setCouponInput('');
+      setCouponError(null);
+    }
+  }, [cartEmpty]);
+
   const itemCount = cart.items.reduce((sum, it) => sum + it.quantity, 0);
   const fmt = (n: number) => posApi.formatCurrency(n, currencySymbol);
   const hasCoupon = !!cart.couponCode && (cart.couponDiscount ?? 0) > 0;
@@ -62,6 +74,7 @@ export function Cart({
   const hasManualDiscount = !!cart.discountAmount && cart.discountAmount > 0;
 
   async function applyCoupon() {
+    if (validatingCoupon) return; // Enter repetido: evita doble validación
     const code = couponInput.trim().toUpperCase();
     if (!code) return;
     setValidatingCoupon(true);

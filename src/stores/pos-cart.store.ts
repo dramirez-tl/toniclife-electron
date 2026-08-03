@@ -93,6 +93,24 @@ const calculateItemTotal = (item: PosCartItem): PosCartItem => {
 };
 
 const calculateCartTotals = (cart: PosCart): PosCart => {
+  // Carrito vacío = venta nueva: ningún descuento/cupón debe sobrevivir (el
+  // cupón de la venta anterior se colaba a la siguiente al quitar items).
+  if (cart.items.length === 0) {
+    return {
+      ...cart,
+      subtotal: 0,
+      taxAmount: 0,
+      total: 0,
+      totalPoints: 0,
+      totalBusinessVolume: 0,
+      discountPercent: undefined,
+      discountAmount: undefined,
+      discountReason: undefined,
+      couponCode: undefined,
+      couponDiscount: undefined,
+      couponDescription: undefined,
+    };
+  }
   const subtotal = cart.items.reduce((sum, item) => sum + item.subtotal, 0);
 
   let globalDiscount = 0;

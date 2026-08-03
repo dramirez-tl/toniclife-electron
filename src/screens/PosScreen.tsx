@@ -283,6 +283,9 @@ export function PosScreen({
   // puede dejar de cumplirse. Si ya no aplica, se retira con aviso.
   const couponBase = Math.round((cart.subtotal + cart.taxAmount) * 100) / 100;
   const cartCouponCode = cart.couponCode;
+  // El cliente asignado también es dependencia: un cupón personal deja de
+  // aplicar si se cambia/quita el distribuidor de la venta.
+  const cartCustomerId = cart.customerId;
   useEffect(() => {
     if (!cartCouponCode || couponBase <= 0) return;
     let cancelled = false;
@@ -291,7 +294,7 @@ export function PosScreen({
         const result = await posApi.validateCoupon({
           code: cartCouponCode,
           subtotal: couponBase,
-          customerId: usePosCartStore.getState().cart.customerId,
+          customerId: cartCustomerId,
         });
         if (cancelled) return;
         const st = usePosCartStore.getState();
@@ -317,7 +320,7 @@ export function PosScreen({
     return () => {
       cancelled = true;
     };
-  }, [cartCouponCode, couponBase]);
+  }, [cartCouponCode, couponBase, cartCustomerId]);
 
   /**
    * Asegura que exista una sesion de caja. Si no hay, auto-abre una con la
@@ -364,6 +367,10 @@ export function PosScreen({
         discountPercent: cart.discountPercent ?? null,
         discountAmount: cart.discountAmount ?? null,
         couponCode: cart.couponCode ?? null,
+        // El monto del cupón y el total también invalidan el intento: una
+        // re-validación puede cambiar el descuento sin cambiar el código.
+        couponDiscount: cart.couponDiscount ?? null,
+        total: cart.total,
       });
       if (
         !saleAttemptRef.current ||
@@ -455,7 +462,10 @@ export function PosScreen({
               total: it.total,
             })),
             subtotal: cart.subtotal,
-            discountAmount: cart.discountAmount ?? 0,
+            // El descuento impreso incluye el del cupón (viaja aparte del
+            // manual en el store; sin esto el ticket salía sin descuento).
+            discountAmount:
+              (cart.couponCode ? cart.couponDiscount : cart.discountAmount) ?? 0,
             taxAmount: cart.taxAmount,
             total: cart.total,
             payments: payments.map((p) => ({
@@ -779,12 +789,14 @@ export function PosScreen({
             isProcessing={isProcessing}
             onCheckout={() => {
               if (cart.items.length === 0) return;
-              // Venta en $0 por promo: no hay nada que cobrar ni facturar →
-              // se completa directo, sin abrir el modal de pago.
+              // Venta en $0 por promo O por cupón que cubre el total: no hay
+              // nada que cobrar → se completa directo, sin modal de pago.
               const hasPromo = cart.items.some(
                 (it) => it.productType === 'promotional',
               );
-              if (cart.total === 0 && hasPromo) {
+              const couponCoversTotal =
+                !!cart.couponCode && (cart.couponDiscount ?? 0) > 0;
+              if (cart.total === 0 && (hasPromo || couponCoversTotal)) {
                 void handlePaymentConfirm([]);
                 return;
               }
