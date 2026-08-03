@@ -278,6 +278,47 @@ export function PosScreen({
     };
   }, [cartPriceTypeId, branchId]);
 
+  // Re-valida el CUPÓN cuando cambia la base del descuento (subtotal +
+  // impuestos, antes de cupón): el % cambia con el total y la compra mínima
+  // puede dejar de cumplirse. Si ya no aplica, se retira con aviso.
+  const couponBase = Math.round((cart.subtotal + cart.taxAmount) * 100) / 100;
+  const cartCouponCode = cart.couponCode;
+  useEffect(() => {
+    if (!cartCouponCode || couponBase <= 0) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await posApi.validateCoupon({
+          code: cartCouponCode,
+          subtotal: couponBase,
+          customerId: usePosCartStore.getState().cart.customerId,
+        });
+        if (cancelled) return;
+        const st = usePosCartStore.getState();
+        if (st.cart.couponCode !== cartCouponCode) return;
+        if (result.valid && result.coupon) {
+          if (result.discount !== st.cart.couponDiscount) {
+            st.setCoupon(
+              result.coupon.code,
+              result.discount,
+              result.coupon.description || undefined,
+            );
+          }
+        } else {
+          st.clearCoupon();
+          toast.warning(
+            `El cupón ${cartCouponCode} se retiró: ${result.reason ?? 'ya no aplica al carrito actual'}`,
+          );
+        }
+      } catch {
+        /* sin red: se conserva el cupón; createSale re-valida en el server */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [cartCouponCode, couponBase]);
+
   /**
    * Asegura que exista una sesion de caja. Si no hay, auto-abre una con la
    * primera caja disponible y monto de apertura 0.
@@ -322,6 +363,7 @@ export function PosScreen({
         ]),
         discountPercent: cart.discountPercent ?? null,
         discountAmount: cart.discountAmount ?? null,
+        couponCode: cart.couponCode ?? null,
       });
       if (
         !saleAttemptRef.current ||
@@ -354,6 +396,7 @@ export function PosScreen({
           discountPercent: cart.discountPercent,
           discountAmount: cart.discountAmount,
           discountReason: cart.discountReason,
+          couponCode: cart.couponCode,
           requiresInvoice: !!invoice,
           notes: cart.notes,
           clientRequestId: attempt.clientRequestId,

@@ -213,6 +213,8 @@ export interface CreateSaleInput {
   discountPercent?: number;
   discountAmount?: number;
   discountReason?: string;
+  /** Código de cupón (el API lo valida y calcula el descuento server-side). */
+  couponCode?: string;
   requiresInvoice?: boolean;
   notes?: string;
   currencyId?: string;
@@ -337,12 +339,33 @@ export interface PosCart {
   discountPercent?: number;
   discountAmount?: number;
   discountReason?: string;
+  /** Cupón aplicado (validado server-side). El descuento del cupón NO pasa
+   *  por discountAmount: se resta del total SIN recalcular impuestos, para
+   *  que el total del cliente coincida exactamente con el de la venta. */
+  couponCode?: string;
+  couponDiscount?: number;
+  couponDescription?: string;
   taxAmount: number;
   total: number;
   totalPoints: number;
   totalBusinessVolume: number;
   requiresInvoice: boolean;
   notes?: string;
+}
+
+/** Respuesta de POST /pos/coupons/validate. */
+export interface PosCouponValidation {
+  valid: boolean;
+  reason?: string;
+  discount: number;
+  coupon?: {
+    id: string;
+    code: string;
+    description: string | null;
+    discountType: string;
+    discountValue: number;
+    employeeOnly: boolean;
+  };
 }
 
 // ============================================================================

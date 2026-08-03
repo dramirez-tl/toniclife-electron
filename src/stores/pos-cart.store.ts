@@ -24,6 +24,9 @@ interface PosCartStore {
     discountAmount?: number,
     discountReason?: string,
   ) => void;
+  /** Fija el cupón validado por el API (código + descuento calculado). */
+  setCoupon: (code: string, discount: number, description?: string) => void;
+  clearCoupon: () => void;
   setRequiresInvoice: (requiresInvoice: boolean) => void;
   setNotes: (notes?: string) => void;
   recalculateTotals: () => void;
@@ -110,7 +113,12 @@ const calculateCartTotals = (cart: PosCart): PosCart => {
     taxAmount = cart.items.reduce((sum, item) => sum + item.taxAmount, 0);
   }
 
-  const total = subtotal - globalDiscount + taxAmount;
+  // El descuento de CUPÓN se resta del total SIN recalcular impuestos: así el
+  // total mostrado coincide EXACTO con el que calcula el API en createSale
+  // (subtotal - descuento + impuestos íntegros). El API valida el cupón sobre
+  // subtotal+impuestos, por eso el % del cupón "incluye" el impuesto.
+  const couponDiscount = cart.couponCode ? (cart.couponDiscount ?? 0) : 0;
+  const total = subtotal - globalDiscount + taxAmount - couponDiscount;
 
   const totalPoints = cart.items.reduce(
     (sum, item) => sum + item.points * item.quantity,
@@ -286,6 +294,32 @@ export const usePosCartStore = create<PosCartStore>()(
             }),
           };
         });
+      },
+
+      setCoupon: (code, discount, description) => {
+        set((state) => ({
+          cart: calculateCartTotals({
+            ...state.cart,
+            couponCode: code,
+            couponDiscount: discount,
+            couponDescription: description,
+            // El cupón excluye el descuento manual (uno u otro).
+            discountPercent: undefined,
+            discountAmount: undefined,
+            discountReason: undefined,
+          }),
+        }));
+      },
+
+      clearCoupon: () => {
+        set((state) => ({
+          cart: calculateCartTotals({
+            ...state.cart,
+            couponCode: undefined,
+            couponDiscount: undefined,
+            couponDescription: undefined,
+          }),
+        }));
       },
 
       setDiscount: (discountPercent, discountAmount, discountReason) => {

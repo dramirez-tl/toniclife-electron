@@ -1,5 +1,7 @@
 // Cart - Panel del carrito del POS.
-// Portado de toniclife-next PosCart: items + cliente + descuento + totales.
+// Portado de toniclife-next PosCart: items + cliente + cupón + totales.
+// El descuento MANUAL fue retirado (decisión ago-2026): todo descuento entra
+// por CUPÓN creado en admin, validado server-side y trazado en el canje.
 
 import { useState } from 'react';
 import {
@@ -12,10 +14,11 @@ import {
   Package,
   ChevronDown,
   ChevronUp,
+  Loader2,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { cn } from '@/lib/utils';
 import { usePosCartStore } from '@/stores/pos-cart.store';
 import { posApi } from '@/lib/posApi';
 import { CustomerSelector } from './CustomerSelector';
@@ -38,7 +41,8 @@ export function Cart({
   const updateItemQuantity = usePosCartStore((s) => s.updateItemQuantity);
   const removeItem = usePosCartStore((s) => s.removeItem);
   const clearCart = usePosCartStore((s) => s.clearCart);
-  const setDiscount = usePosCartStore((s) => s.setDiscount);
+  const setCoupon = usePosCartStore((s) => s.setCoupon);
+  const clearCoupon = usePosCartStore((s) => s.clearCoupon);
 
   const [expandedIncludes, setExpandedIncludes] = useState<
     Record<string, boolean>
@@ -46,33 +50,56 @@ export function Cart({
   const toggleIncludes = (productId: string) =>
     setExpandedIncludes((prev) => ({ ...prev, [productId]: !prev[productId] }));
 
-  const [showDiscount, setShowDiscount] = useState(false);
-  const [discountType, setDiscountType] = useState<'percent' | 'amount'>(
-    'percent',
-  );
-  const [discountValue, setDiscountValue] = useState('');
-  const [discountReason, setDiscountReason] = useState('');
+  const [showCoupon, setShowCoupon] = useState(false);
+  const [couponInput, setCouponInput] = useState('');
+  const [couponError, setCouponError] = useState<string | null>(null);
+  const [validatingCoupon, setValidatingCoupon] = useState(false);
 
   const itemCount = cart.items.reduce((sum, it) => sum + it.quantity, 0);
   const fmt = (n: number) => posApi.formatCurrency(n, currencySymbol);
-  const hasDiscount = !!cart.discountAmount && cart.discountAmount > 0;
+  const hasCoupon = !!cart.couponCode && (cart.couponDiscount ?? 0) > 0;
+  // Compat: descuento manual solo puede venir de estado viejo; ya no hay UI.
+  const hasManualDiscount = !!cart.discountAmount && cart.discountAmount > 0;
 
-  function applyDiscount() {
-    const v = parseFloat(discountValue);
-    if (!Number.isFinite(v) || v <= 0) return;
-    if (discountType === 'percent') {
-      setDiscount(Math.min(v, 100), undefined, discountReason.trim() || undefined);
-    } else {
-      setDiscount(undefined, v, discountReason.trim() || undefined);
+  async function applyCoupon() {
+    const code = couponInput.trim().toUpperCase();
+    if (!code) return;
+    setValidatingCoupon(true);
+    setCouponError(null);
+    try {
+      // Base del descuento: subtotal + impuestos (lo que paga el cliente),
+      // ANTES de cupón. El API re-valida al crear la venta.
+      const result = await posApi.validateCoupon({
+        code,
+        subtotal: Math.round((cart.subtotal + cart.taxAmount) * 100) / 100,
+        customerId: cart.customerId,
+      });
+      if (!result.valid || !result.coupon) {
+        setCouponError(result.reason || 'Cupón inválido');
+        return;
+      }
+      setCoupon(
+        result.coupon.code,
+        result.discount,
+        result.coupon.description || undefined,
+      );
+      setShowCoupon(false);
+      setCouponInput('');
+      toast.success(
+        `Cupón ${result.coupon.code}: - ${fmt(result.discount)}${result.coupon.employeeOnly ? ' (empleados)' : ''}`,
+      );
+    } catch (err) {
+      const e = err as { response?: { data?: { message?: string } } };
+      setCouponError(e.response?.data?.message || 'No se pudo validar el cupón');
+    } finally {
+      setValidatingCoupon(false);
     }
-    setShowDiscount(false);
   }
 
-  function clearDiscount() {
-    setDiscount(undefined, undefined, undefined);
-    setDiscountValue('');
-    setDiscountReason('');
-    setShowDiscount(false);
+  function removeCoupon() {
+    clearCoupon();
+    setCouponInput('');
+    setCouponError(null);
   }
 
   return (
@@ -254,102 +281,84 @@ export function Cart({
         )}
       </div>
 
-      {/* Descuento */}
+      {/* Cupón de descuento (los descuentos manuales fueron retirados) */}
       {cart.items.length > 0 && (
         <div className="border-t px-4 py-2.5">
-          {hasDiscount ? (
+          {hasCoupon ? (
             <div className="flex items-center justify-between text-sm">
-              <span className="flex items-center gap-1.5 text-emerald-700">
-                <Tag className="size-3.5" />
-                Descuento
-                {cart.discountPercent
-                  ? ` (${cart.discountPercent}%)`
-                  : ''}
-                {cart.discountReason ? ` — ${cart.discountReason}` : ''}
+              <span className="flex min-w-0 items-center gap-1.5 text-emerald-700">
+                <Tag className="size-3.5 shrink-0" />
+                <span className="truncate">
+                  Cupón <span className="font-mono font-semibold">{cart.couponCode}</span>
+                  {cart.couponDescription ? ` — ${cart.couponDescription}` : ''}
+                </span>
               </span>
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
-                onClick={clearDiscount}
-                className="size-6 text-muted-foreground hover:bg-transparent hover:text-destructive"
-                title="Quitar descuento"
+                onClick={removeCoupon}
+                className="size-6 shrink-0 text-muted-foreground hover:bg-transparent hover:text-destructive"
+                title="Quitar cupón"
               >
                 <X className="size-4" />
               </Button>
             </div>
-          ) : showDiscount ? (
+          ) : showCoupon ? (
             <div className="space-y-2">
               <div className="flex gap-2">
-                <div className="flex border rounded-md overflow-hidden">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setDiscountType('percent')}
-                    className={cn(
-                      'h-8 rounded-none px-2.5 text-sm',
-                      discountType === 'percent'
-                        ? 'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground'
-                        : 'bg-background',
-                    )}
-                  >
-                    %
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setDiscountType('amount')}
-                    className={cn(
-                      'h-8 rounded-none px-2.5 text-sm',
-                      discountType === 'amount'
-                        ? 'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground'
-                        : 'bg-background',
-                    )}
-                  >
-                    {currencySymbol.trim() || '$'}
-                  </Button>
-                </div>
                 <Input
-                  type="number"
-                  inputMode="decimal"
-                  value={discountValue}
-                  onChange={(e) => setDiscountValue(e.target.value)}
-                  placeholder={discountType === 'percent' ? '0-100' : '0.00'}
-                  className="flex-1 h-8 text-right tabular-nums"
+                  value={couponInput}
+                  onChange={(e) => {
+                    setCouponInput(e.target.value.toUpperCase());
+                    setCouponError(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      void applyCoupon();
+                    }
+                  }}
+                  placeholder="Código del cupón"
+                  className="h-8 flex-1 font-mono uppercase"
                   autoFocus
                 />
-              </div>
-              <Input
-                value={discountReason}
-                onChange={(e) => setDiscountReason(e.target.value)}
-                placeholder="Motivo del descuento (opcional)"
-                className="h-8 text-sm"
-              />
-              <div className="flex gap-2">
-                <Button size="sm" className="flex-1" onClick={applyDiscount}>
-                  Aplicar
+                <Button
+                  size="sm"
+                  onClick={() => void applyCoupon()}
+                  disabled={validatingCoupon || !couponInput.trim()}
+                >
+                  {validatingCoupon ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    'Aplicar'
+                  )}
                 </Button>
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => setShowDiscount(false)}
+                  onClick={() => {
+                    setShowCoupon(false);
+                    setCouponError(null);
+                  }}
                 >
                   Cancelar
                 </Button>
               </div>
+              {couponError && (
+                <p className="text-xs text-destructive">{couponError}</p>
+              )}
             </div>
           ) : (
             <Button
               type="button"
               variant="link"
               size="sm"
-              onClick={() => setShowDiscount(true)}
+              onClick={() => setShowCoupon(true)}
               className="h-auto gap-1.5 p-0 text-xs"
             >
               <Tag className="size-3.5" />
-              Aplicar descuento
+              Aplicar cupón
             </Button>
           )}
         </div>
@@ -361,10 +370,18 @@ export function Cart({
           <span>Subtotal</span>
           <span className="tabular-nums">{fmt(cart.subtotal)}</span>
         </div>
-        {hasDiscount && (
+        {hasManualDiscount && (
           <div className="flex justify-between text-sm text-emerald-600">
             <span>Descuento</span>
             <span className="tabular-nums">- {fmt(cart.discountAmount!)}</span>
+          </div>
+        )}
+        {hasCoupon && (
+          <div className="flex justify-between text-sm text-emerald-600">
+            <span>
+              Cupón <span className="font-mono">{cart.couponCode}</span>
+            </span>
+            <span className="tabular-nums">- {fmt(cart.couponDiscount!)}</span>
           </div>
         )}
         <div className="flex justify-between text-sm text-muted-foreground">

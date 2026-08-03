@@ -25,6 +25,7 @@ import type {
   PosRegisterDistributorRequest,
   PosRegisterPreferredRequest,
   SponsorLookup,
+  PosCouponValidation,
   ActiveCountry,
   SatCatalogItem,
   FiscalData,
@@ -294,6 +295,24 @@ class PosApi {
     const { data } = await api.post(`/pos/sales/${saleId}/stamp`, {
       paymentMethod: invoicePaymentMethod,
     });
+    return data;
+  }
+
+  // --------------------------------------------------------------------------
+  // CUPONES
+  // --------------------------------------------------------------------------
+
+  /** Valida un cupón para la venta en curso. El API resuelve la sucursal por
+   *  el device token; branchId viaja solo como fallback (pruebas web). El
+   *  subtotal es la BASE del descuento: subtotal + impuestos (lo que paga el
+   *  cliente), y el API recalcula/verifica al crear la venta. */
+  async validateCoupon(input: {
+    code: string;
+    subtotal: number;
+    customerId?: string;
+    branchId?: string;
+  }): Promise<PosCouponValidation> {
+    const { data } = await api.post('/pos/coupons/validate', input);
     return data;
   }
 
