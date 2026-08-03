@@ -822,6 +822,7 @@ export function PosScreen({
         onClose={() => setRegisterOpen(false)}
         branchId={branchId}
         branchCountryCode={session.branch.country?.code}
+        currencySymbol={currencySymbol}
         enrollmentKits={enrollmentKits}
         onRegistered={handleDistributorRegistered}
       />

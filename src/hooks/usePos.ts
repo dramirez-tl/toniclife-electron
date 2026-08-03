@@ -21,6 +21,8 @@ export const posKeys = {
   customers: (query: string) => [...posKeys.all, 'customers', query] as const,
   customerByNumber: (num: string) =>
     [...posKeys.all, 'customer-by-number', num] as const,
+  sponsorSearch: (query: string) =>
+    [...posKeys.all, 'sponsor-search', query] as const,
   activeSession: (branchId: string) =>
     [...posKeys.all, 'active-session', branchId] as const,
   sales: (branchId: string, date: string) =>
@@ -79,6 +81,16 @@ export const usePosCustomerByNumber = (customerNumber: string) =>
     queryKey: posKeys.customerByNumber(customerNumber.trim().toUpperCase()),
     queryFn: () => posApi.searchCustomerByNumber(customerNumber),
     enabled: customerNumber.trim().length >= 1,
+    staleTime: 30 * 1000,
+  });
+
+/** Busqueda de patrocinadores (distribuidores) por nombre o numero, para el
+ *  alta desde POS. Dispara desde 1 char (numeros cortos, ej. el socio #2). */
+export const useSponsorSearch = (query: string) =>
+  useQuery({
+    queryKey: posKeys.sponsorSearch(query.trim()),
+    queryFn: () => posApi.searchSponsors(query.trim()),
+    enabled: query.trim().length >= 1,
     staleTime: 30 * 1000,
   });
 

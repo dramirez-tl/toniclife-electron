@@ -343,6 +343,15 @@ class PosApi {
     return data;
   }
 
+  /** Busqueda de patrocinadores por nombre o numero (parcial). Incluye
+   *  inactivos con isValid=false para poder explicar por que no aplican. */
+  async searchSponsors(query: string, limit = 10): Promise<SponsorLookup[]> {
+    const { data } = await api.get('/customers/pos-sponsor/search', {
+      params: { q: query, limit },
+    });
+    return data ?? [];
+  }
+
   /** Alta de distribuidor desde POS (patrocinador por numero, kit opcional). */
   async registerDistributor(
     input: PosRegisterDistributorRequest,

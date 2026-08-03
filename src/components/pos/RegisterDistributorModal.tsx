@@ -7,9 +7,19 @@
 
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { X, UserPlus, CheckCircle2, Copy, Loader2, Check } from 'lucide-react';
+import {
+  X,
+  UserPlus,
+  CheckCircle2,
+  Copy,
+  Loader2,
+  Check,
+  Search,
+  Package,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -28,7 +38,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { useRegisterDistributor, useRegisterPreferred } from '@/hooks/usePos';
+import {
+  useRegisterDistributor,
+  useRegisterPreferred,
+  useSponsorSearch,
+} from '@/hooks/usePos';
 import { posApi } from '@/lib/posApi';
 import type {
   QuickProduct,
@@ -36,12 +50,25 @@ import type {
   SponsorLookup,
 } from '@/types/pos';
 
+const KIT_POSITION_LABEL: Record<string, string> = {
+  basic: 'Básico',
+  premium: 'Premium',
+  preferred: 'Preferente',
+};
+const KIT_POSITION_ORDER: Record<string, number> = {
+  basic: 0,
+  premium: 1,
+  preferred: 2,
+};
+
 interface RegisterDistributorModalProps {
   isOpen: boolean;
   onClose: () => void;
   branchId: string;
   /** Código ISO del país de la sucursal (preselección del selector de país). */
   branchCountryCode?: string;
+  /** Símbolo de moneda de la sucursal (para mostrar precio de los kits). */
+  currencySymbol?: string;
   /** Kits de inscripcion disponibles (productos isEnrollmentKit). */
   enrollmentKits: QuickProduct[];
   /** Llamado al terminar: si se eligio kit, se pasa para cobrarlo. */
@@ -62,13 +89,16 @@ export function RegisterDistributorModal({
   onClose,
   branchId,
   branchCountryCode,
+  currencySymbol = '$',
   enrollmentKits,
   onRegistered,
 }: RegisterDistributorModalProps) {
-  const [sponsorNumber, setSponsorNumber] = useState('');
+  // Buscador de patrocinador: por nombre O numero (parcial), como el buscador
+  // de clientes del carrito. Al seleccionar queda fijado en `sponsor`.
+  const [sponsorQuery, setSponsorQuery] = useState('');
   const [sponsor, setSponsor] = useState<SponsorLookup | null>(null);
-  const [sponsorError, setSponsorError] = useState<string | null>(null);
-  const [lookingUp, setLookingUp] = useState(false);
+  const sponsorSearch = useSponsorSearch(sponsor ? '' : sponsorQuery);
+  const sponsorResults = sponsorSearch.data ?? [];
 
   const [tipo, setTipo] = useState<'distribuidor' | 'preferente'>('distribuidor');
   const [form, setForm] = useState(EMPTY_FORM);
@@ -95,9 +125,8 @@ export function RegisterDistributorModal({
   useEffect(() => {
     if (isOpen) {
       setTipo('distribuidor');
-      setSponsorNumber('');
+      setSponsorQuery('');
       setSponsor(null);
-      setSponsorError(null);
       setForm(EMPTY_FORM);
       setCountryId('');
       setSendEmail(true);
@@ -120,32 +149,25 @@ export function RegisterDistributorModal({
   const set = (k: keyof typeof EMPTY_FORM, v: string) =>
     setForm((f) => ({ ...f, [k]: v }));
 
-  async function handleLookupSponsor() {
-    const num = sponsorNumber.trim();
-    if (!num) return;
-    setLookingUp(true);
-    setSponsorError(null);
-    setSponsor(null);
-    try {
-      const found = await posApi.lookupSponsor(num);
-      if (!found.isValid) {
-        setSponsorError(
-          found.customerType !== 'distributor'
-            ? 'Ese número no es de un distribuidor.'
-            : 'El distribuidor patrocinador no está activo.',
-        );
-        setSponsor(null);
-      } else {
-        setSponsor(found);
-      }
-    } catch (err) {
-      const e = err as { response?: { data?: { message?: string } } };
-      setSponsorError(e.response?.data?.message || 'Patrocinador no encontrado');
-    } finally {
-      setLookingUp(false);
+  function handleSelectSponsor(found: SponsorLookup) {
+    if (!found.isValid) {
+      toast.error(
+        found.customerType !== 'distributor'
+          ? `#${found.customerNumber} no es un distribuidor.`
+          : `El distribuidor #${found.customerNumber} no está activo — no puede patrocinar.`,
+      );
+      return;
     }
+    setSponsor(found);
+    setSponsorQuery('');
   }
 
+  // Kits ordenados por posicion (basico → premium → preferente) y nombre.
+  const sortedKits = [...enrollmentKits].sort((a, b) => {
+    const pa = KIT_POSITION_ORDER[a.kitPosition ?? ''] ?? 99;
+    const pb = KIT_POSITION_ORDER[b.kitPosition ?? ''] ?? 99;
+    return pa !== pb ? pa - pb : a.name.localeCompare(b.name, 'es');
+  });
   const selectedKit = enrollmentKits.find((k) => k.id === kitId) ?? null;
 
   const isDistribuidor = tipo === 'distribuidor';
@@ -362,46 +384,101 @@ export function RegisterDistributorModal({
               </button>
             </div>
 
-            {/* Patrocinador por numero */}
+            {/* Patrocinador: buscador por nombre o numero */}
             <div>
               <Label className="block text-xs font-medium text-muted-foreground mb-1">
-                Número del distribuidor patrocinador *
+                Distribuidor patrocinador *
               </Label>
-              <div className="flex gap-2">
-                <Input
-                  value={sponsorNumber}
-                  onChange={(e) => {
-                    setSponsorNumber(e.target.value);
-                    setSponsor(null);
-                    setSponsorError(null);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      handleLookupSponsor();
-                    }
-                  }}
-                  placeholder="Ej. TL000123"
-                  className="font-mono"
-                  autoFocus
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleLookupSponsor}
-                  disabled={lookingUp || !sponsorNumber.trim()}
-                >
-                  {lookingUp ? <Loader2 className="size-4 animate-spin" /> : 'Validar'}
-                </Button>
-              </div>
-              {sponsor?.isValid && (
-                <p className="mt-1 flex items-center gap-1 text-xs font-medium text-emerald-600">
-                  <Check className="size-3.5" />
-                  {sponsor.name} (#{sponsor.customerNumber})
-                </p>
-              )}
-              {sponsorError && (
-                <p className="mt-1 text-xs text-destructive">{sponsorError}</p>
+              {sponsor ? (
+                <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+                  <Check className="size-4 shrink-0 text-emerald-600" />
+                  <div className="flex-1 min-w-0">
+                    <div className="truncate text-sm font-medium text-emerald-900">
+                      {sponsor.name}
+                    </div>
+                    <div className="font-mono text-[11px] text-emerald-700">
+                      #{sponsor.customerNumber}
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-6 shrink-0 text-muted-foreground hover:text-destructive"
+                    onClick={() => setSponsor(null)}
+                    title="Cambiar patrocinador"
+                  >
+                    <X className="size-4" />
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={sponsorQuery}
+                      onChange={(e) => setSponsorQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        // Enter = seleccionar el primer resultado valido
+                        // (flujo rapido: teclear numero + Enter).
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          const first = sponsorResults.find((s) => s.isValid);
+                          if (first) handleSelectSponsor(first);
+                        }
+                      }}
+                      placeholder="Buscar por nombre o número de distribuidor..."
+                      className="pl-9"
+                      autoFocus
+                    />
+                  </div>
+                  {sponsorQuery.trim().length >= 1 && (
+                    <div className="mt-1 max-h-48 overflow-y-auto rounded-lg border bg-card">
+                      {sponsorSearch.isFetching && sponsorResults.length === 0 ? (
+                        <div className="flex items-center gap-2 px-3 py-2.5 text-sm text-muted-foreground">
+                          <Loader2 className="size-4 animate-spin" />
+                          Buscando...
+                        </div>
+                      ) : sponsorResults.length === 0 ? (
+                        <div className="px-3 py-2.5 text-sm text-muted-foreground">
+                          Sin distribuidores que coincidan con "
+                          {sponsorQuery.trim()}".
+                        </div>
+                      ) : (
+                        <ul className="divide-y">
+                          {sponsorResults.map((s) => (
+                            <li key={s.id}>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                onClick={() => handleSelectSponsor(s)}
+                                className={`block h-auto w-full rounded-none px-3 py-2 text-left whitespace-normal hover:bg-muted/60 ${
+                                  s.isValid ? '' : 'opacity-60'
+                                }`}
+                              >
+                                <div className="text-sm font-medium text-foreground">
+                                  {s.name}
+                                </div>
+                                <div className="flex gap-2 text-[11px] text-muted-foreground">
+                                  <span className="font-mono">
+                                    #{s.customerNumber}
+                                  </span>
+                                  {!s.isValid && (
+                                    <span className="font-medium text-destructive">
+                                      {s.customerType !== 'distributor'
+                                        ? 'NO ES DISTRIBUIDOR'
+                                        : 'INACTIVO — no puede patrocinar'}
+                                    </span>
+                                  )}
+                                </div>
+                              </Button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
@@ -473,27 +550,55 @@ export function RegisterDistributorModal({
                 />
                 Cobrar kit de inscripción ahora
               </Label>
-              {chargeKit && (
-                <Select value={kitId} onValueChange={setKitId}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Selecciona el kit" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {enrollmentKits.length === 0 ? (
-                      <div className="px-3 py-2 text-xs text-muted-foreground">
-                        No hay kits de inscripción en el catálogo
-                      </div>
-                    ) : (
-                      enrollmentKits.map((k) => (
-                        <SelectItem key={k.id} value={k.id}>
-                          {k.sku} — {k.name}
-                          {k.kitPosition ? ` (${k.kitPosition})` : ''}
-                        </SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
-              )}
+              {chargeKit &&
+                (sortedKits.length === 0 ? (
+                  <div className="flex items-center gap-2 rounded-lg border border-dashed px-3 py-3 text-xs text-muted-foreground">
+                    <Package className="size-4 shrink-0" />
+                    No hay kits de inscripción disponibles en esta sucursal.
+                  </div>
+                ) : (
+                  <div className="max-h-60 space-y-1.5 overflow-y-auto pr-1">
+                    {sortedKits.map((k) => {
+                      const selected = k.id === kitId;
+                      return (
+                        <button
+                          key={k.id}
+                          type="button"
+                          onClick={() => setKitId(selected ? '' : k.id)}
+                          className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left transition-colors ${
+                            selected
+                              ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                              : 'border-border bg-background hover:bg-muted/50'
+                          }`}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm font-medium text-foreground">
+                              {k.name}
+                            </div>
+                            <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                              <span className="font-mono">{k.sku}</span>
+                              {k.kitPosition && (
+                                <Badge
+                                  variant="secondary"
+                                  className="px-1.5 py-0 text-[10px]"
+                                >
+                                  {KIT_POSITION_LABEL[k.kitPosition] ??
+                                    k.kitPosition}
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                          <span className="shrink-0 text-sm font-semibold text-foreground">
+                            {posApi.formatCurrency(k.basePrice, currencySymbol)}
+                          </span>
+                          {selected && (
+                            <Check className="size-4 shrink-0 text-primary" />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
               {!chargeKit && (
                 <p className="text-[11px] text-muted-foreground">
                   Sin kit, el distribuidor queda pendiente hasta que compre uno.
