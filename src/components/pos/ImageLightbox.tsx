@@ -7,7 +7,7 @@
 // se recorte: al 100% se ajusta con unidades de viewport (92vw / alto libre)
 // y el zoom escala sobre ese base.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ZoomIn, ZoomOut, RotateCcw, ImageOff, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -45,9 +45,55 @@ export function ImageLightbox({
 }: ImageLightboxProps) {
   const [zoom, setZoom] = useState(1);
 
+  // Paneo con clic sostenido cuando hay zoom: se arrastra el scroll del
+  // contenedor (patrón visor de galería). Los listeners de move/up van en
+  // window para no perder el arrastre al salir del área.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const dragStartRef = useRef<{
+    x: number;
+    y: number;
+    scrollLeft: number;
+    scrollTop: number;
+  } | null>(null);
+  const [dragging, setDragging] = useState(false);
+
   useEffect(() => {
     if (open) setZoom(1);
   }, [open, src]);
+
+  useEffect(() => {
+    if (!dragging) return;
+    const onMove = (e: MouseEvent) => {
+      const el = scrollRef.current;
+      const d = dragStartRef.current;
+      if (!el || !d) return;
+      el.scrollLeft = d.scrollLeft - (e.clientX - d.x);
+      el.scrollTop = d.scrollTop - (e.clientY - d.y);
+      e.preventDefault();
+    };
+    const onUp = () => setDragging(false);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [dragging]);
+
+  const startDrag = (e: React.MouseEvent) => {
+    // Solo clic izquierdo, con imagen y con zoom (al 100% no hay a dónde moverse).
+    if (e.button !== 0 || !src || zoom <= 1) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    dragStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      scrollLeft: el.scrollLeft,
+      scrollTop: el.scrollTop,
+    };
+    setDragging(true);
+    e.preventDefault();
+  };
 
   const clampZoom = (z: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
 
@@ -130,15 +176,22 @@ export function ImageLightbox({
           </div>
         </div>
 
-        {/* Area de imagen: centrada; con zoom scrollea para recorrerla */}
+        {/* Area de imagen: centrada; con zoom se recorre arrastrando (clic
+            sostenido) o con scroll */}
         <div
+          ref={scrollRef}
           className="h-full w-full overflow-auto pt-14"
-          style={footer ? { paddingBottom: 60 } : undefined}
+          style={{
+            ...(footer ? { paddingBottom: 60 } : null),
+            cursor:
+              src && zoom > 1 ? (dragging ? 'grabbing' : 'grab') : undefined,
+          }}
           onWheel={(e) => {
             if (!src) return;
             setZoom((z) => clampZoom(z + (e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP)));
           }}
           onDoubleClick={() => src && setZoom((z) => (z > 1 ? 1 : 2))}
+          onMouseDown={startDrag}
         >
           <div className="flex min-h-full w-max min-w-full items-center justify-center p-4">
             {src ? (
@@ -152,7 +205,7 @@ export function ImageLightbox({
                     ? { maxHeight: maxH, maxWidth: '92vw', objectFit: 'contain' }
                     : { width: `${zoom * 92}vw`, maxWidth: 'none' }
                 }
-                title="Doble clic o rueda del mouse para hacer zoom"
+                title="Doble clic o rueda del mouse para hacer zoom · con zoom, arrastra para moverte"
               />
             ) : (
               <div className="flex flex-col items-center gap-2 py-16 text-white/60">
