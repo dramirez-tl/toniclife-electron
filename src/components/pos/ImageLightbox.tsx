@@ -58,7 +58,10 @@ export function ImageLightbox({
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent
         showCloseButton={false}
-        className="inset-0 left-0 top-0 h-screen w-screen max-w-none translate-x-0 translate-y-0 gap-0 rounded-none border-0 bg-black/95 p-0"
+        // sm:max-w-none es OBLIGATORIO: el DialogContent base trae sm:max-w-lg
+        // (512px) y un max-w-none "a secas" no anula la variante sm: — el visor
+        // quedaba como columna de 512px pegada a la izquierda.
+        className="inset-0 left-0 top-0 h-screen w-screen max-w-none translate-x-0 translate-y-0 gap-0 rounded-none border-0 bg-black/95 p-0 sm:max-w-none"
       >
         {/* Barra superior: titulo + controles (patron visor de galeria) */}
         <div className="absolute inset-x-0 top-0 z-10 flex h-14 items-center justify-between gap-4 px-4">
