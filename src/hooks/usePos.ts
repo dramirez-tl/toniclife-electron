@@ -23,6 +23,8 @@ export const posKeys = {
     [...posKeys.all, 'customer-by-number', num] as const,
   sponsorSearch: (query: string) =>
     [...posKeys.all, 'sponsor-search', query] as const,
+  sponsorByNumber: (num: string) =>
+    [...posKeys.all, 'sponsor-by-number', num] as const,
   activeSession: (branchId: string) =>
     [...posKeys.all, 'active-session', branchId] as const,
   sales: (branchId: string, date: string) =>
@@ -92,6 +94,17 @@ export const useSponsorSearch = (query: string) =>
     queryFn: () => posApi.searchSponsors(query.trim()),
     enabled: query.trim().length >= 1,
     staleTime: 30 * 1000,
+  });
+
+/** Patrocinador por numero EXACTO (endpoint pos-sponsor/:number). "2" trae
+ *  SOLO al socio #2. retry:false — el 404 significa "no existe", no fallo. */
+export const useSponsorByNumber = (customerNumber: string) =>
+  useQuery({
+    queryKey: posKeys.sponsorByNumber(customerNumber.trim().toUpperCase()),
+    queryFn: () => posApi.lookupSponsor(customerNumber),
+    enabled: customerNumber.trim().length >= 1,
+    staleTime: 30 * 1000,
+    retry: false,
   });
 
 /** Sesion de caja activa de la sucursal (la del usuario de sistema terminal). */

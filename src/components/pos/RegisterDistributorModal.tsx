@@ -15,6 +15,7 @@ import {
   Loader2,
   Check,
   Search,
+  Hash,
   Package,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -49,6 +50,7 @@ import {
   useRegisterDistributor,
   useRegisterPreferred,
   useSponsorSearch,
+  useSponsorByNumber,
 } from '@/hooks/usePos';
 import { posApi } from '@/lib/posApi';
 import type {
@@ -100,12 +102,26 @@ export function RegisterDistributorModal({
   enrollmentKits,
   onRegistered,
 }: RegisterDistributorModalProps) {
-  // Buscador de patrocinador: por nombre O numero (parcial), como el buscador
-  // de clientes del carrito. Al seleccionar queda fijado en `sponsor`.
+  // Buscador de patrocinador con DOS inputs (mismo patron que el buscador de
+  // clientes del carrito): general por nombre/apellidos, y numero EXACTO
+  // (hay distribuidores con numero de 1 digito que la busqueda general
+  // enterraria). Al seleccionar queda fijado en `sponsor`.
   const [sponsorQuery, setSponsorQuery] = useState('');
+  const [sponsorNumber, setSponsorNumber] = useState('');
   const [sponsor, setSponsor] = useState<SponsorLookup | null>(null);
-  const sponsorSearch = useSponsorSearch(sponsor ? '' : sponsorQuery);
-  const sponsorResults = sponsorSearch.data ?? [];
+  const byNumber = sponsorNumber.trim().length >= 1;
+  const sponsorSearch = useSponsorSearch(
+    sponsor || byNumber ? '' : sponsorQuery,
+  );
+  const numberLookup = useSponsorByNumber(sponsor ? '' : sponsorNumber);
+  const sponsorResults = byNumber
+    ? numberLookup.data
+      ? [numberLookup.data]
+      : []
+    : (sponsorSearch.data ?? []);
+  const sponsorFetching = byNumber
+    ? numberLookup.isFetching
+    : sponsorSearch.isFetching;
 
   const [tipo, setTipo] = useState<'distribuidor' | 'preferente'>('distribuidor');
   const [form, setForm] = useState(EMPTY_FORM);
@@ -135,6 +151,7 @@ export function RegisterDistributorModal({
     if (isOpen) {
       setTipo('distribuidor');
       setSponsorQuery('');
+      setSponsorNumber('');
       setSponsor(null);
       setForm(EMPTY_FORM);
       setCountryId('');
@@ -170,6 +187,7 @@ export function RegisterDistributorModal({
     }
     setSponsor(found);
     setSponsorQuery('');
+    setSponsorNumber('');
   }
 
   // Kits ordenados por posicion (basico → premium → preferente) y nombre.
@@ -426,36 +444,58 @@ export function RegisterDistributorModal({
                 </div>
               ) : (
                 <>
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      value={sponsorQuery}
-                      onChange={(e) => setSponsorQuery(e.target.value)}
-                      onKeyDown={(e) => {
-                        // Enter = seleccionar el primer resultado valido
-                        // (flujo rapido: teclear numero + Enter).
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          const first = sponsorResults.find((s) => s.isValid);
-                          if (first) handleSelectSponsor(first);
-                        }
-                      }}
-                      placeholder="Buscar por nombre o número de distribuidor..."
-                      className="pl-9"
-                      autoFocus
-                    />
+                  <div className="grid grid-cols-2 gap-2">
+                    {/* Busqueda general: nombre, apellidos o email */}
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        value={sponsorQuery}
+                        onChange={(e) => {
+                          setSponsorQuery(e.target.value);
+                          if (e.target.value.trim()) setSponsorNumber('');
+                        }}
+                        placeholder="Nombre y apellidos..."
+                        className="pl-9"
+                        autoFocus
+                      />
+                    </div>
+                    {/* Numero de distribuidor EXACTO: "2" trae SOLO al #2 */}
+                    <div className="relative">
+                      <Hash className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        value={sponsorNumber}
+                        onChange={(e) => {
+                          setSponsorNumber(e.target.value);
+                          if (e.target.value.trim()) setSponsorQuery('');
+                        }}
+                        onKeyDown={(e) => {
+                          // Enter = seleccionar el resultado exacto (flujo
+                          // rapido: teclear numero + Enter).
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            const first = sponsorResults.find(
+                              (s) => s.isValid,
+                            );
+                            if (first) handleSelectSponsor(first);
+                          }
+                        }}
+                        placeholder="No. EXACTO (ej. 2) + Enter"
+                        className="pl-9 font-mono"
+                      />
+                    </div>
                   </div>
-                  {sponsorQuery.trim().length >= 1 && (
+                  {(byNumber || sponsorQuery.trim().length >= 1) && (
                     <div className="mt-1 max-h-48 overflow-y-auto rounded-lg border bg-card">
-                      {sponsorSearch.isFetching && sponsorResults.length === 0 ? (
+                      {sponsorFetching && sponsorResults.length === 0 ? (
                         <div className="flex items-center gap-2 px-3 py-2.5 text-sm text-muted-foreground">
                           <Loader2 className="size-4 animate-spin" />
                           Buscando...
                         </div>
                       ) : sponsorResults.length === 0 ? (
                         <div className="px-3 py-2.5 text-sm text-muted-foreground">
-                          Sin distribuidores que coincidan con "
-                          {sponsorQuery.trim()}".
+                          {byNumber
+                            ? `No existe ningún distribuidor con el número exacto "${sponsorNumber.trim()}".`
+                            : `Sin distribuidores que coincidan con "${sponsorQuery.trim()}".`}
                         </div>
                       ) : (
                         <ul className="divide-y">
