@@ -54,11 +54,20 @@ function findLogoPath(filename: string): string | null {
  * @returns Buffer con bytes ESC/POS listos para mandar al spooler, o null si
  *          no se pudo cargar/procesar el logo (no abortar la impresion).
  */
+// El rasterizado (decode PNG + resize + umbral pixel a pixel) cuesta decenas
+// de ms y el resultado es identico en cada ticket — se cachea por parametros.
+// Solo se cachean exitos: un PNG faltante se reintenta en el siguiente print.
+const logoBytesCache = new Map<string, Buffer>();
+
 export function buildLogoBitmapBytes(
   widthDots = 200,
   filename = 'logo-circle-dark-filled.png',
   threshold = 160,
 ): Buffer | null {
+  const cacheKey = `${widthDots}|${filename}|${threshold}`;
+  const cached = logoBytesCache.get(cacheKey);
+  if (cached) return cached;
+
   const logoPath = findLogoPath(filename);
   if (!logoPath) {
     console.warn(`[logo] PNG no encontrado: ${filename}`);
@@ -120,10 +129,13 @@ export function buildLogoBitmapBytes(
     const yH = (height >> 8) & 0xff;
 
     // GS v 0 m xL xH yL yH d1...dn  (m=0 = normal, sin doble densidad)
-    return Buffer.concat([
+    const result = Buffer.concat([
       Buffer.from([0x1d, 0x76, 0x30, 0x00, xL, xH, yL, yH]),
       monoBytes,
     ]);
+    // Nadie muta estos bytes (solo se concatenan al ticket) — cache directo.
+    logoBytesCache.set(cacheKey, result);
+    return result;
   } catch (err) {
     console.warn(
       `[logo] Error procesando ${logoPath}: ${

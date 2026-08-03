@@ -23,6 +23,7 @@ import {
   listOsPrinters,
   type PrinterConfig,
 } from './printer';
+import { warmUpRawPrinter, disposeRawPrinterWorker } from './printraw';
 import type { CorteReceiptInput, SaleReceiptInput } from './receipts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -171,6 +172,9 @@ ipcMain.handle('printer:list', () => listOsPrinters(mainWindow));
 ipcMain.handle('printer:loadConfig', () => loadPrinterConfig());
 ipcMain.handle('printer:saveConfig', (_evt, config: PrinterConfig) => {
   savePrinterConfig(config);
+  // Si acaban de configurar impresora de sistema, dejar el worker RAW listo
+  // para que el primer ticket no pague el arranque.
+  if (config.connection === 'system') warmUpRawPrinter();
 });
 ipcMain.handle(
   'printer:testPrint',
@@ -231,6 +235,10 @@ app.whenReady().then(() => {
   // Auto-actualización (solo empaquetado; en dev es no-op con log).
   setupAutoUpdater(() => mainWindow);
 
+  // Impresora de sistema configurada: precalentar el worker RAW (arranque de
+  // PowerShell + compilación del C#) para que el PRIMER ticket salga rápido.
+  if (loadPrinterConfig()?.connection === 'system') warmUpRawPrinter();
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
@@ -238,4 +246,8 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('quit', () => {
+  disposeRawPrinterWorker();
 });
