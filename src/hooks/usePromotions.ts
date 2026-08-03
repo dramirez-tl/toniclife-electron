@@ -20,7 +20,10 @@ export const useCurrentPromotions = (branchId: string | undefined) => {
     queryKey: promotionKeys.current(branchId ?? 'disabled'),
     queryFn: () => promotionsApi.listCurrent(branchId!),
     enabled: !!branchId,
-    staleTime: 5 * 60 * 1000,
+    // Sin staleTime: el query solo corre mientras el modal está abierto y
+    // el mostrador debe ver SIEMPRE lo vigente (una promo/imagen recién
+    // cambiada en admin aparecía hasta 5 min después por el cache).
+    staleTime: 0,
     gcTime: 15 * 60 * 1000,
   });
 };
