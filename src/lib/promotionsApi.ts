@@ -6,6 +6,7 @@
 // saber el UUID del pais.
 
 import { api } from './api';
+import { resolveImageUrl } from './posApi';
 
 export interface AvailablePromotionForCustomer {
   productId: string;
@@ -41,6 +42,8 @@ export interface CurrentPromotion {
   availableTo?: string;
   /** Si al canjear se descuentan los puntos del periodo. */
   consumesPoints: boolean;
+  /** Imagen de la promo EN ESTE PAÍS (override de regla o imagen base). */
+  imageUrl?: string;
   /** Qué incluye la promo EN ESTE PAÍS (BoM por país). */
   items: Array<{ code: string; name: string; quantity: number }>;
 }
@@ -56,7 +59,10 @@ class PromotionsApi {
       '/pos/promotions/current',
       { params: { branchId } },
     );
-    return data;
+    return (data ?? []).map((p) => ({
+      ...p,
+      imageUrl: resolveImageUrl(p.imageUrl),
+    }));
   }
 
   /**

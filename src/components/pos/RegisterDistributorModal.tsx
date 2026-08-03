@@ -33,19 +33,13 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {
   Sheet,
   SheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
+import { ImageLightbox } from '@/components/pos/ImageLightbox';
 import {
   useRegisterDistributor,
   useRegisterPreferred,
@@ -712,64 +706,44 @@ export function RegisterDistributorModal({
             </div>
           </div>
         )}
-        {/* Lightbox: imagen del kit en grande para revisar el detalle */}
-        <Dialog
+        {/* Lightbox: imagen del kit en grande (con zoom) para revisar el detalle */}
+        <ImageLightbox
           open={!!previewKit}
-          onOpenChange={(open) => {
-            if (!open) setPreviewKit(null);
-          }}
-        >
-          <DialogContent className="max-w-2xl gap-0 overflow-hidden p-0">
-            {previewKit && (
+          onClose={() => setPreviewKit(null)}
+          src={previewKit?.imageUrl}
+          alt={previewKit?.name ?? 'Kit'}
+          title={previewKit?.name ?? ''}
+          subtitle={
+            previewKit && (
               <>
-                <DialogHeader className="border-b px-5 py-3 text-left">
-                  <DialogTitle className="text-base font-bold text-foreground">
-                    {previewKit.name}
-                  </DialogTitle>
-                  <DialogDescription className="flex items-center gap-2 text-xs">
-                    <span className="font-mono">{previewKit.sku}</span>
-                    {previewKit.kitPosition && (
-                      <Badge
-                        variant="secondary"
-                        className="px-1.5 py-0 text-[10px]"
-                      >
-                        {KIT_POSITION_LABEL[previewKit.kitPosition] ??
-                          previewKit.kitPosition}
-                      </Badge>
-                    )}
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="flex max-h-[65vh] items-center justify-center bg-muted/30 p-4">
-                  {previewKit.imageUrl ? (
-                    <img
-                      src={previewKit.imageUrl}
-                      alt={previewKit.name}
-                      className="max-h-[60vh] w-auto max-w-full rounded-md object-contain"
-                    />
-                  ) : (
-                    <div className="flex flex-col items-center gap-2 py-16 text-muted-foreground">
-                      <Package className="size-10" />
-                      <span className="text-sm">Este kit no tiene imagen</span>
-                    </div>
-                  )}
-                </div>
-                <div className="flex items-center justify-between border-t px-5 py-3">
-                  <span className="text-lg font-bold text-foreground">
-                    {posApi.formatCurrency(previewKit.basePrice, currencySymbol)}
-                  </span>
-                  <Button
-                    onClick={() => {
-                      setKitId(previewKit.id);
-                      setPreviewKit(null);
-                    }}
-                  >
-                    Seleccionar este kit
-                  </Button>
-                </div>
+                <span className="font-mono">{previewKit.sku}</span>
+                {previewKit.kitPosition && (
+                  <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
+                    {KIT_POSITION_LABEL[previewKit.kitPosition] ??
+                      previewKit.kitPosition}
+                  </Badge>
+                )}
               </>
-            )}
-          </DialogContent>
-        </Dialog>
+            )
+          }
+          footer={
+            previewKit && (
+              <>
+                <span className="text-lg font-bold text-foreground">
+                  {posApi.formatCurrency(previewKit.basePrice, currencySymbol)}
+                </span>
+                <Button
+                  onClick={() => {
+                    setKitId(previewKit.id);
+                    setPreviewKit(null);
+                  }}
+                >
+                  Seleccionar este kit
+                </Button>
+              </>
+            )
+          }
+        />
       </SheetContent>
     </Sheet>
   );

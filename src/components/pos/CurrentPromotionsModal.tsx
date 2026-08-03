@@ -3,6 +3,7 @@
 // qué incluyen en este país. No otorga ni canjea nada — los derechos se ganan
 // automáticamente por puntos y el canje aparece al asignar al distribuidor.
 
+import { useState } from 'react';
 import {
   X,
   BadgePercent,
@@ -21,7 +22,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { ImageLightbox } from '@/components/pos/ImageLightbox';
 import { useCurrentPromotions } from '@/hooks/usePromotions';
+import type { CurrentPromotion } from '@/lib/promotionsApi';
 
 interface CurrentPromotionsModalProps {
   isOpen: boolean;
@@ -46,6 +49,10 @@ export function CurrentPromotionsModal({
 }: CurrentPromotionsModalProps) {
   const { data: promos = [], isLoading } = useCurrentPromotions(
     isOpen ? branchId : undefined,
+  );
+  // Promo cuya imagen se ve en grande (lightbox con zoom).
+  const [previewPromo, setPreviewPromo] = useState<CurrentPromotion | null>(
+    null,
   );
 
   return (
@@ -108,15 +115,33 @@ export function CurrentPromotionsModal({
                 <CardContent className="p-0">
                   {/* Encabezado de la promo */}
                   <div className="flex items-start justify-between gap-3 border-b px-4 py-3">
-                    <div className="min-w-0">
-                      <div className="text-sm font-semibold text-foreground">
-                        {p.name}
-                      </div>
-                      {p.description && (
-                        <div className="mt-0.5 text-xs text-muted-foreground">
-                          {p.description}
-                        </div>
+                    <div className="flex min-w-0 items-start gap-3">
+                      {/* Imagen de la promo (si tiene): clic = ver en grande */}
+                      {p.imageUrl && (
+                        <button
+                          type="button"
+                          onClick={() => setPreviewPromo(p)}
+                          className="group relative size-14 shrink-0 overflow-hidden rounded-md border bg-muted"
+                          title="Ver imagen de la promoción"
+                        >
+                          <img
+                            src={p.imageUrl}
+                            alt={p.name}
+                            className="size-full object-cover transition-transform group-hover:scale-105"
+                            loading="lazy"
+                          />
+                        </button>
                       )}
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-foreground">
+                          {p.name}
+                        </div>
+                        {p.description && (
+                          <div className="mt-0.5 text-xs text-muted-foreground">
+                            {p.description}
+                          </div>
+                        )}
+                      </div>
                     </div>
                     <span className="shrink-0 rounded-md bg-muted px-2 py-1 font-mono text-xs font-medium text-foreground">
                       {p.code}
@@ -171,6 +196,20 @@ export function CurrentPromotionsModal({
             ))
           )}
         </div>
+
+        {/* Imagen en grande con zoom */}
+        <ImageLightbox
+          open={!!previewPromo}
+          onClose={() => setPreviewPromo(null)}
+          src={previewPromo?.imageUrl}
+          alt={previewPromo?.name ?? 'Promoción'}
+          title={previewPromo?.name ?? ''}
+          subtitle={
+            previewPromo && (
+              <span className="font-mono">{previewPromo.code}</span>
+            )
+          }
+        />
       </DialogContent>
     </Dialog>
   );
