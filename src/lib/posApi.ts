@@ -54,6 +54,8 @@ function mapApiProduct(p: any): QuickProduct {
     imageUrl: resolveImageUrl(p.imageUrl),
     basePrice: parseFloat(p.price || '0'),
     categoryName: p.categoryName,
+    description: p.description ?? undefined,
+    shortName: p.shortName ?? undefined,
     stock: isKit ? undefined : p.stock,
     isActive: p.isActive,
     taxRate: p.taxRate != null ? Number(p.taxRate) : undefined,

@@ -357,6 +357,9 @@ export interface QuickProduct {
   imageUrl?: string;
   basePrice: number;
   categoryName?: string;
+  /** Descripción del producto (modal informativo ⓘ del catálogo). */
+  description?: string;
+  shortName?: string;
   stock?: number;
   isActive: boolean;
   taxRate?: number;

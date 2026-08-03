@@ -3,7 +3,7 @@
 // precio publico, sin price tiers — eso llega en 4c con el selector de cliente).
 
 import { useMemo, useState } from 'react';
-import { Search, ScanBarcode, PackageX, Plus, ListPlus } from 'lucide-react';
+import { Search, ScanBarcode, PackageX, Plus, ListPlus, Info } from 'lucide-react';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import { usePosCatalog } from '@/hooks/usePos';
 import { usePosCartStore } from '@/stores/pos-cart.store';
 import { posApi } from '@/lib/posApi';
+import { ProductInfoModal } from './ProductInfoModal';
 import type { QuickProduct } from '@/types/pos';
 
 interface ProductGridProps {
@@ -34,6 +35,8 @@ export function ProductGrid({
   const cartItems = usePosCartStore((s) => s.cart.items);
 
   const [filter, setFilter] = useState('');
+  // Producto abierto en el modal informativo (botón ⓘ del card).
+  const [infoProduct, setInfoProduct] = useState<QuickProduct | null>(null);
   const [skuInput, setSkuInput] = useState('');
   const [skuLoading, setSkuLoading] = useState(false);
   const [bulkMode, setBulkMode] = useState(false);
@@ -335,8 +338,11 @@ export function ProductGrid({
                 product.stock != null && product.stock <= 0;
               const inCart = cartQtyByProduct.get(product.id) ?? 0;
               return (
+                // Wrapper relativo: el botón ⓘ vive FUERA del Button del card
+                // (un button no puede anidar otro, y con "Agotado" el card se
+                // deshabilita y tragaría el clic — la info debe verse siempre).
+                <div key={product.id} className="relative">
                 <Button
-                  key={product.id}
                   type="button"
                   variant="outline"
                   onClick={() => handleAdd(product)}
@@ -399,11 +405,29 @@ export function ProductGrid({
                     </div>
                   </div>
                 </Button>
+                {/* ⓘ Detalle informativo (funciona también en agotados) */}
+                <button
+                  type="button"
+                  onClick={() => setInfoProduct(product)}
+                  className="absolute left-2 top-2 z-10 rounded-full border bg-background/90 p-1 text-muted-foreground shadow-sm transition-colors hover:bg-background hover:text-primary"
+                  title="Ver detalles del producto"
+                  aria-label={`Ver detalles de ${product.name}`}
+                >
+                  <Info className="size-4" />
+                </button>
+                </div>
               );
             })}
           </div>
         )}
       </div>
+
+      {/* Modal de detalle informativo (ⓘ) */}
+      <ProductInfoModal
+        product={infoProduct}
+        onClose={() => setInfoProduct(null)}
+        currencySymbol={currencySymbol}
+      />
     </div>
   );
 }
