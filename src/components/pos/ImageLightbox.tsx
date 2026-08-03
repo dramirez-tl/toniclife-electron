@@ -3,7 +3,7 @@
 // doble clic (alterna 100% / 200%) o botones; con zoom el contenedor
 // scrollea para recorrer la imagen.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ZoomIn, ZoomOut, RotateCcw, ImageOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -41,12 +41,25 @@ export function ImageLightbox({
   footer,
 }: ImageLightboxProps) {
   const [zoom, setZoom] = useState(1);
+  // Ancho útil del contenedor de scroll: la imagen se ajusta a él al 100%
+  // (sin recortarse contra el diálogo) y el zoom escala sobre ese base en
+  // píxeles (un % contra un contenedor w-max no es determinista).
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [baseWidth, setBaseWidth] = useState<number | null>(null);
 
   useEffect(() => {
-    if (open) setZoom(1);
-  }, [open]);
+    if (!open) return;
+    setZoom(1);
+    // Medir tras el commit del DOM del dialog abierto.
+    const id = requestAnimationFrame(() => {
+      setBaseWidth(scrollRef.current?.clientWidth ?? null);
+    });
+    return () => cancelAnimationFrame(id);
+  }, [open, src]);
 
   const clampZoom = (z: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
+  // 32px = p-4 a cada lado del wrapper interior.
+  const fitWidth = baseWidth ? baseWidth - 32 : null;
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -64,6 +77,7 @@ export function ImageLightbox({
 
         <div className="relative">
           <div
+            ref={scrollRef}
             className="h-[62vh] overflow-auto bg-muted/30"
             onWheel={(e) => {
               if (!src) return;
@@ -71,7 +85,7 @@ export function ImageLightbox({
             }}
             onDoubleClick={() => src && setZoom((z) => (z > 1 ? 1 : 2))}
           >
-            <div className="flex min-h-full w-full min-w-max items-center justify-center p-4">
+            <div className="flex min-h-full w-max min-w-full items-center justify-center p-4">
               {src ? (
                 <img
                   src={src}
@@ -80,8 +94,19 @@ export function ImageLightbox({
                   className="select-none rounded-md"
                   style={
                     zoom === 1
-                      ? { maxHeight: '56vh', maxWidth: '100%', objectFit: 'contain' }
-                      : { width: `${zoom * 100}%`, maxWidth: 'none' }
+                      ? {
+                          maxHeight: '56vh',
+                          // Ajuste al ancho REAL del contenedor: sin esto la
+                          // imagen ancha se recortaba contra el dialogo.
+                          maxWidth: fitWidth ? `${fitWidth}px` : '100%',
+                          objectFit: 'contain',
+                        }
+                      : {
+                          width: fitWidth
+                            ? `${fitWidth * zoom}px`
+                            : `${zoom * 100}%`,
+                          maxWidth: 'none',
+                        }
                   }
                   title="Doble clic o rueda del mouse para hacer zoom"
                 />
