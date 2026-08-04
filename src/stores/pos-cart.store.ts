@@ -57,6 +57,11 @@ const initialCart: PosCart = {
   requiresInvoice: false,
 };
 
+// Tope de cantidad de un item: maxQuantity explícito (derechos disponibles
+// de la promo) o 1 por default si es promocional; sin tope para el resto.
+const itemMaxQuantity = (item: PosCartItem): number | undefined =>
+  item.maxQuantity ?? (item.productType === 'promotional' ? 1 : undefined);
+
 const calculateItemTotal = (item: PosCartItem): PosCartItem => {
   const lineAmount = item.unitPrice * item.quantity;
   let lineDiscount = 0;
@@ -180,16 +185,26 @@ export const usePosCartStore = create<PosCartStore>()(
                 if (item.stock != null && newQty > item.stock) {
                   newQty = item.stock;
                 }
+                const maxQty = itemMaxQuantity(item);
+                if (maxQty != null && newQty > maxQty) {
+                  newQty = maxQty;
+                }
                 if (newQty === item.quantity) return item;
                 return calculateItemTotal({ ...item, quantity: newQty });
               }
               return item;
             });
           } else {
-            const cappedQty =
+            const maxQty =
+              product.maxQuantity ??
+              (product.productType === 'promotional' ? 1 : undefined);
+            let cappedQty =
               product.stock != null && quantity > product.stock
                 ? product.stock
                 : quantity;
+            if (maxQty != null && cappedQty > maxQty) {
+              cappedQty = maxQty;
+            }
             const newItem: PosCartItem = calculateItemTotal({
               productId: product.id,
               productSku: product.sku,
@@ -206,6 +221,7 @@ export const usePosCartStore = create<PosCartStore>()(
               points: product.points ?? 0,
               businessVolume: product.businessVolume ?? 0,
               productType: product.productType,
+              maxQuantity: maxQty,
               components: product.components,
             });
             newItems = [...state.cart.items, newItem];
@@ -230,10 +246,14 @@ export const usePosCartStore = create<PosCartStore>()(
 
           const newItems = state.cart.items.map((item) => {
             if (item.productId === productId) {
-              const cappedQty =
+              let cappedQty =
                 item.stock != null && quantity > item.stock
                   ? item.stock
                   : quantity;
+              const maxQty = itemMaxQuantity(item);
+              if (maxQty != null && cappedQty > maxQty) {
+                cappedQty = maxQty;
+              }
               return calculateItemTotal({ ...item, quantity: cappedQty });
             }
             return item;

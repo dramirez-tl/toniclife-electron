@@ -31,6 +31,14 @@ interface CartProps {
   onCheckout?: () => void;
 }
 
+// Tope de cantidad del item (espejo del store): maxQuantity explícito o 1
+// por default para promocionales — el canje está limitado por derechos.
+const itemMaxQty = (item: {
+  maxQuantity?: number;
+  productType?: string;
+}): number | undefined =>
+  item.maxQuantity ?? (item.productType === 'promotional' ? 1 : undefined);
+
 export function Cart({
   currencySymbol,
   currencyCode,
@@ -270,7 +278,15 @@ export function Cart({
                           updateItemQuantity(item.productId, item.quantity + 1)
                         }
                         disabled={
-                          item.stock != null && item.quantity >= item.stock
+                          (item.stock != null && item.quantity >= item.stock) ||
+                          (itemMaxQty(item) != null &&
+                            item.quantity >= (itemMaxQty(item) as number))
+                        }
+                        title={
+                          itemMaxQty(item) != null &&
+                          item.quantity >= (itemMaxQty(item) as number)
+                            ? `Límite de canje: ${itemMaxQty(item)} por derechos disponibles`
+                            : undefined
                         }
                         className="size-7 rounded-none hover:bg-muted disabled:opacity-40"
                       >

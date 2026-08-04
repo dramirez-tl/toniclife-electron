@@ -83,6 +83,8 @@ export function AvailablePromotions({
       productType: 'promotional',
       // Sin tope de stock: la promo descuenta componentes, no a si misma.
       stock: undefined,
+      // Tope de canje = derechos disponibles del distribuidor (normalmente 1).
+      maxQuantity: promo.availableCount ?? 1,
       components: promo.items,
     };
 

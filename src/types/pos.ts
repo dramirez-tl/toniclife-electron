@@ -324,6 +324,8 @@ export interface PosCartItem {
   businessVolume: number;
   /** Tipo de producto (ej. 'promotional'); usado para retirar promos al cambiar/quitar el distribuidor. */
   productType?: string;
+  /** Tope de cantidad: para promos = derechos disponibles (default 1). */
+  maxQuantity?: number;
   /** Productos que incluye (BoM) — para mostrar/imprimir "qué incluye" la promo. */
   components?: Array<{ code: string; name: string; quantity: number }>;
   lotId?: string;
@@ -396,6 +398,9 @@ export interface QuickProduct {
   kitPosition?: string;
   /** Productos que incluye (BoM) — para promos/kits, mostrar "qué incluye". */
   components?: Array<{ code: string; name: string; quantity: number }>;
+  /** Tope de cantidad en el carrito. Para promos canjeables = derechos
+   *  disponibles del distribuidor (availableCount); sin dato, promo = 1. */
+  maxQuantity?: number;
   /**
    * TRUE solo para kits de inscripción reales (gate autoritativo, mig 037).
    * Dispara el flujo de enrolamiento de distribuidor en POS.
