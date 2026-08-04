@@ -207,7 +207,12 @@ export interface SaleReceiptPayload {
   payments: Array<{ label: string; amount: number }>;
   amountReceived?: number;
   changeGiven: number;
-  accumulatedPoints?: number;
+  /** Moneda de la venta (MXN/USD…) — se imprime bajo el TOTAL. */
+  currencyCode?: string;
+  /** Puntos de ESTA venta (el ticket los imprime sin decimales). */
+  salePoints?: number;
+  /** Saldo del periodo DESPUÉS de la venta ("Puntos totales"). */
+  periodPoints?: number;
 }
 
 declare global {

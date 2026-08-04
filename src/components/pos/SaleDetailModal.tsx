@@ -125,7 +125,14 @@ export function SaleDetailModal({
           })),
           amountReceived: cashReceived > 0 ? cashReceived : undefined,
           changeGiven,
-          accumulatedPoints: sale.accumulatedPoints,
+          currencyCode: sale.currencyCode ?? undefined,
+          // Reimpresión: puntos de la venta desde los items (por unidad ×
+          // cantidad); "totales" = snapshot del saldo al momento de la venta.
+          salePoints: sale.items.reduce(
+            (s, it) => s + (it.points ?? 0) * it.quantity,
+            0,
+          ),
+          periodPoints: sale.accumulatedPoints,
         },
         false,
       );

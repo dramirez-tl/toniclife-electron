@@ -295,7 +295,10 @@ export interface PaymentResult {
     status: string;
   }>;
   message?: string;
+  /** Saldo de puntos del periodo DESPUÉS de esta venta. */
   accumulatedPoints?: number;
+  /** Puntos generados por ESTA venta (API 04-ago-2026+). */
+  salePoints?: number;
 }
 
 // ============================================================================

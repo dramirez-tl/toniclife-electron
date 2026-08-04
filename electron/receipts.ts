@@ -393,8 +393,35 @@ export interface SaleReceiptInput {
   payments: SaleReceiptPaymentRow[];
   amountReceived?: number;
   changeGiven: number;
-  /** Puntos acumulados por la venta (si aplica, distribuidores). */
-  accumulatedPoints?: number;
+  /** Moneda de la venta (MXN/USD…) — se imprime bajo el TOTAL. */
+  currencyCode?: string;
+  /** Puntos generados por ESTA venta (sin decimales en el ticket). */
+  salePoints?: number;
+  /** Saldo de puntos del periodo DESPUÉS de la venta ("Puntos totales"). */
+  periodPoints?: number;
+}
+
+// Datos fiscales del emisor — mismos en todos los tickets (paridad con el
+// ticket del sistema legacy).
+const COMPANY_LEGAL_NAME = 'TONIC WORLD CENTER S.A. DE C.V.';
+const COMPANY_RFC = 'TWC-140715-8R6';
+const COMPANY_FISCAL_ADDRESS = [
+  'BOSQUES DE DURAZNOS No. 65',
+  'BOSQUES DE LAS LOMAS, CP 11700',
+  'MIGUEL HIDALGO, CDMX.',
+];
+
+/** Nombre legible de la moneda para el pie del total. */
+function currencyDisplayName(code?: string): string | null {
+  if (!code) return null;
+  switch (code.toUpperCase()) {
+    case 'MXN':
+      return 'Pesos Mexicanos';
+    case 'USD':
+      return 'Dolares Americanos';
+    default:
+      return code.toUpperCase();
+  }
 }
 
 export function buildSaleReceiptBytes(input: SaleReceiptInput): Buffer {
@@ -420,6 +447,11 @@ export function buildSaleReceiptBytes(input: SaleReceiptInput): Buffer {
   }
 
   p.align('center');
+  // Datos fiscales del emisor (debajo del logo, antes de la sucursal).
+  p.bold(true).line(COMPANY_LEGAL_NAME.slice(0, cols)).bold(false);
+  p.line(COMPANY_RFC);
+  for (const line of COMPANY_FISCAL_ADDRESS) p.line(line.slice(0, cols));
+  p.line('');
   if (input.ticketName) p.bold(true).line(input.ticketName).bold(false);
   p.line(input.branchName);
   p.line(sep);
@@ -457,6 +489,10 @@ export function buildSaleReceiptBytes(input: SaleReceiptInput): Buffer {
     p.line(labelValue('IVA', fmt(input.taxAmount), cols));
   }
   p.bold(true).line(labelValue('TOTAL', fmt(input.total), cols)).bold(false);
+  {
+    const moneda = currencyDisplayName(input.currencyCode);
+    if (moneda) p.line(labelValue('Moneda', moneda, cols));
+  }
   p.line(sep);
 
   // --- PAGOS ---
@@ -472,11 +508,22 @@ export function buildSaleReceiptBytes(input: SaleReceiptInput): Buffer {
       .bold(false);
   }
 
-  if (input.accumulatedPoints && input.accumulatedPoints > 0) {
-    p.line(sep);
-    p.line(
-      labelValue('Puntos de la compra', input.accumulatedPoints.toFixed(2), cols),
-    );
+  // Puntos SIN decimales: los de ESTA compra y el saldo total del periodo
+  // con esta compra incluida (paridad con el ticket del legacy).
+  {
+    const salePts =
+      input.salePoints != null ? Math.round(input.salePoints) : 0;
+    const totalPts =
+      input.periodPoints != null ? Math.round(input.periodPoints) : 0;
+    if (salePts > 0 || totalPts > 0) {
+      p.line(sep);
+      if (salePts > 0) {
+        p.line(labelValue('Puntos de la compra', String(salePts), cols));
+      }
+      if (totalPts > 0) {
+        p.line(labelValue('Puntos totales', String(totalPts), cols));
+      }
+    }
   }
 
   p.line(sep);

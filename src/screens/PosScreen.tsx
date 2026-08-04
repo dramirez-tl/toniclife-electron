@@ -474,7 +474,15 @@ export function PosScreen({
             })),
             amountReceived: cashReceived > 0 ? cashReceived : undefined,
             changeGiven: result.changeGiven,
-            accumulatedPoints: result.accumulatedPoints,
+            currencyCode: session.branch.currencyCode,
+            // Puntos de ESTA venta (API nuevo; fallback: suma del carrito) y
+            // saldo del periodo con la compra incluida.
+            salePoints:
+              result.salePoints ??
+              (cart.customerId
+                ? cart.items.reduce((s, it) => s + it.points * it.quantity, 0)
+                : undefined),
+            periodPoints: result.accumulatedPoints,
           },
           hadCash,
         )
