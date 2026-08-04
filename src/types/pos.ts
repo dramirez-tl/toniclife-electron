@@ -494,6 +494,14 @@ export interface PosRegisterDistributorRequest {
   email: string;
   phone: string;
   rfc?: string;
+  /** Obligatoria en la UI (YYYY-MM-DD). */
+  birthDate?: string;
+  /** Solo México/Frontera. */
+  curp?: string;
+  nationality?: string;
+  maritalStatus?: string;
+  postalCode?: string;
+  identificationType?: string;
   branchId?: string;
   /** País de residencia: define portal, catálogo y precios. Omitido = país de la sucursal. */
   countryId?: string;

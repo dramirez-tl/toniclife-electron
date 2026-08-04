@@ -85,7 +85,35 @@ const EMPTY_FORM = {
   email: '',
   phone: '',
   rfc: '',
+  // Alta de DISTRIBUIDOR: fecha de nacimiento OBLIGATORIA + opcionales.
+  birthDate: '',
+  nationality: '',
+  curp: '',
+  maritalStatus: '',
+  postalCode: '',
+  identificationType: '',
 };
+
+const MARITAL_OPTIONS = [
+  { value: 'soltero', label: 'Soltero(a)' },
+  { value: 'casado', label: 'Casado(a)' },
+  { value: 'union_libre', label: 'Unión libre' },
+  { value: 'divorciado', label: 'Divorciado(a)' },
+  { value: 'viudo', label: 'Viudo(a)' },
+];
+
+/** Tipos de identificación oficial según el país de residencia elegido. */
+function idTypeOptions(countryCode?: string): string[] {
+  switch (countryCode) {
+    case 'MX':
+    case 'FN':
+      return ['INE', 'Pasaporte', 'Cédula profesional', 'Otro'];
+    case 'US':
+      return ['Licencia de conducir', 'Pasaporte', 'ID estatal', 'Otro'];
+    default:
+      return ['DNI', 'Pasaporte', 'Otro'];
+  }
+}
 
 export function RegisterDistributorModal({
   isOpen,
@@ -193,6 +221,14 @@ export function RegisterDistributorModal({
   const selectedKit = enrollmentKits.find((k) => k.id === kitId) ?? null;
 
   const isDistribuidor = tipo === 'distribuidor';
+  // País de residencia elegido: decide CURP (solo México/Frontera) y las
+  // opciones de identificación oficial.
+  const selectedCountryCode = countries
+    .find((c) => c.id === countryId)
+    ?.code?.trim()
+    .toUpperCase();
+  const showCurp = selectedCountryCode === 'MX' || selectedCountryCode === 'FN';
+  const todayIso = new Date().toISOString().slice(0, 10);
   const canSubmit =
     !!sponsor?.isValid &&
     form.firstName.trim().length > 0 &&
@@ -200,6 +236,8 @@ export function RegisterDistributorModal({
     form.email.trim().length > 0 &&
     form.phone.trim().length > 0 &&
     !!countryId &&
+    (!isDistribuidor ||
+      (form.birthDate.trim().length > 0 && form.birthDate <= todayIso)) &&
     (!isDistribuidor || !chargeKit || !!kitId) &&
     !isPending;
 
@@ -221,6 +259,12 @@ export function RegisterDistributorModal({
       const resp = isDistribuidor
         ? await registerDistributor.mutateAsync({
             ...base,
+            birthDate: form.birthDate,
+            nationality: form.nationality.trim() || undefined,
+            curp: showCurp ? form.curp.trim().toUpperCase() || undefined : undefined,
+            maritalStatus: form.maritalStatus || undefined,
+            postalCode: form.postalCode.trim() || undefined,
+            identificationType: form.identificationType || undefined,
             kitProductId: chargeKit && kitId ? kitId : undefined,
           })
         : await registerPreferred.mutateAsync(base);
@@ -556,6 +600,16 @@ export function RegisterDistributorModal({
               <Field label="Teléfono *">
                 <Input value={form.phone} onChange={(e) => set('phone', e.target.value)} />
               </Field>
+              {isDistribuidor && (
+                <Field label="Fecha de nacimiento *">
+                  <Input
+                    type="date"
+                    value={form.birthDate}
+                    max={todayIso}
+                    onChange={(e) => set('birthDate', e.target.value)}
+                  />
+                </Field>
+              )}
             </div>
 
             {/* País de residencia: define portal, catálogo y precios */}
@@ -583,6 +637,76 @@ export function RegisterDistributorModal({
                 Define la moneda y el catálogo de productos con el que verá el portal.
               </p>
             </Field>
+
+            {/* Datos adicionales del distribuidor (todos opcionales) */}
+            {isDistribuidor && (
+              <div className="rounded-lg border border-dashed p-3">
+                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Datos adicionales (opcionales)
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Nacionalidad">
+                    <Input
+                      value={form.nationality}
+                      onChange={(e) => set('nationality', e.target.value)}
+                      placeholder="Mexicana…"
+                    />
+                  </Field>
+                  <Field label="Estado civil">
+                    <Select
+                      value={form.maritalStatus}
+                      onValueChange={(v) => set('maritalStatus', v)}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="—" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {MARITAL_OPTIONS.map((o) => (
+                          <SelectItem key={o.value} value={o.value}>
+                            {o.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  {showCurp && (
+                    <Field label="CURP">
+                      <Input
+                        value={form.curp}
+                        onChange={(e) => set('curp', e.target.value.toUpperCase())}
+                        maxLength={18}
+                        className="font-mono"
+                      />
+                    </Field>
+                  )}
+                  <Field label="C.P. del domicilio">
+                    <Input
+                      value={form.postalCode}
+                      onChange={(e) => set('postalCode', e.target.value)}
+                      maxLength={10}
+                      className="font-mono"
+                    />
+                  </Field>
+                  <Field label="Tipo de identificación oficial">
+                    <Select
+                      value={form.identificationType}
+                      onValueChange={(v) => set('identificationType', v)}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="—" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {idTypeOptions(selectedCountryCode).map((o) => (
+                          <SelectItem key={o} value={o}>
+                            {o}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                </div>
+              </div>
+            )}
 
             {/* Kit opcional (solo distribuidor) */}
             {isDistribuidor && (
