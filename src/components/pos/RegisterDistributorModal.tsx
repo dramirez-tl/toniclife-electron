@@ -47,6 +47,12 @@ import {
   useSponsorByNumber,
 } from '@/hooks/usePos';
 import { posApi } from '@/lib/posApi';
+import {
+  getAddressForm,
+  validateAddress,
+  buildAddressPayload,
+  type AddressFieldSpec,
+} from '@/lib/address-forms';
 import type {
   QuickProduct,
   KitEnrollmentResponse,
@@ -164,6 +170,20 @@ export function RegisterDistributorModal({
   });
   const countries = countriesQuery.data ?? [];
 
+  // Domicilio ESTRUCTURADO por país (MX/US/GT/CO): los campos cambian según
+  // el país de residencia y el estado/departamento sale del catálogo del API.
+  const [address, setAddress] = useState<
+    Partial<Record<AddressFieldSpec['key'], string>>
+  >({});
+  const [addressStateName, setAddressStateName] = useState('');
+  const statesQuery = useQuery({
+    queryKey: ['states', countryId],
+    queryFn: () => posApi.getStates(countryId),
+    enabled: isOpen && !!countryId,
+    staleTime: 10 * 60 * 1000,
+  });
+  const statesList = statesQuery.data ?? [];
+
   const registerDistributor = useRegisterDistributor();
   const registerPreferred = useRegisterPreferred();
   const isPending = registerDistributor.isPending || registerPreferred.isPending;
@@ -228,6 +248,7 @@ export function RegisterDistributorModal({
     ?.code?.trim()
     .toUpperCase();
   const showCurp = selectedCountryCode === 'MX' || selectedCountryCode === 'FN';
+  const addressForm = getAddressForm(selectedCountryCode);
   const todayIso = new Date().toISOString().slice(0, 10);
   const canSubmit =
     !!sponsor?.isValid &&
@@ -243,6 +264,14 @@ export function RegisterDistributorModal({
 
   async function handleSubmit() {
     if (!canSubmit || !sponsor) return;
+    // Domicilio: obligatorio para distribuidores, con los campos del país.
+    if (isDistribuidor) {
+      const addrError = validateAddress(addressForm, address, addressStateName);
+      if (addrError) {
+        toast.error(addrError);
+        return;
+      }
+    }
     const base = {
       sponsorCustomerNumber: sponsor.customerNumber,
       firstName: form.firstName.trim(),
@@ -266,6 +295,7 @@ export function RegisterDistributorModal({
             postalCode: form.postalCode.trim() || undefined,
             identificationType: form.identificationType || undefined,
             kitProductId: chargeKit && kitId ? kitId : undefined,
+            address: buildAddressPayload(address, addressStateName),
           })
         : await registerPreferred.mutateAsync(base);
       setResult(resp);
@@ -614,7 +644,15 @@ export function RegisterDistributorModal({
 
             {/* País de residencia: define portal, catálogo y precios */}
             <Field label="País de residencia *">
-              <Select value={countryId} onValueChange={setCountryId}>
+              <Select
+                value={countryId}
+                onValueChange={(v) => {
+                  setCountryId(v);
+                  // El formulario de domicilio cambia por país: limpiar.
+                  setAddress({});
+                  setAddressStateName('');
+                }}
+              >
                 <SelectTrigger className="w-full">
                   <SelectValue
                     placeholder={
@@ -637,6 +675,54 @@ export function RegisterDistributorModal({
                 Define la moneda y el catálogo de productos con el que verá el portal.
               </p>
             </Field>
+
+            {/* Domicilio ESTRUCTURADO según el país de residencia (MX/US/GT/CO).
+                Los campos y validaciones vienen de lib/address-forms.ts y el
+                estado/departamento del catálogo del API. */}
+            {isDistribuidor && countryId && (
+              <div className="rounded-lg border border-dashed p-3">
+                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Domicilio *
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  {addressForm.fields.map((f) => (
+                    <div key={f.key} className={f.half ? '' : 'col-span-2'}>
+                      <Field label={f.required ? `${f.label} *` : f.label}>
+                        <Input
+                          value={address[f.key] ?? ''}
+                          onChange={(e) =>
+                            setAddress((a) => ({ ...a, [f.key]: e.target.value }))
+                          }
+                          maxLength={f.maxLength}
+                          placeholder={f.placeholder}
+                        />
+                      </Field>
+                    </div>
+                  ))}
+                  <Field label={`${addressForm.stateLabel} *`}>
+                    <Select
+                      value={addressStateName}
+                      onValueChange={setAddressStateName}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue
+                          placeholder={
+                            statesQuery.isLoading ? 'Cargando…' : 'Selecciona'
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {statesList.map((s) => (
+                          <SelectItem key={s.id} value={s.name}>
+                            {s.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                </div>
+              </div>
+            )}
 
             {/* Datos adicionales del distribuidor (todos opcionales) */}
             {isDistribuidor && (
@@ -679,14 +765,8 @@ export function RegisterDistributorModal({
                       />
                     </Field>
                   )}
-                  <Field label="C.P. del domicilio">
-                    <Input
-                      value={form.postalCode}
-                      onChange={(e) => set('postalCode', e.target.value)}
-                      maxLength={10}
-                      className="font-mono"
-                    />
-                  </Field>
+                  {/* El C.P. ahora viaja dentro del DOMICILIO estructurado
+                      (el backend lo espeja a customers.postal_code). */}
                   <Field label="Tipo de identificación oficial">
                     <Select
                       value={form.identificationType}

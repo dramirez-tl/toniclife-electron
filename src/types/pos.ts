@@ -516,6 +516,8 @@ export interface PosRegisterDistributorRequest {
   /** Si se incluye, se cobra el kit en el momento; si no, queda pendiente. */
   kitProductId?: string;
   sendCredentialsByEmail?: boolean;
+  /** Domicilio ESTRUCTURADO por país (ver lib/address-forms.ts). */
+  address?: import('../lib/address-forms').RegistrationAddress;
 }
 
 /** Alta de cliente preferente desde POS con patrocinador por NUMERO. */

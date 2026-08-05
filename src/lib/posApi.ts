@@ -358,6 +358,15 @@ class PosApi {
     return data;
   }
 
+  /** Estados/departamentos del país (endpoint público, catálogo tonic.states)
+   *  para el domicilio estructurado del alta. */
+  async getStates(
+    countryId: string,
+  ): Promise<Array<{ id: string; name: string; code?: string }>> {
+    const { data } = await api.get('/states', { params: { countryId } });
+    return data;
+  }
+
   /** Valida un patrocinador por numero de cliente (para mostrar su nombre). */
   async lookupSponsor(customerNumber: string): Promise<SponsorLookup> {
     const { data } = await api.get(
