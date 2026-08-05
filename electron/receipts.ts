@@ -406,9 +406,9 @@ export interface SaleReceiptInput {
 const COMPANY_LEGAL_NAME = 'TONIC WORLD CENTER S.A. DE C.V.';
 const COMPANY_RFC = 'TWC-140715-8R6';
 const COMPANY_FISCAL_ADDRESS = [
-  'BOSQUES DE DURAZNOS No. 65',
-  'BOSQUES DE LAS LOMAS, CP 11700',
-  'MIGUEL HIDALGO, CDMX.',
+  '05 DE FEBRERO No. 426',
+  'COL. CENTRO, CP 37000',
+  'LEÓN, GTO.',
 ];
 
 /** Nombre legible de la moneda para el pie del total. */
