@@ -20,6 +20,7 @@ import type { QuickProduct } from '@/types/pos';
 const TYPE_LABEL: Record<string, string> = {
   finished_good: 'Producto',
   kit: 'Kit',
+  pack: 'Paquete',
   promotional: 'Promoción',
   raw_material: 'Materia prima',
   service: 'Servicio',

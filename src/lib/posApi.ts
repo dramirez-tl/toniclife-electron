@@ -46,7 +46,9 @@ export function resolveImageUrl(url?: string): string | undefined {
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function mapApiProduct(p: any): QuickProduct {
-  const isKit = p.productType === 'kit';
+  // Los paquetes ('pack') se arman con componentes igual que los kits:
+  // su stock propio no aplica cuando descuentan componentes.
+  const isKit = p.productType === 'kit' || p.productType === 'pack';
   return {
     id: p.id,
     sku: p.code,
