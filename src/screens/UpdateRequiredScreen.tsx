@@ -3,7 +3,10 @@
 // Por política de operación, la terminal no puede seguir usándose con versión
 // vieja una vez descargada la nueva: este overlay cubre TODO (incluso el
 // header) y la única acción posible es "Reiniciar y actualizar". No es
-// cerrable. El carrito en curso no se pierde (persiste en localStorage).
+// cerrable. OJO (dictamen 2.3.2): el carrito NO persiste entre reinicios
+// (decisión deliberada de pos-cart.store) — por eso App.tsx DIFIERE este
+// overlay mientras haya una venta en curso y muestra un aviso no bloqueante;
+// el overlay aparece cuando el carrito queda vacío.
 
 import { useState } from 'react';
 import { RefreshCw, Rocket } from 'lucide-react';
@@ -55,8 +58,8 @@ export function UpdateRequiredScreen({ version }: UpdateRequiredScreenProps) {
             de un minuto.
           </p>
           <p className="mt-2 text-sm text-white/60">
-            Versión actual: v{APP_VERSION}. Tu licencia, impresora y venta en
-            curso se conservan.
+            Versión actual: v{APP_VERSION}. Tu licencia y la configuración de
+            impresora se conservan.
           </p>
         </div>
 

@@ -15,6 +15,37 @@ const pkg = JSON.parse(
 // publicar por accidente un build con diagnósticos visibles).
 const isRelease = process.env.npm_lifecycle_event === 'release';
 
+// Content-Security-Policy del renderer (dictamen 2.2.1). Solo en BUILDS: el
+// dev server de Vite necesita inline scripts (preamble de react-refresh) y
+// eval para HMR; y file:// no emite headers, así que la vía es un meta tag
+// inyectado al empaquetar. connect-src exige https/wss (bloquea API en claro,
+// espejo del guard de api.ts); img-src permite https (imágenes de producto
+// servidas por el API/GCS) y data: (previews locales).
+const CSP_CONTENT = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: https:",
+  "font-src 'self' data:",
+  "connect-src 'self' https: wss:",
+  "object-src 'none'",
+  "base-uri 'self'",
+].join('; ');
+
+const cspPlugin = {
+  name: 'inject-csp-meta',
+  transformIndexHtml: {
+    order: 'post' as const,
+    handler(html: string, ctx: { server?: unknown }) {
+      if (ctx?.server) return html; // dev server: sin CSP (HMR la necesita laxa)
+      return html.replace(
+        '<head>',
+        `<head>\n    <meta http-equiv="Content-Security-Policy" content="${CSP_CONTENT}">`,
+      );
+    },
+  },
+};
+
 export default defineConfig({
   // Rutas RELATIVAS en el bundle: la app empaquetada carga dist/index.html con
   // file:// y las rutas absolutas (/assets/...) romperían fuera del dev server.
@@ -28,6 +59,7 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
+    cspPlugin,
     electron({
       main: {
         entry: 'electron/main.ts',

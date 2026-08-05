@@ -44,6 +44,8 @@ import { InventoryLockScreen } from '@/screens/InventoryLockScreen';
 import { UpdateRequiredScreen } from '@/screens/UpdateRequiredScreen';
 import { connectPosSocket, disconnectPosSocket, type PosLockState } from '@/lib/posSocket';
 import { Toaster } from '@/components/ui/sonner';
+import { usePosCartStore } from '@/stores/pos-cart.store';
+import { APP_VERSION } from '@/lib/version';
 
 type AppState =
   | { kind: 'loading' }
@@ -189,12 +191,51 @@ export function App() {
   // única salida es "Reiniciar y actualizar"; el carrito persiste.
   // ------------------------------------------------------------------
   const [updateReady, setUpdateReady] = useState<string | null>(null);
+  // Versión mínima forzada por el server (dictamen 2.3.3): si esta terminal
+  // está por debajo de pos.min_app_version, el heartbeat lo avisa. El hard
+  // block aplica cuando la actualización ya está DESCARGADA; mientras tanto
+  // se avisa al cajero (sin update descargado no hay nada que instalar).
+  const [updateForced, setUpdateForced] = useState<string | null>(null);
   useEffect(() => {
     const unsubscribe = window.toniclife.updater.onUpdateDownloaded(
       ({ version }) => setUpdateReady(version),
     );
     return unsubscribe;
   }, []);
+
+  // Dictamen 2.3.2: el overlay bloqueante NO debe caer a media venta (el
+  // carrito no persiste entre reinicios — decisión deliberada del store).
+  // Con carrito activo se difiere: toast avisando, y el overlay entra en
+  // cuanto el carrito queda vacío (venta cobrada o cancelada).
+  const cartItemsCount = usePosCartStore((s) => s.cart.items.length);
+  const updateDeferredToastShown = useRef(false);
+  const updateOverlayVisible =
+    (!!updateReady && cartItemsCount === 0) ||
+    (!!updateReady && !!updateForced);
+  useEffect(() => {
+    if (updateReady && cartItemsCount > 0 && !updateOverlayVisible) {
+      if (!updateDeferredToastShown.current) {
+        updateDeferredToastShown.current = true;
+        toast.info(`Actualización v${updateReady} lista`, {
+          description:
+            'Se aplicará al terminar la venta en curso (la venta actual no se pierde).',
+          duration: 10000,
+        });
+      }
+    }
+  }, [updateReady, cartItemsCount, updateOverlayVisible]);
+  useEffect(() => {
+    if (updateForced && !updateReady) {
+      toast.warning(
+        `Esta versión (v${APP_VERSION}) está por debajo del mínimo requerido${updateForced ? ` (v${updateForced})` : ''}`,
+        {
+          description:
+            'La actualización se está descargando; la terminal pedirá reiniciar en cuanto esté lista.',
+          duration: 15000,
+        },
+      );
+    }
+  }, [updateForced, updateReady]);
 
   // ------------------------------------------------------------------
   // Interceptor de 401 → limpia sesion y vuelve a activacion
@@ -242,6 +283,19 @@ export function App() {
           message: r.data.operationsMessage ?? null,
           invoicingEnabled: r.data.invoicingEnabled ?? true,
         });
+        // Dictamen 2.1.5: el heartbeat es el RESPALDO del socket para el
+        // bloqueo por conteo — con el socket caído, el lock igual se aplica
+        // en ≤60s (el server además rechaza ventas con 409, cinturón doble).
+        if (r.data.posInventoryLocked !== undefined) {
+          setLock({
+            locked: !!r.data.posInventoryLocked,
+            message: r.data.lockMessage ?? null,
+          });
+        }
+        // Dictamen 2.3.3: versión mínima forzada desde el server.
+        if (r.data.updateRequired) {
+          setUpdateForced(r.data.minAppVersion ?? null);
+        }
         const latest = await window.toniclife.session.load();
         if (latest) {
           await window.toniclife.session
@@ -460,8 +514,10 @@ export function App() {
           />
         </div>
       )}
-      {/* Actualización lista: overlay bloqueante por ENCIMA de todo. */}
-      {updateReady && (
+      {/* Actualización lista: overlay bloqueante por ENCIMA de todo.
+          Diferido mientras haya venta en curso (dictamen 2.3.2), salvo que el
+          server fuerce versión mínima (2.3.3). */}
+      {updateReady && updateOverlayVisible && (
         <div className="fixed inset-0 z-[100]">
           <UpdateRequiredScreen version={updateReady} />
         </div>

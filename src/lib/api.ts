@@ -13,8 +13,19 @@
 
 import axios, { AxiosError, type AxiosInstance, type InternalAxiosRequestConfig } from 'axios';
 import { APP_VERSION } from './version';
+import { APP_ENV } from './env';
 
 const baseURL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001/api/v1';
+
+// Dictamen 2.2.2: un build de PRODUCCIÓN jamás debe hablar HTTP plano con el
+// backend (device token y datos de venta viajarían en claro). El guard cubre
+// también el socket y la sonda de conexión: derivan de la misma variable.
+if (APP_ENV === 'production' && !baseURL.startsWith('https://')) {
+  throw new Error(
+    `Configuración insegura: VITE_API_URL debe ser https:// en producción (recibido: ${baseURL}). ` +
+      'Corrige la variable de build y vuelve a empaquetar.',
+  );
+}
 
 let deviceToken: string | null = null;
 let onUnauthorized: ((reason: string) => void) | null = null;

@@ -134,6 +134,14 @@ export interface HeartbeatResponse {
   operationsMessage?: string;
   /** Facturación habilitada en esta terminal (undefined en APIs viejas = true). */
   invoicingEnabled?: boolean;
+  /** Bloqueo por conteo de inventario (respaldo del socket — dictamen 2.1.5). */
+  posInventoryLocked?: boolean;
+  /** Leyenda a mostrar cuando posInventoryLocked=true. */
+  lockMessage?: string;
+  /** true si esta versión está por debajo de pos.min_app_version (dictamen 2.3.3). */
+  updateRequired?: boolean;
+  /** Versión mínima forzada configurada en el server. */
+  minAppVersion?: string;
 }
 
 // ============================================================================

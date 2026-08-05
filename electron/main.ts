@@ -104,6 +104,19 @@ function createWindow(): void {
   // Abrir maximizada (POS de mostrador). El 1280x800 queda como tamaño al restaurar.
   mainWindow.maximize();
 
+  // ===== Hardening de navegación (dictamen 2.2.3) =====
+  // El POS es una SPA local: no hay razón legítima para navegar a otro sitio
+  // ni abrir ventanas nuevas — un enlace malicioso/typo quedaría bloqueado.
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    const allowed =
+      (VITE_DEV_SERVER_URL && url.startsWith(VITE_DEV_SERVER_URL)) ||
+      url.startsWith('file://');
+    if (!allowed) {
+      event.preventDefault();
+    }
+  });
+
   // ESCALA ADAPTATIVA para pantallas chicas (ej. monitores 1280x1024 5:4 de
   // sucursal): la UI está diseñada para ~1440px+ de ancho; en ventanas más
   // angostas todo se ve "grande y amontonado" (header encimado, 1.5 columnas
