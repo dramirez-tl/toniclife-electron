@@ -35,7 +35,16 @@ export function CustomerSelector() {
   function handleSelect(customer: PosCustomer) {
     // La busqueda exacta muestra tambien inactivos (para explicar el "no
     // aparece"), pero NO se les puede vender.
-    if (customer.status && customer.status !== 'active') {
+    // EXCEPCION (fix Tulsa): un distribuidor PENDIENTE si se puede asignar —
+    // es el paso obligado para COBRARLE su kit de inscripcion, que es lo que
+    // lo activa al pagar. El backend valida que a un pendiente solo se le
+    // cobre su kit (createSale rechaza ventas sin kit para pendientes).
+    if (customer.status === 'pending') {
+      toast.warning(
+        `El cliente #${customer.customerNumber ?? ''} esta pendiente: agrega su kit de inscripcion al ticket — se activara al cobrarlo. No se le puede vender otra cosa todavia.`,
+        { duration: 6000 },
+      );
+    } else if (customer.status && customer.status !== 'active') {
       toast.error(
         `El cliente #${customer.customerNumber ?? ''} esta ${customer.status === 'inactive' ? 'inactivo' : customer.status} — no se puede asignar a la venta.`,
       );
@@ -168,7 +177,9 @@ export function CustomerSelector() {
               ) : (
                 <ul className="divide-y">
                   {results.map((c) => {
-                    const inactive = !!c.status && c.status !== 'active';
+                    const pending = c.status === 'pending';
+                    const blocked =
+                      !!c.status && c.status !== 'active' && !pending;
                     return (
                       <li key={c.id}>
                         <Button
@@ -176,7 +187,7 @@ export function CustomerSelector() {
                           variant="ghost"
                           onClick={() => handleSelect(c)}
                           className={`block h-auto w-full rounded-none px-3 py-2 text-left whitespace-normal hover:bg-muted/60 ${
-                            inactive ? 'opacity-60' : ''
+                            blocked ? 'opacity-60' : ''
                           }`}
                         >
                           <div className="text-sm font-medium text-foreground">
@@ -189,10 +200,15 @@ export function CustomerSelector() {
                               </span>
                             )}
                             {c.rfc && <span className="font-mono">{c.rfc}</span>}
-                            {c.priceTypeId && !inactive && (
+                            {c.priceTypeId && !blocked && !pending && (
                               <span className="text-primary">distribuidor</span>
                             )}
-                            {inactive && (
+                            {pending && (
+                              <span className="text-amber-600 font-medium">
+                                PENDIENTE — cobrale su kit para activarlo
+                              </span>
+                            )}
+                            {blocked && (
                               <span className="text-destructive font-medium">
                                 {c.status === 'inactive'
                                   ? 'INACTIVO — no se puede vender'
