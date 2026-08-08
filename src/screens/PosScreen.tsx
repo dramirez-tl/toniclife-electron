@@ -21,6 +21,13 @@ import { LogoMark } from '@/components/LogoMark';
 import { LiveClock } from '@/components/LiveClock';
 import { ConnectionStatus } from '@/components/ConnectionStatus';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { DeactivateConfirmDialog } from '@/components/DeactivateConfirmDialog';
 import { ProductGrid } from '@/components/pos/ProductGrid';
 import { AvailablePromotions } from '@/components/pos/AvailablePromotions';
@@ -174,6 +181,9 @@ export function PosScreen({
   const [promosOpen, setPromosOpen] = useState(false);
   const [printerSettingsOpen, setPrinterSettingsOpen] = useState(false);
   const [pendingKit, setPendingKit] = useState<QuickProduct | null>(null);
+  // Kit agregado con cliente ya asignado: preguntar si es RECOMPRA para el
+  // propio cliente o inscripción de un NUEVO distribuidor (ver handleKitDetected).
+  const [kitChoice, setKitChoice] = useState<QuickProduct | null>(null);
   const [registerOpen, setRegisterOpen] = useState(false);
   const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null);
   const [stampRetry, setStampRetry] = useState<StampRetryState | null>(null);
@@ -537,11 +547,16 @@ export function PosScreen({
   function handleKitDetected(product: QuickProduct) {
     if (!cart.customerId) {
       toast.error(
-        'Selecciona primero al distribuidor patrocinador en el carrito.',
+        'Selecciona primero al cliente en el carrito: el distribuidor que recompra su kit, o el patrocinador si vas a inscribir a alguien nuevo.',
       );
       return;
     }
-    setPendingKit(product);
+    // Con cliente asignado el kit tiene DOS destinos válidos: RECOMPRA del
+    // propio cliente (p.ej. dado de baja que se reactiva y vuelve a comprar
+    // su kit — reporte 07-ago: el POS lo forzaba a "registrar un nuevo
+    // distribuidor") o inscripción de un NUEVO patrocinado por él (flujo
+    // original). Se pregunta en vez de asumir lo segundo.
+    setKitChoice(product);
   }
 
   function handleKitEnrolled(
@@ -863,6 +878,45 @@ export function PosScreen({
         branchId={branchId}
         branchName={session.branch.name}
       />
+
+      {/* Kit con cliente asignado: ¿recompra para él o inscripción de un nuevo? */}
+      <Dialog open={!!kitChoice} onOpenChange={(o) => !o && setKitChoice(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>¿Para quién es el kit {kitChoice?.sku}?</DialogTitle>
+            <DialogDescription>
+              {cart.customerName} está asignado a la venta. El kit puede ser su
+              recompra o reactivación, o la inscripción de un nuevo
+              distribuidor patrocinado por él.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-2">
+            <Button
+              onClick={() => {
+                const kit = kitChoice;
+                if (kit) {
+                  addItem(kit, 1);
+                  toast.success(
+                    `Kit ${kit.sku} agregado para ${cart.customerName} — sus puntos se acreditan al cobrar.`,
+                  );
+                }
+                setKitChoice(null);
+              }}
+            >
+              Es para {cart.customerName} (recompra / reactivación)
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setPendingKit(kitChoice);
+                setKitChoice(null);
+              }}
+            >
+              Inscribir a un NUEVO distribuidor (patrocina {cart.customerName})
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Modal de inscripcion por kit */}
       <KitProspectModal
