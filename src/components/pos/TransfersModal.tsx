@@ -30,9 +30,52 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { useIncomingTransfers, useReceiveTransfer } from '@/hooks/usePos';
+import {
+  useIncomingTransfers,
+  useReceiveTransfer,
+  useBranchInventoryMovements,
+} from '@/hooks/usePos';
 import { formatDateTime } from '@/lib/date';
 import type { IncomingTransfer } from '@/types/pos';
+
+/** Etiqueta y color por tipo de movimiento (CHECK de inventory_movements). */
+const MOVEMENT_TYPE_META: Record<string, { label: string; className: string }> =
+  {
+    entry: { label: 'Entrada', className: 'bg-emerald-100 text-emerald-700' },
+    exit: { label: 'Salida', className: 'bg-red-100 text-red-700' },
+    transfer_in: {
+      label: 'Traspaso recibido',
+      className: 'bg-sky-100 text-sky-700',
+    },
+    transfer_out: {
+      label: 'Traspaso enviado',
+      className: 'bg-sky-100 text-sky-700',
+    },
+    adjustment_positive: {
+      label: 'Ajuste (+)',
+      className: 'bg-amber-100 text-amber-700',
+    },
+    adjustment_negative: {
+      label: 'Ajuste (−)',
+      className: 'bg-amber-100 text-amber-700',
+    },
+    initial_load: {
+      label: 'Carga inicial',
+      className: 'bg-muted text-muted-foreground',
+    },
+    physical_count: {
+      label: 'Conteo físico',
+      className: 'bg-violet-100 text-violet-700',
+    },
+  };
+
+const MOVEMENT_STATUS_LABEL: Record<string, string> = {
+  applied: 'Aplicado',
+  pending: 'Pendiente',
+  approved: 'En tránsito',
+  cancelled: 'Cancelado',
+  rejected: 'Rechazado',
+};
 
 interface TransfersModalProps {
   isOpen: boolean;
@@ -51,6 +94,13 @@ export function TransfersModal({
   const receive = useReceiveTransfer();
   // Confirmación en dos pasos por traspaso (evita aceptar por accidente).
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  // Histórico de movimientos de la sucursal (lo que Operación aplicó desde
+  // el admin: entradas/salidas/ajustes/conteos, y traspasos).
+  const [histPage, setHistPage] = useState(1);
+  const { data: history, isLoading: histLoading } = useBranchInventoryMovements(
+    isOpen ? branchId : undefined,
+    histPage,
+  );
 
   async function handleReceive(t: IncomingTransfer) {
     try {
@@ -94,7 +144,7 @@ export function TransfersModal({
                 Entradas de inventario
               </DialogTitle>
               <DialogDescription className="text-xs">
-                Traspasos en tránsito hacia esta sucursal
+                Traspasos por recibir + histórico de movimientos de la sucursal
               </DialogDescription>
             </div>
           </div>
@@ -242,6 +292,103 @@ export function TransfersModal({
                 </Card>
               );
             })
+          )}
+        </div>
+
+        {/* Histórico de movimientos de la sucursal */}
+        <div className="border-t px-6 py-4">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-sm font-semibold text-foreground">
+              Histórico de movimientos de esta sucursal
+            </p>
+            {history && history.totalPages > 1 && (
+              <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-1.5"
+                  disabled={histPage <= 1}
+                  onClick={() => setHistPage((p) => Math.max(1, p - 1))}
+                >
+                  ◀
+                </Button>
+                <span>
+                  {histPage} / {history.totalPages}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-1.5"
+                  disabled={histPage >= history.totalPages}
+                  onClick={() => setHistPage((p) => p + 1)}
+                >
+                  ▶
+                </Button>
+              </div>
+            )}
+          </div>
+          {histLoading ? (
+            <div className="flex items-center gap-2 py-4 text-xs text-muted-foreground">
+              <Loader2 className="size-3.5 animate-spin" />
+              Cargando histórico...
+            </div>
+          ) : !history || history.data.length === 0 ? (
+            <p className="py-3 text-xs italic text-muted-foreground">
+              Sin movimientos de inventario registrados para esta sucursal.
+            </p>
+          ) : (
+            <div className="overflow-hidden rounded-md border">
+              <Table className="text-xs">
+                <TableHeader className="bg-muted/60">
+                  <TableRow>
+                    <TableHead className="px-3 py-1.5">Fecha</TableHead>
+                    <TableHead className="px-3 py-1.5">Movimiento</TableHead>
+                    <TableHead className="px-3 py-1.5">Tipo</TableHead>
+                    <TableHead className="px-3 py-1.5">Razón</TableHead>
+                    <TableHead className="px-3 py-1.5 text-right">
+                      Piezas
+                    </TableHead>
+                    <TableHead className="px-3 py-1.5 text-right">
+                      Estado
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {history.data.map((m) => {
+                    const meta = MOVEMENT_TYPE_META[m.movementType] ?? {
+                      label: m.movementType,
+                      className: 'bg-muted text-muted-foreground',
+                    };
+                    return (
+                      <TableRow key={m.id}>
+                        <TableCell className="whitespace-nowrap px-3 py-1.5 text-muted-foreground">
+                          {formatDateTime(m.createdAt)}
+                        </TableCell>
+                        <TableCell className="px-3 py-1.5 font-mono">
+                          {m.movementNumber}
+                        </TableCell>
+                        <TableCell className="px-3 py-1.5">
+                          <span
+                            className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${meta.className}`}
+                          >
+                            {meta.label}
+                          </span>
+                        </TableCell>
+                        <TableCell className="max-w-[180px] truncate px-3 py-1.5">
+                          {m.reason || '—'}
+                        </TableCell>
+                        <TableCell className="px-3 py-1.5 text-right tabular-nums">
+                          {m.totalQuantity ?? '—'}
+                        </TableCell>
+                        <TableCell className="px-3 py-1.5 text-right">
+                          {MOVEMENT_STATUS_LABEL[m.status] ?? m.status}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </div>
 

@@ -295,6 +295,18 @@ export const useProcessPayment = () => {
 // ============================================================================
 
 /** Traspasos En Tránsito dirigidos a esta sucursal, pendientes de aceptar. */
+/** Histórico de movimientos de inventario de la sucursal (modal Entradas). */
+export const useBranchInventoryMovements = (
+  branchId: string | undefined,
+  page = 1,
+) =>
+  useQuery({
+    queryKey: [...posKeys.all, 'inventory-movements', branchId ?? '', page],
+    queryFn: () => posApi.getBranchInventoryMovements(branchId!, page),
+    enabled: !!branchId,
+    staleTime: 30 * 1000,
+  });
+
 export const useIncomingTransfers = (branchId: string | undefined) =>
   useQuery({
     queryKey: posKeys.incomingTransfers(branchId ?? ''),

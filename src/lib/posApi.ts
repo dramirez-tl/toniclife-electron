@@ -31,6 +31,7 @@ import type {
   FiscalData,
   CreateFiscalDataInput,
   IncomingTransfer,
+  BranchInventoryMovementList,
 } from '@/types/pos';
 
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3001/api/v1';
@@ -413,6 +414,35 @@ class PosApi {
   /** Traspasos En Tránsito dirigidos a la sucursal de esta terminal. El backend
    *  ignora branchId del cliente y usa el del device token; lo enviamos solo
    *  como fallback para pruebas desde web. */
+  /** Histórico de movimientos de inventario de la sucursal (entradas de
+   *  Operación, salidas, traspasos, ajustes, conteos), recientes primero. */
+  async getBranchInventoryMovements(
+    branchId: string,
+    page = 1,
+  ): Promise<BranchInventoryMovementList> {
+    const { data } = await api.get('/pos/inventory/movements', {
+      params: { branchId, page },
+    });
+    return {
+      data: (data.data ?? []).map((m: any) => ({
+        id: m.id,
+        movementNumber: m.movementNumber,
+        movementType: m.movementType,
+        movementCategory: m.movementCategory,
+        reason: m.reason,
+        status: m.status,
+        totalItems: m.totalItems != null ? Number(m.totalItems) : undefined,
+        totalQuantity:
+          m.totalQuantity != null ? Number(m.totalQuantity) : undefined,
+        createdAt: m.createdAt,
+        requestedByName: m.requestedByName ?? m.requestedBy?.name,
+      })),
+      total: data.total ?? 0,
+      page: data.page ?? page,
+      totalPages: data.totalPages ?? 1,
+    };
+  }
+
   async getIncomingTransfers(branchId?: string): Promise<IncomingTransfer[]> {
     const { data } = await api.get('/pos/transfers/incoming', {
       params: branchId ? { branchId } : undefined,

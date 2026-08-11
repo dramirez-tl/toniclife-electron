@@ -663,3 +663,24 @@ export interface TransferIncomingEvent {
   totalItems: number;
   totalQuantity: number;
 }
+
+/** Movimiento de inventario del histórico de la sucursal (POS). */
+export interface BranchInventoryMovement {
+  id: string;
+  movementNumber: string;
+  movementType: string;
+  movementCategory?: string;
+  reason?: string;
+  status: string;
+  totalItems?: number;
+  totalQuantity?: number;
+  createdAt: string;
+  requestedByName?: string;
+}
+
+export interface BranchInventoryMovementList {
+  data: BranchInventoryMovement[];
+  total: number;
+  page: number;
+  totalPages: number;
+}
