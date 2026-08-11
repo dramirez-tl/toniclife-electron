@@ -10,12 +10,15 @@
 // Al hacer clic en una promo, se agrega al carrito como item con precio 0
 // y puntos 0. El backend revalida elegibilidad al cobrar.
 
-import { Sparkles, PlusCircle, Clock } from 'lucide-react';
+import { Sparkles, PlusCircle, Clock, MapPin } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { useAvailablePromotionsForCustomer } from '@/hooks/usePromotions';
+import {
+  useAvailablePromotionsForCustomer,
+  useRedeemedPromotionsForCustomer,
+} from '@/hooks/usePromotions';
 import { usePosCartStore } from '@/stores/pos-cart.store';
 import type { QuickProduct } from '@/types/pos';
 import type { AvailablePromotionForCustomer } from '@/lib/promotionsApi';
@@ -54,11 +57,19 @@ export function AvailablePromotions({
     customerId,
     branchId,
   );
+  // Canjes RECIENTES con dónde se cobraron: cuando el distribuidor pide una
+  // promo que "no aparece", el cajero puede responder "ya se cobró en X".
+  const { data: redeemed = [] } = useRedeemedPromotionsForCustomer(
+    customerId,
+    branchId,
+  );
   const addItem = usePosCartStore((s) => s.addItem);
   const cartItems = usePosCartStore((s) => s.cart.items);
 
   if (isLoading) return null;
-  if (!promos || promos.length === 0) return null;
+  const available = promos ?? [];
+  // Se muestra el banner si hay canjeables O canjes recientes que informar.
+  if (available.length === 0 && redeemed.length === 0) return null;
 
   function handleAdd(promo: AvailablePromotionForCustomer) {
     const alreadyInCart = cartItems.some(
@@ -94,18 +105,20 @@ export function AvailablePromotions({
 
   return (
     <div className="border-b bg-gradient-to-r from-amber-50 via-yellow-50 to-amber-50 px-4 py-2.5">
-      <div className="mb-2 flex items-center gap-2">
-        <Sparkles className="size-4 text-amber-600" />
-        <span className="text-sm font-semibold text-amber-800">
-          Promociones canjeables
-        </span>
-        <span className="text-xs text-amber-700/70">
-          ({promos.length}) · {fmt(promos[0].currentPoints)} pts acumulados
-        </span>
-      </div>
+      {available.length > 0 && (
+        <div className="mb-2 flex items-center gap-2">
+          <Sparkles className="size-4 text-amber-600" />
+          <span className="text-sm font-semibold text-amber-800">
+            Promociones canjeables
+          </span>
+          <span className="text-xs text-amber-700/70">
+            ({available.length}) · {fmt(available[0].currentPoints)} pts acumulados
+          </span>
+        </div>
+      )}
 
       <div className="flex gap-2 overflow-x-auto pb-1">
-        {promos.map((promo) => (
+        {available.map((promo) => (
           <Button
             key={promo.productId}
             type="button"
@@ -171,6 +184,42 @@ export function AvailablePromotions({
           </Button>
         ))}
       </div>
+
+      {/* Canjes recientes: DÓNDE se cobró cada promo (sucursal + folio +
+          fecha) — la respuesta para "vengo a cobrar mi promo" cuando ya se
+          cobró en otra sucursal. */}
+      {redeemed.length > 0 && (
+        <div className={cn('pt-1', available.length > 0 && 'mt-1 border-t border-amber-200/70')}>
+          <p className="mb-1 text-[11px] font-semibold text-amber-800/80">
+            Promociones ya canjeadas:
+          </p>
+          <div className="flex flex-wrap gap-x-4 gap-y-0.5">
+            {redeemed.map((r, i) => (
+              <span
+                key={`${r.code}-${i}`}
+                className="flex items-center gap-1 text-[11px] text-amber-900/70"
+              >
+                <MapPin className="size-3 shrink-0" />
+                <span className="font-mono font-semibold">{r.code}</span>
+                <span>
+                  — canjeada en{' '}
+                  <span className="font-medium">
+                    {r.branchCode ? `${r.branchCode} ` : ''}
+                    {r.branchName ?? 'sucursal desconocida'}
+                  </span>{' '}
+                  el{' '}
+                  {new Date(r.redeemedAt).toLocaleDateString('es-MX', {
+                    day: '2-digit',
+                    month: 'short',
+                    year: 'numeric',
+                  })}
+                  {r.saleNumber ? ` (venta ${r.saleNumber})` : ''}
+                </span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

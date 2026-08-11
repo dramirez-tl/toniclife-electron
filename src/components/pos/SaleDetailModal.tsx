@@ -48,6 +48,7 @@ const PAYMENT_LABELS: Record<string, string> = {
   credit: 'T. Credito',
   transfer: 'Transferencia',
   mercado_pago: 'Mercado Pago',
+  deposit: 'Depósito',
   cashback: 'Cashback',
   promotion: 'Promocion',
   usd_cash: 'USD Efectivo',

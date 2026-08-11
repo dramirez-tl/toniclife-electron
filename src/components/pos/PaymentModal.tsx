@@ -67,6 +67,7 @@ const METHODS: Array<{ method: PosPaymentMethod; label: string }> = [
   { method: PosPaymentMethod.CASHBACK, label: 'Cashback' },
   { method: PosPaymentMethod.PROMOTION, label: 'Promocion' },
   { method: PosPaymentMethod.USD_CASH, label: 'USD Efectivo' },
+  { method: PosPaymentMethod.DEPOSIT, label: 'Deposito' },
   { method: PosPaymentMethod.UNDEFINED, label: 'Sin definir' },
 ];
 

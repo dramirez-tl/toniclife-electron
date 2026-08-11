@@ -216,6 +216,16 @@ export function CustomerSelector() {
                               </span>
                             )}
                           </div>
+                          {/* Patrocinador: ancla para distinguir homónimos —
+                              "¿de quién es este distribuidor?" */}
+                          {c.sponsorName && (
+                            <div className="text-[11px] text-muted-foreground/80">
+                              Patrocinador: {c.sponsorName}
+                              {c.sponsorNumber ? (
+                                <span className="font-mono"> #{c.sponsorNumber}</span>
+                              ) : null}
+                            </div>
+                          )}
                         </Button>
                       </li>
                     );

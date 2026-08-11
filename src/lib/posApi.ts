@@ -189,6 +189,12 @@ class PosApi {
       rfc: c.rfc,
       priceTypeId: c.priceTypeId ?? c.price_type_id,
       status: c.status,
+      sponsorName:
+        c.sponsor?.fullName ??
+        (c.sponsor
+          ? [c.sponsor.firstName, c.sponsor.lastName].filter(Boolean).join(' ')
+          : undefined),
+      sponsorNumber: c.sponsor?.customerNumber,
     };
   }
   /* eslint-enable @typescript-eslint/no-explicit-any */

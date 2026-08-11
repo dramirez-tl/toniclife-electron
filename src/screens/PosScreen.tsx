@@ -517,6 +517,7 @@ export function PosScreen({
         transfer: 'Transferencia',
         credit: 'Crédito',
         mercado_pago: 'Mercado Pago',
+        deposit: 'Depósito',
         usd_cash: 'Efectivo USD',
         cashback: 'Monedero',
         promotion: 'Promoción',

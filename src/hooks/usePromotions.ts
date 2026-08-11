@@ -9,6 +9,8 @@ export const promotionKeys = {
     [...promotionKeys.all, 'available', customerId, branchId] as const,
   current: (branchId: string) =>
     [...promotionKeys.all, 'current', branchId] as const,
+  redeemed: (customerId: string, branchId: string) =>
+    [...promotionKeys.all, 'redeemed', customerId, branchId] as const,
 };
 
 /**
@@ -43,6 +45,27 @@ export const useAvailablePromotionsForCustomer = (
         : promotionKeys.available('disabled', 'disabled'),
     queryFn: () =>
       promotionsApi.listAvailableForCustomer(customerId!, branchId!),
+    enabled: !!customerId && !!branchId,
+    staleTime: 60 * 1000,
+    gcTime: 5 * 60 * 1000,
+  });
+};
+
+/**
+ * Promos YA CANJEADAS por el distribuidor (recientes), con sucursal/folio/
+ * fecha del cobro — para avisar en mostrador dónde se cobró.
+ */
+export const useRedeemedPromotionsForCustomer = (
+  customerId: string | undefined,
+  branchId: string | undefined,
+) => {
+  return useQuery({
+    queryKey:
+      customerId && branchId
+        ? promotionKeys.redeemed(customerId, branchId)
+        : promotionKeys.redeemed('disabled', 'disabled'),
+    queryFn: () =>
+      promotionsApi.listRedeemedForCustomer(customerId!, branchId!),
     enabled: !!customerId && !!branchId,
     staleTime: 60 * 1000,
     gcTime: 5 * 60 * 1000,

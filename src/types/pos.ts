@@ -34,6 +34,7 @@ export enum PosPaymentMethod {
   PROMOTION = 'promotion',
   MERCADO_PAGO = 'mercado_pago',
   USD_CASH = 'usd_cash',
+  DEPOSIT = 'deposit',
   UNDEFINED = 'undefined',
 }
 
@@ -256,6 +257,7 @@ export interface DailySalesSummary {
   totalPromotion: number;
   totalMercadoPago: number;
   totalUsdCash: number;
+  totalDeposit?: number;
   totalMixed: number;
   totalRefunds: number;
   refundsCount: number;
@@ -605,6 +607,9 @@ export interface InvoiceRequest {
 // ============================================================================
 
 export interface PosCustomer {
+  /** Patrocinador (para distinguir homónimos en la búsqueda del POS). */
+  sponsorName?: string;
+  sponsorNumber?: string;
   id: string;
   customerNumber?: string;
   firstName: string;

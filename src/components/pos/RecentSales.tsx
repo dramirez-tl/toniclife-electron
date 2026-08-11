@@ -8,6 +8,7 @@ const SHOW_CASH_MOVEMENTS = false; // "Movimientos de caja" — ocultado may-202
                                    // a peticion del usuario; el modal y el
                                    // IPC siguen montados para reactivar.
 
+import { useMemo, useState } from 'react';
 import {
   Receipt,
   CalendarDays,
@@ -15,6 +16,8 @@ import {
   RefreshCw,
   Wallet,
   PanelLeftClose,
+  Search,
+  X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -91,7 +94,27 @@ export function RecentSales({
     isFetching,
   } = usePosSales(branchId, date);
 
-  const sales: Sale[] = salesResp?.data ?? [];
+  // Buscador local del día: por nombre de cliente, número de distribuidor o
+  // folio. Filtra sobre las ventas ya cargadas (la lista del día es corta).
+  const [query, setQuery] = useState('');
+  const allSales: Sale[] = salesResp?.data ?? [];
+  const sales: Sale[] = useMemo(() => {
+    const q = query
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '');
+    if (!q) return allSales;
+    return allSales.filter((s) => {
+      const doc = [s.customerName, s.customerNumber, s.saleNumber]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[̀-ͯ]/g, '');
+      return doc.includes(q);
+    });
+  }, [allSales, query]);
   const fmt = (n: number) => posApi.formatCurrency(n, currencySymbol);
 
   return (
@@ -139,6 +162,27 @@ export function RecentSales({
             className="w-full pl-8 pr-2 py-1.5 text-xs bg-background text-foreground"
           />
         </div>
+        {/* Buscador del día: cliente, número de distribuidor o folio */}
+        <div className="relative mt-2">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+          <Input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Buscar cliente, No. o folio…"
+            className="w-full pl-8 pr-7 py-1.5 text-xs bg-background text-foreground"
+          />
+          {query && (
+            <button
+              type="button"
+              onClick={() => setQuery('')}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              title="Limpiar búsqueda"
+            >
+              <X className="size-3.5" />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Lista de ventas */}
@@ -147,7 +191,9 @@ export function RecentSales({
           <div className="p-4 text-xs text-muted-foreground">Cargando...</div>
         ) : sales.length === 0 ? (
           <div className="p-4 text-xs text-muted-foreground italic">
-            No hay ventas en esta fecha.
+            {query
+              ? `Sin ventas que coincidan con “${query}” en esta fecha.`
+              : 'No hay ventas en esta fecha.'}
           </div>
         ) : (
           <ul className="divide-y">

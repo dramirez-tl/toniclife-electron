@@ -48,6 +48,16 @@ export interface CurrentPromotion {
   items: Array<{ code: string; name: string; quantity: number }>;
 }
 
+/** Promo YA CANJEADA por el cliente, con dónde se cobró. */
+export interface RedeemedPromotionForCustomer {
+  code: string;
+  name: string;
+  redeemedAt: string;
+  saleNumber?: string;
+  branchCode?: string;
+  branchName?: string;
+}
+
 class PromotionsApi {
   /**
    * Promociones VIGENTES en el país de la sucursal — solo informativo para
@@ -78,6 +88,22 @@ class PromotionsApi {
     // usuarios admin y rechazaría el token de terminal con 401.
     const { data } = await api.get<AvailablePromotionForCustomer[]>(
       `/pos/promotions/available/${customerId}`,
+      { params: { branchId } },
+    );
+    return data;
+  }
+
+  /**
+   * Promos YA CANJEADAS recientemente por el cliente, con la SUCURSAL, folio
+   * y fecha donde se cobraron. Para responder en mostrador "esa promo ya se
+   * cobró en X el día Y" en vez de un "no aparece".
+   */
+  async listRedeemedForCustomer(
+    customerId: string,
+    branchId: string,
+  ): Promise<RedeemedPromotionForCustomer[]> {
+    const { data } = await api.get<RedeemedPromotionForCustomer[]>(
+      `/pos/promotions/redeemed/${customerId}`,
       { params: { branchId } },
     );
     return data;

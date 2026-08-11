@@ -77,6 +77,7 @@ export function CorteModal({
         { label: 'Cashback', value: summary.totalCashback },
         { label: 'Promocion', value: summary.totalPromotion },
         { label: 'USD efectivo', value: summary.totalUsdCash },
+        { label: 'Deposito', value: summary.totalDeposit ?? 0 },
         { label: 'Mixto', value: summary.totalMixed },
       ].filter((r) => Number(r.value) > 0)
     : [];
