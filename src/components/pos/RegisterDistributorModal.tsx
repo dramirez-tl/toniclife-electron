@@ -53,6 +53,7 @@ import {
   buildAddressPayload,
   type AddressFieldSpec,
 } from '@/lib/address-forms';
+import { normalizePhone, phoneHint } from '@/lib/phone';
 import type {
   QuickProduct,
   KitEnrollmentResponse,
@@ -272,13 +273,23 @@ export function RegisterDistributorModal({
         return;
       }
     }
+    // Teléfono: el cajero teclea el número local; se agrega la lada del país
+    // de residencia elegido (el API solo acepta E.164 '+<lada><número>').
+    const phone = normalizePhone(
+      form.phone,
+      selectedCountryCode || branchCountryCode,
+    );
+    if (!phone.ok) {
+      toast.error(phone.error);
+      return;
+    }
     const base = {
       sponsorCustomerNumber: sponsor.customerNumber,
       firstName: form.firstName.trim(),
       lastName: form.lastName.trim(),
       mothersLastName: form.mothersLastName.trim() || undefined,
       email: form.email.trim(),
-      phone: form.phone.trim(),
+      phone: phone.value,
       rfc: form.rfc.trim() || undefined,
       branchId,
       countryId: countryId || undefined,
@@ -628,7 +639,14 @@ export function RegisterDistributorModal({
                 <Input type="email" value={form.email} onChange={(e) => set('email', e.target.value)} />
               </Field>
               <Field label="Teléfono *">
-                <Input value={form.phone} onChange={(e) => set('phone', e.target.value)} />
+                <Input
+                  type="tel"
+                  value={form.phone}
+                  onChange={(e) => set('phone', e.target.value)}
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {phoneHint(selectedCountryCode || branchCountryCode)}
+                </p>
               </Field>
               {isDistribuidor && (
                 <Field label="Fecha de nacimiento *">

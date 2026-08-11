@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/dialog';
 import { useEnrollKit } from '@/hooks/usePos';
 import { posApi } from '@/lib/posApi';
+import { normalizePhone, phoneHint } from '@/lib/phone';
 import type {
   QuickProduct,
   KitEnrollmentResponse,
@@ -106,6 +107,11 @@ export function KitProspectModal({
   const set = (k: keyof typeof EMPTY_FORM, v: string) =>
     setForm((f) => ({ ...f, [k]: v }));
 
+  // País de residencia elegido (para normalizar el teléfono con su lada).
+  const selectedCountryCode =
+    countries.find((c) => c.id === countryId)?.code?.trim().toUpperCase() ||
+    branchCountryCode;
+
   const canSubmit =
     !!sponsor &&
     !!kit &&
@@ -119,6 +125,12 @@ export function KitProspectModal({
 
   async function handleSubmit() {
     if (!canSubmit || !sponsor || !kit) return;
+    // Teléfono local → E.164 con la lada del país elegido (requisito del API).
+    const phone = normalizePhone(form.phone, selectedCountryCode);
+    if (!phone.ok) {
+      toast.error(phone.error);
+      return;
+    }
     try {
       const resp = await enroll.mutateAsync({
         sponsorCustomerId: sponsor.id,
@@ -127,7 +139,7 @@ export function KitProspectModal({
         lastName: form.lastName.trim(),
         mothersLastName: form.mothersLastName.trim() || undefined,
         email: form.email.trim(),
-        phone: form.phone.trim(),
+        phone: phone.value,
         rfc: form.rfc.trim() || undefined,
         branchId,
         countryId: countryId || undefined,
@@ -326,9 +338,13 @@ export function KitProspectModal({
               </Field>
               <Field label="Telefono *">
                 <Input
+                  type="tel"
                   value={form.phone}
                   onChange={(e) => set('phone', e.target.value)}
                 />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {phoneHint(selectedCountryCode)}
+                </p>
               </Field>
             </div>
 
