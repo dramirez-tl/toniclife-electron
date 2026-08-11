@@ -50,6 +50,7 @@ import {
 import { PrinterSettingsModal } from '@/components/pos/PrinterSettingsModal';
 import { ComingSoonGate } from '@/components/pos/ComingSoonGate';
 import { StaffLoginModal } from '@/components/pos/StaffLoginModal';
+import { BranchSearchSelect } from '@/components/pos/BranchSearchSelect';
 import { hasSeenPosTour, startPosTour } from '@/lib/posTour';
 import { usePosCartStore } from '@/stores/pos-cart.store';
 import {
@@ -838,11 +839,12 @@ export function PosScreen({
           </span>
           <div className="ml-auto flex items-center gap-2">
             <span className="text-[11px] text-white/80">Sucursal:</span>
-            <select
+            <BranchSearchSelect
+              branches={staffBranches}
               value={branch.id}
-              onChange={(e) => {
-                const next = staffBranches.find((b) => b.id === e.target.value);
-                if (!next || next.id === branch.id) return;
+              dark
+              className="w-72"
+              onSelect={(next) => {
                 if (
                   cart.items.length > 0 &&
                   !window.confirm(
@@ -854,16 +856,7 @@ export function PosScreen({
                 useStaffSession.getState().selectBranch(next);
                 toast.info(`Operando sucursal ${next.code} — ${next.name}`);
               }}
-              className="h-7 max-w-64 rounded border border-white/30 bg-violet-800 px-2 text-xs text-white outline-none"
-              title="Sucursal a operar"
-            >
-              {staffBranches.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.code} — {b.name}
-                  {b.isCedea ? ' · CEDEA' : ''}
-                </option>
-              ))}
-            </select>
+            />
             <Button
               variant="ghost"
               size="sm"

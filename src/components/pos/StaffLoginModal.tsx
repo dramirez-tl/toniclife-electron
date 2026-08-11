@@ -16,13 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { BranchSearchSelect } from '@/components/pos/BranchSearchSelect';
 import {
   staffAuthenticate,
   StaffLoginError,
@@ -155,22 +149,12 @@ export function StaffLoginModal({
               Hola <span className="font-semibold">{auth?.user.fullName}</span>.
               Elige la sucursal a operar:
             </p>
-            <Select value={branchId} onValueChange={setBranchId}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Sucursal…" />
-              </SelectTrigger>
-              <SelectContent className="max-h-72">
-                {(auth?.branches ?? []).map((b) => (
-                  <SelectItem key={b.id} value={b.id}>
-                    {b.code} — {b.name}
-                    {b.isCedea ? ' · CEDEA' : ''}
-                    {b.currencyCode && b.currencyCode !== 'MXN'
-                      ? ` (${b.currencyCode})`
-                      : ''}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <BranchSearchSelect
+              branches={auth?.branches ?? []}
+              value={branchId}
+              onSelect={(b) => setBranchId(b.id)}
+              className="w-full"
+            />
             <p className="text-[11px] text-muted-foreground">
               El catálogo, precios, stock, folios y caja serán los de la
               sucursal elegida. Puedes cambiarla en cualquier momento desde la
