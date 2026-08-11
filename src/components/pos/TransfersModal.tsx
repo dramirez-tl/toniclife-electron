@@ -2,7 +2,7 @@
 // esta sucursal. El cajero acepta la entrada (recepción total) y el stock del
 // destino se incrementa en el backend (POST /pos/transfers/:id/receive).
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   X,
   PackageCheck,
@@ -97,6 +97,13 @@ export function TransfersModal({
   // Histórico de movimientos de la sucursal (lo que Operación aplicó desde
   // el admin: entradas/salidas/ajustes/conteos, y traspasos).
   const [histPage, setHistPage] = useState(1);
+  // El modal vive montado siempre: sin este reset, la página quedaba
+  // "atorada" entre aperturas/sucursales (caso real: paginar a la 2 con la
+  // 254 y cambiar a Mérida —1 sola página— dejaba el histórico "vacío" y
+  // sin flechas para regresar).
+  useEffect(() => {
+    if (isOpen) setHistPage(1);
+  }, [isOpen, branchId]);
   const { data: history, isLoading: histLoading } = useBranchInventoryMovements(
     isOpen ? branchId : undefined,
     histPage,
