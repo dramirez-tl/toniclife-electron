@@ -15,6 +15,7 @@ import {
   RefreshCw,
   CircleHelp,
   BadgePercent,
+  ShieldCheck,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { LogoMark } from '@/components/LogoMark';
@@ -48,8 +49,14 @@ import {
 } from '@/components/pos/StampRetryModal';
 import { PrinterSettingsModal } from '@/components/pos/PrinterSettingsModal';
 import { ComingSoonGate } from '@/components/pos/ComingSoonGate';
+import { StaffLoginModal } from '@/components/pos/StaffLoginModal';
 import { hasSeenPosTour, startPosTour } from '@/lib/posTour';
 import { usePosCartStore } from '@/stores/pos-cart.store';
+import {
+  useStaffSession,
+  STAFF_IDLE_TIMEOUT_MS,
+} from '@/stores/staff-session.store';
+import { staffLogout } from '@/lib/staffApi';
 import {
   useCreateSale,
   useProcessPayment,
@@ -118,8 +125,14 @@ export function PosScreen({
 }: PosScreenProps) {
   // Rollout: cuerpo bloqueado ("próximamente"). El header sigue vivo para poder
   // configurar la impresora. Se libera solo cuando el super admin habilita.
-  const posLocked = !operationsEnabled;
+  // El MODO STAFF (personal autenticado del corporativo) opera aun con la
+  // terminal bloqueada — el gate es del rollout de la sucursal, no del staff.
+  const staffBypass = useStaffSession(
+    (s) => !!s.user && !!s.selectedBranch,
+  );
+  const posLocked = !operationsEnabled && !staffBypass;
   const [refreshing, setRefreshing] = useState(false);
+  const [staffLoginOpen, setStaffLoginOpen] = useState(false);
 
   // Tour de primera vez: solo cuando la terminal está LIBERADA (con el gate
   // "próximamente" no hay pantalla que recorrer). Espera un tick a que el
@@ -246,10 +259,67 @@ export function PosScreen({
     fingerprint: string;
   } | null>(null);
 
-  const branchId = session.branch.id;
-  const branchTz = session.branch.timezone;
-  const currencyCode = session.branch.currencyCode ?? 'MXN';
-  const currencySymbol = currencySymbolFor(session.branch.currencyCode);
+  // MODO STAFF (call center / corporativo con SU cuenta): si hay sesión staff
+  // con sucursal elegida, TODO el POS opera con esa sucursal (catálogo,
+  // precios, stock, caja, folios, ticket) — un solo punto de re-scope. La
+  // identidad de la TERMINAL (licencia, heartbeat, updates) no cambia.
+  const staffUser = useStaffSession((s) => s.user);
+  const staffBranch = useStaffSession((s) => s.selectedBranch);
+  const staffBranches = useStaffSession((s) => s.branches);
+  const staffActive = !!staffUser && !!staffBranch;
+  const branch = staffActive ? staffBranch! : session.branch;
+
+  const branchId = branch.id;
+  const branchTz = branch.timezone;
+  const currencyCode = branch.currencyCode ?? 'MXN';
+  const currencySymbol = currencySymbolFor(branch.currencyCode);
+
+  // Cambio de sucursal efectiva (entrar/salir/cambiar en modo staff): el
+  // carrito se vacía (precios/stock/moneda de otra sucursal) y el día de
+  // ventas se recalcula en la zona horaria nueva. Los queries se refrescan
+  // solos: todas las keys llevan branchId.
+  const prevBranchIdRef = useRef(branchId);
+  useEffect(() => {
+    if (prevBranchIdRef.current === branchId) return;
+    prevBranchIdRef.current = branchId;
+    clearCart();
+    saleAttemptRef.current = null;
+    setSalesDate(todayLocal(branch.timezone));
+    // Cerrar TODO modal operativo abierto: un modal que sobrevive al cambio
+    // (p.ej. el timeout de inactividad disparó con el alta a medias) operaría
+    // la sucursal EQUIVOCADA — e incluso por encima del gate de rollout.
+    setRegisterOpen(false);
+    setKitChoice(null);
+    setPendingKit(null);
+    setPaymentOpen(false);
+    setSelectedSaleId(null);
+    setCorteOpen(false);
+    setMovementsOpen(false);
+    setTransfersOpen(false);
+    setPromosOpen(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [branchId]);
+
+  // Cierre automático del modo staff por inactividad (15 min sin teclado ni
+  // clics). El carrito se limpia al salir (efecto de cambio de sucursal).
+  useEffect(() => {
+    if (!staffActive) return;
+    const touch = () => useStaffSession.getState().touch();
+    window.addEventListener('pointerdown', touch);
+    window.addEventListener('keydown', touch);
+    const interval = window.setInterval(() => {
+      const last = useStaffSession.getState().lastActivityAt;
+      if (Date.now() - last > STAFF_IDLE_TIMEOUT_MS) {
+        staffLogout();
+        toast.info('Modo staff cerrado por inactividad.');
+      }
+    }, 30_000);
+    return () => {
+      window.removeEventListener('pointerdown', touch);
+      window.removeEventListener('keydown', touch);
+      window.clearInterval(interval);
+    };
+  }, [staffActive]);
 
   const { data: activeSession } = usePosActiveSession(branchId);
   const { data: incomingTransfers = [] } = useIncomingTransfers(branchId);
@@ -458,8 +528,8 @@ export function PosScreen({
       void window.toniclife.printer
         .printSale(
           {
-            branchName: session.branch.name,
-            ticketName: session.branch.ticketName,
+            branchName: branch.name,
+            ticketName: branch.ticketName,
             saleNumber: result.saleNumber,
             createdAt: new Date().toISOString(),
             customerName: cart.customerName,
@@ -484,7 +554,7 @@ export function PosScreen({
             })),
             amountReceived: cashReceived > 0 ? cashReceived : undefined,
             changeGiven: result.changeGiven,
-            currencyCode: session.branch.currencyCode,
+            currencyCode: branch.currencyCode,
             // Puntos de ESTA venta (API nuevo; fallback: suma del carrito) y
             // saldo del periodo con la compra incluida.
             salePoints:
@@ -603,28 +673,44 @@ export function PosScreen({
     <div className="h-full w-full flex flex-col bg-muted/30">
       {/* Barra superior */}
       <header className="h-14 bg-primary text-primary-foreground flex items-center px-5 gap-4 shrink-0">
-        <LogoMark size={44} variant="icon-blue" avatar />
+        {/* Acceso OCULTO al modo staff: clic al logo (call center / corporativo). */}
+        <button
+          type="button"
+          onClick={() => {
+            if (!staffActive) setStaffLoginOpen(true);
+          }}
+          className="shrink-0 cursor-default appearance-none border-0 bg-transparent p-0"
+          title=""
+          aria-label="Tonic Life"
+        >
+          <LogoMark size={44} variant="icon-blue" avatar />
+        </button>
         <div className="flex-1 min-w-0" data-tour="pos-branch">
           <div className="text-sm font-semibold leading-tight">
             Tonic Life POS
           </div>
           <div className="flex items-center gap-1.5 text-xs text-white/80">
-            {session.branch.country && (
+            {branch.country && (
               <span
                 className="shrink-0 rounded bg-white/15 px-1.5 py-0.5 text-[11px] font-semibold text-white"
-                title={session.branch.country.name}
+                title={branch.country.name}
               >
-                {countryFlag(session.branch.country.code)} {session.branch.country.name}
+                {countryFlag(branch.country.code)} {branch.country.name}
               </span>
             )}
-            {session.branch.legacyKey && (
+            {branch.legacyKey && (
               <span className="shrink-0 rounded bg-white/15 px-1.5 py-0.5 text-[11px] font-semibold text-white">
-                Clave {session.branch.legacyKey}
+                Clave {branch.legacyKey}
               </span>
             )}
             <span className="truncate">
-              {session.branch.code} — {session.branch.name}
+              {branch.code} — {branch.name}
             </span>
+            {staffActive && (
+              <span className="shrink-0 rounded bg-violet-500/90 px-1.5 py-0.5 text-[11px] font-bold text-white">
+                MODO STAFF
+              </span>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-4" data-tour="pos-status">
@@ -633,7 +719,7 @@ export function PosScreen({
           <div className="flex items-center gap-1.5 text-sm text-white/85 mr-1">
             <Clock className="size-4 shrink-0" />
             <LiveClock
-              timezone={session.branch.timezone}
+              timezone={branch.timezone}
               showDate
               dateClassName="text-[11px] text-white/70"
             />
@@ -739,6 +825,61 @@ export function PosScreen({
         </Button>
       </header>
 
+      {/* Barra de MODO STAFF: visible mientras call center / corporativo opera
+          con su cuenta. Cambiar de sucursal vacía el carrito (aviso). */}
+      {staffActive && staffUser && (
+        <div className="flex h-10 shrink-0 items-center gap-3 bg-violet-700 px-5 text-white">
+          <ShieldCheck className="size-4 shrink-0" />
+          <span className="text-xs font-semibold">
+            Modo staff — {staffUser.fullName}
+          </span>
+          <span className="hidden text-[11px] text-white/70 sm:inline">
+            {staffUser.email}
+          </span>
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-[11px] text-white/80">Sucursal:</span>
+            <select
+              value={branch.id}
+              onChange={(e) => {
+                const next = staffBranches.find((b) => b.id === e.target.value);
+                if (!next || next.id === branch.id) return;
+                if (
+                  cart.items.length > 0 &&
+                  !window.confirm(
+                    'Cambiar de sucursal vacía el carrito actual. ¿Continuar?',
+                  )
+                ) {
+                  return;
+                }
+                useStaffSession.getState().selectBranch(next);
+                toast.info(`Operando sucursal ${next.code} — ${next.name}`);
+              }}
+              className="h-7 max-w-64 rounded border border-white/30 bg-violet-800 px-2 text-xs text-white outline-none"
+              title="Sucursal a operar"
+            >
+              {staffBranches.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.code} — {b.name}
+                  {b.isCedea ? ' · CEDEA' : ''}
+                </option>
+              ))}
+            </select>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                staffLogout();
+                toast.info('Saliste del modo staff.');
+              }}
+              className="h-7 px-2 text-xs text-white/90 hover:bg-white/10 hover:text-white"
+            >
+              <LogOut className="size-3.5" />
+              Salir del modo staff
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Cuerpo: bloqueado durante el rollout, o la operación normal. */}
       {posLocked ? (
         <div className="flex-1 min-h-0">
@@ -837,10 +978,10 @@ export function PosScreen({
         total={cart.total}
         currencySymbol={currencySymbol}
         currencyCode={currencyCode}
-        branchCountry={session.branch.country?.code}
+        branchCountry={branch.country?.code}
         customerId={cart.customerId}
         customerRfc={cart.customerRfc}
-        invoicingEnabled={invoicingEnabled}
+        invoicingEnabled={staffActive ? true : invoicingEnabled}
         isProcessing={isProcessing}
         onConfirm={handlePaymentConfirm}
       />
@@ -850,7 +991,7 @@ export function PosScreen({
         isOpen={corteOpen}
         onClose={() => setCorteOpen(false)}
         branchId={branchId}
-        branchName={session.branch.name}
+        branchName={branch.name}
         date={salesDate}
         currencySymbol={currencySymbol}
         onSelectSale={(id) => setSelectedSaleId(id)}
@@ -876,7 +1017,7 @@ export function PosScreen({
         isOpen={promosOpen}
         onClose={() => setPromosOpen(false)}
         branchId={branchId}
-        branchName={session.branch.name}
+        branchName={branch.name}
       />
 
       {/* Kit con cliente asignado: ¿recompra para él o inscripción de un nuevo? */}
@@ -929,7 +1070,7 @@ export function PosScreen({
         }
         kit={pendingKit}
         branchId={branchId}
-        branchCountryCode={session.branch.country?.code}
+        branchCountryCode={branch.country?.code}
         onEnrolled={handleKitEnrolled}
       />
 
@@ -938,7 +1079,7 @@ export function PosScreen({
         isOpen={registerOpen}
         onClose={() => setRegisterOpen(false)}
         branchId={branchId}
-        branchCountryCode={session.branch.country?.code}
+        branchCountryCode={branch.country?.code}
         currencySymbol={currencySymbol}
         enrollmentKits={enrollmentKits}
         onRegistered={handleDistributorRegistered}
@@ -951,8 +1092,8 @@ export function PosScreen({
         saleId={selectedSaleId}
         currencySymbol={currencySymbol}
         branchTz={branchTz}
-        branchName={session.branch.name}
-        ticketName={session.branch.ticketName}
+        branchName={branch.name}
+        ticketName={branch.ticketName}
       />
 
       {/* Modal de reintento de timbrado CFDI */}
@@ -966,7 +1107,20 @@ export function PosScreen({
       <PrinterSettingsModal
         isOpen={printerSettingsOpen}
         onClose={() => setPrinterSettingsOpen(false)}
-        branchName={session.branch.name}
+        branchName={branch.name}
+      />
+
+      {/* Login OCULTO del modo staff (clic al logo del header) */}
+      <StaffLoginModal
+        isOpen={staffLoginOpen}
+        onClose={() => setStaffLoginOpen(false)}
+        terminalBranchId={session.branch.id}
+        onEntered={(b) => {
+          setStaffLoginOpen(false);
+          toast.success(
+            `Modo staff activo — operando sucursal ${b.code} — ${b.name}`,
+          );
+        }}
       />
 
       {/* Confirmacion de cierre de sesion */}
@@ -974,6 +1128,8 @@ export function PosScreen({
         isOpen={showConfirm}
         onClose={() => setShowConfirm(false)}
         onConfirm={async () => {
+          // Al desactivar la terminal también muere la sesión staff en memoria.
+          staffLogout();
           await onLogout();
           setShowConfirm(false);
         }}

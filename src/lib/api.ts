@@ -30,6 +30,34 @@ if (APP_ENV === 'production' && !baseURL.startsWith('https://')) {
 let deviceToken: string | null = null;
 let onUnauthorized: ((reason: string) => void) | null = null;
 
+// MODO STAFF (call center / corporativo con SU cuenta encima de la terminal):
+// cuando hay staffToken, las peticiones de NEGOCIO viajan con el JWT del
+// usuario (el API deja seller_id = la persona real). Los endpoints de
+// LICENCIA (/pos-licenses/*) siguen SIEMPRE con el device token — identifican
+// a la terminal física (heartbeat, gate, updates) sin importar quién opere.
+// Los de /auth/* van sin token de sesión (login/refresh son públicos).
+let staffToken: string | null = null;
+let onStaffUnauthorized: (() => Promise<boolean>) | null = null;
+
+export function setStaffToken(token: string | null): void {
+  staffToken = token;
+}
+
+/** Handler que intenta refrescar el JWT de staff; regresa true si lo logró
+ *  (la petición original se reintenta) o false (la sesión staff se cierra). */
+export function onStaffTokenExpired(
+  handler: (() => Promise<boolean>) | null,
+): void {
+  onStaffUnauthorized = handler;
+}
+
+function isLicenseUrl(url: string): boolean {
+  return url.includes('/pos-licenses/');
+}
+function isAuthUrl(url: string): boolean {
+  return url.includes('/auth/');
+}
+
 export function setDeviceToken(token: string | null): void {
   deviceToken = token;
 }
@@ -46,7 +74,15 @@ export const api: AxiosInstance = axios.create({
 
 api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   if (config.headers) {
-    if (deviceToken) {
+    const url = config.url ?? '';
+    if (config.headers.Authorization) {
+      // Un call site que puso su propio Bearer (ej. staffApi validando el
+      // token recién emitido ANTES de arrancar la sesión) se respeta.
+    } else if (isAuthUrl(url)) {
+      // login/refresh: sin Bearer (públicos).
+    } else if (staffToken && !isLicenseUrl(url)) {
+      config.headers.Authorization = `Bearer ${staffToken}`;
+    } else if (deviceToken) {
       config.headers.Authorization = `Bearer ${deviceToken}`;
     }
     config.headers['X-App-Version'] = APP_VERSION;
@@ -56,7 +92,7 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
 
 api.interceptors.response.use(
   (response) => response,
-  (error: AxiosError) => {
+  async (error: AxiosError) => {
     if (error.response?.status === 401) {
       const body = error.response.data as { message?: string } | undefined;
       const reason = body?.message ?? 'Token rechazado por el servidor';
@@ -70,6 +106,33 @@ api.interceptors.response.use(
         '— body completo:',
         error.response.data,
       );
+
+      // MODO STAFF: un 401 en un endpoint de negocio con JWT de staff intenta
+      // UN refresh; si funciona, reintenta la petición original. Si no, el
+      // handler cierra la sesión staff y la terminal sigue con device token.
+      const cfg = error.config as
+        | (InternalAxiosRequestConfig & { _staffRetry?: boolean })
+        | undefined;
+      if (
+        staffToken &&
+        cfg &&
+        !cfg._staffRetry &&
+        !isLicenseUrl(url) &&
+        !isAuthUrl(url) &&
+        onStaffUnauthorized
+      ) {
+        const refreshed = await onStaffUnauthorized();
+        // OJO: cfg.headers conserva el Authorization YA procesado del primer
+        // intento (el JWT vencido). Hay que reinstalar el token fresco o el
+        // reintento repetiría el 401 para siempre.
+        if (refreshed && staffToken) {
+          cfg._staffRetry = true;
+          cfg.headers.Authorization = `Bearer ${staffToken}`;
+          return api.request(cfg);
+        }
+        return Promise.reject(error);
+      }
+
       // Solo invalidamos la SESIÓN cuando el 401 viene de un endpoint de
       // LICENCIA (validación del device token). Un 401 de un endpoint de
       // negocio (ej. uno que no acepta el token de terminal) NO debe cerrar

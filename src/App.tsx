@@ -32,6 +32,7 @@ import type {
   StoredSession,
 } from '@/types';
 import { setDeviceToken, onApiUnauthorized } from '@/lib/api';
+import { staffLogout } from '@/lib/staffApi';
 import {
   validateLicense,
   heartbeat as sendHeartbeat,
@@ -167,6 +168,7 @@ export function App() {
       } else if (result.kind === 'invalid') {
         // 401: el interceptor ya limpio la sesion y mostro el toast.
         // 403: limpiamos aqui (la API rechazo por revoke/hardware mismatch).
+        staffLogout();
         setDeviceToken(null);
         await window.toniclife.session.clear();
         setState({ kind: 'activation' });
@@ -243,6 +245,7 @@ export function App() {
   useEffect(() => {
     onApiUnauthorized(async (reason) => {
       console.warn('[POS] Sesion invalidada por la API:', reason);
+      staffLogout(); // la sesion staff en memoria muere con la terminal
       setDeviceToken(null);
       await window.toniclife.session.clear();
       toast.error(`Sesion invalidada por el servidor: ${reason}`, {
@@ -267,7 +270,9 @@ export function App() {
     heartbeatRef.current = setInterval(async () => {
       const r = await sendHeartbeat();
       if (r.kind === 'invalid') {
-        // Licencia revocada o hardware mismatch: cerrar sesion.
+        // Licencia revocada o hardware mismatch: cerrar sesion (incluida la
+        // sesion staff en memoria — no debe sobrevivir a la reactivacion).
+        staffLogout();
         setDeviceToken(null);
         await window.toniclife.session.clear();
         toast.error('La licencia fue revocada. Vuelve a activar la terminal.');
@@ -408,6 +413,7 @@ export function App() {
       return { ok: true, enabled: result.data.operationsEnabled };
     }
     if (result.kind === 'invalid') {
+      staffLogout();
       setDeviceToken(null);
       await window.toniclife.session.clear();
       setState({ kind: 'activation' });
