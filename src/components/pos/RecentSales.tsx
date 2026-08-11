@@ -160,8 +160,19 @@ export function RecentSales({
                   className="block h-auto w-full rounded-none px-4 py-2.5 text-left whitespace-normal hover:bg-muted/60"
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-mono text-foreground">
-                      {sale.saleNumber}
+                    <span className="flex min-w-0 items-center gap-1.5 text-xs font-mono text-foreground">
+                      <span className="truncate">{sale.saleNumber}</span>
+                      {/* Capturada con cuenta personal (modo staff / call
+                          center), no por la terminal de la sucursal. */}
+                      {sale.capturedVia === 'usuario' &&
+                        !sale.saleNumber.startsWith('M-') && (
+                          <span
+                            className="shrink-0 rounded bg-violet-100 px-1 py-px font-sans text-[9px] font-bold text-violet-700"
+                            title={`Capturada por ${sale.sellerName} (call center / corporativo)`}
+                          >
+                            CC
+                          </span>
+                        )}
                     </span>
                     {statusBadge(sale.status)}
                   </div>

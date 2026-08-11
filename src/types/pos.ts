@@ -171,6 +171,10 @@ export interface Sale {
   customerRfc?: string;
   sellerId: string;
   sellerName: string;
+  /** Canal de captura: 'terminal' = caja de la sucursal; 'usuario' = cuenta
+   *  personal (modo staff/call center o admin web). Migradas del legacy
+   *  (folio M-%) no aplican. */
+  capturedVia?: 'terminal' | 'usuario';
   status: PosSaleStatus;
   subtotal: number;
   discountAmount: number;

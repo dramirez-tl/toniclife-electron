@@ -196,8 +196,25 @@ export function SaleDetailModal({
                 {sale ? `Venta ${sale.saleNumber}` : 'Detalle de venta'}
               </DialogTitle>
               {sale && (
-                <DialogDescription className="text-xs">
-                  {formatDateTime(sale.createdAt, branchTz)} · {sale.sellerName}
+                <DialogDescription className="flex items-center gap-1.5 text-xs">
+                  <span>
+                    {formatDateTime(sale.createdAt, branchTz)} · {sale.sellerName}
+                  </span>
+                  {/* Canal de captura: la terminal de la sucursal vs una cuenta
+                      personal (modo staff / call center). Migradas: folio M-. */}
+                  {sale.saleNumber.startsWith('M-') ? (
+                    <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                      Migrada del legacy
+                    </span>
+                  ) : sale.capturedVia === 'usuario' ? (
+                    <span className="rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700">
+                      Call center / corporativo
+                    </span>
+                  ) : sale.capturedVia === 'terminal' ? (
+                    <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700">
+                      Terminal de sucursal
+                    </span>
+                  ) : null}
                 </DialogDescription>
               )}
             </div>
