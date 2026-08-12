@@ -207,6 +207,9 @@ export interface SaleReceiptPayload {
     quantity: number;
     unitPrice: number;
     total: number;
+    /** Contenido de un kit/paquete/promo (lo que se entrega); quantity ya
+     *  viene multiplicada por la cantidad de kits vendidos. */
+    components?: Array<{ name: string; quantity: number }>;
   }>;
   subtotal: number;
   discountAmount: number;

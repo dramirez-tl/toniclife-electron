@@ -365,6 +365,31 @@ class PosApi {
     return data;
   }
 
+  /** Componentes (BoM) de un kit/paquete/promo — para imprimir el CONTENIDO
+   *  en el ticket (la sucursal arma el kit con esa lista al entregarlo).
+   *  Resolución por país (misma regla que el API al vender): si el producto
+   *  tiene renglones del país de la sucursal se usan SOLO esos; si no, los
+   *  globales. Endpoint público GET /products/:id/components. */
+  async getKitComponents(
+    productId: string,
+    branchCountryId?: string,
+  ): Promise<Array<{ name: string; quantity: number }>> {
+    const { data } = await api.get(`/products/${productId}/components`);
+    /* eslint-disable @typescript-eslint/no-explicit-any */
+    const rows = ((data ?? []) as any[]).filter(
+      (c) => c.isActive !== false && c.componentProductId,
+    );
+    const ofCountry = branchCountryId
+      ? rows.filter((c) => c.countryId === branchCountryId)
+      : [];
+    const chosen = ofCountry.length > 0 ? ofCountry : rows.filter((c) => !c.countryId);
+    return chosen.map((c) => ({
+      name: String(c.componentProductName ?? c.componentProductCode ?? 'Componente'),
+      quantity: Number(c.quantity) || 1,
+    }));
+    /* eslint-enable @typescript-eslint/no-explicit-any */
+  }
+
   /** Estados/departamentos del país (endpoint público, catálogo tonic.states)
    *  para el domicilio estructurado del alta. */
   async getStates(

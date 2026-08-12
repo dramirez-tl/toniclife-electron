@@ -527,6 +527,41 @@ export function PosScreen({
         (s, p) => s + (p.amountReceived ?? 0),
         0,
       );
+
+      // Contenido de kits/paquetes/promos para el ticket (pedido de las
+      // sucursales: al vender un kit el ticket lista lo que INCLUYE para
+      // poder armarlo/entregarlo — paridad con el legacy). Falla-tolerante:
+      // si el fetch no responde, el ticket sale como siempre.
+      const componentsByProduct = new Map<
+        string,
+        Array<{ name: string; quantity: number }>
+      >();
+      try {
+        const kitItems = cart.items.filter(
+          (it) =>
+            it.productType === 'kit' ||
+            it.productType === 'pack' ||
+            it.productType === 'promotional',
+        );
+        if (kitItems.length > 0) {
+          const countries = await posApi.getActiveCountries().catch(() => []);
+          const branchCountryId = countries.find(
+            (c) => c.code?.toUpperCase() === branch.country?.code?.toUpperCase(),
+          )?.id;
+          const uniqueIds = [...new Set(kitItems.map((it) => it.productId))];
+          await Promise.all(
+            uniqueIds.map(async (pid) => {
+              const comps = await posApi
+                .getKitComponents(pid, branchCountryId)
+                .catch(() => []);
+              if (comps.length > 0) componentsByProduct.set(pid, comps);
+            }),
+          );
+        }
+      } catch {
+        // sin componentes: el ticket imprime solo las líneas normales
+      }
+
       void window.toniclife.printer
         .printSale(
           {
@@ -537,12 +572,19 @@ export function PosScreen({
             customerName: cart.customerName,
             customerNumber: cart.customerNumber,
             currencySymbol,
-            items: cart.items.map((it) => ({
-              name: it.productName,
-              quantity: it.quantity,
-              unitPrice: it.unitPrice,
-              total: it.total,
-            })),
+            items: cart.items.map((it) => {
+              const comps = componentsByProduct.get(it.productId);
+              return {
+                name: it.productName,
+                quantity: it.quantity,
+                unitPrice: it.unitPrice,
+                total: it.total,
+                components: comps?.map((c) => ({
+                  name: c.name,
+                  quantity: c.quantity * it.quantity,
+                })),
+              };
+            }),
             subtotal: cart.subtotal,
             // El descuento impreso incluye el del cupón (viaja aparte del
             // manual en el store; sin esto el ticket salía sin descuento).

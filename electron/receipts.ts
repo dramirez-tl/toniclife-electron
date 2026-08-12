@@ -361,6 +361,9 @@ export interface SaleReceiptItemRow {
   quantity: number;
   unitPrice: number;
   total: number;
+  /** Contenido de un kit/paquete/promo: lo que la sucursal debe ENTREGAR.
+   *  quantity ya viene multiplicada por la cantidad de kits vendidos. */
+  components?: { name: string; quantity: number }[];
 }
 
 export interface SaleReceiptPaymentRow {
@@ -477,6 +480,14 @@ export function buildSaleReceiptBytes(input: SaleReceiptInput): Buffer {
         cols,
       ),
     );
+    // Contenido del kit/paquete/promo (paridad con el ticket del legacy):
+    // la sucursal arma el kit con esta lista al entregarlo.
+    if (it.components && it.components.length > 0) {
+      p.line('  Incluye:'.slice(0, cols));
+      for (const c of it.components) {
+        p.line(`   ${c.quantity} x ${c.name}`.slice(0, cols));
+      }
+    }
   }
   p.line(sep);
 
