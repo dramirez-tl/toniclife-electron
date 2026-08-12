@@ -29,6 +29,8 @@ interface CartProps {
   currencyCode: string;
   isProcessing?: boolean;
   onCheckout?: () => void;
+  /** Sucursal efectiva (umbrales de promos vigentes en la barra de puntos). */
+  branchId?: string;
 }
 
 // Tope de cantidad del item (espejo del store): maxQuantity explícito o 1
@@ -44,6 +46,7 @@ export function Cart({
   currencyCode,
   isProcessing,
   onCheckout,
+  branchId,
 }: CartProps) {
   const cart = usePosCartStore((s) => s.cart);
   const updateItemQuantity = usePosCartStore((s) => s.updateItemQuantity);
@@ -158,6 +161,7 @@ export function Cart({
         <PosPointsBar
           customerId={cart.customerId}
           cartPoints={cart.totalPoints}
+          branchId={branchId}
         />
       )}
 

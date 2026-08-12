@@ -987,6 +987,7 @@ export function PosScreen({
             currencySymbol={currencySymbol}
             currencyCode={currencyCode}
             isProcessing={isProcessing}
+            branchId={branch.id}
             onCheckout={() => {
               if (cart.items.length === 0) return;
               // Venta en $0 por promo O por cupón que cubre el total: no hay
