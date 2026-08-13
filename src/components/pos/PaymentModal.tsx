@@ -108,6 +108,13 @@ export function PaymentModal({
   // México = CFDI (Facturama). Otros países (p. ej. US) no usan CFDI: su
   // facturación (QuickBooks) se habilitará después. Default MX si no llega país.
   const isMx = (branchCountry ?? 'MX').toUpperCase() === 'MX';
+  // "USD Efectivo" existe para sucursales MX/Frontera que reciben billetes
+  // de dólar (el corte los separa del efectivo en pesos). En una sucursal de
+  // EE.UU. el efectivo YA es en dólares — se oculta para evitar confusión.
+  const isUs = (branchCountry ?? '').toUpperCase() === 'US';
+  const methods = isUs
+    ? METHODS.filter((m) => m.method !== PosPaymentMethod.USD_CASH)
+    : METHODS;
   const [method, setMethod] = useState<PosPaymentMethod>(PosPaymentMethod.CASH);
   const [received, setReceived] = useState('');
   const [splitMode, setSplitMode] = useState(false);
@@ -324,7 +331,7 @@ export function PaymentModal({
           {!splitMode && (
             <>
               <div className="grid grid-cols-3 gap-2">
-                {METHODS.map((m) => (
+                {methods.map((m) => (
                   <Button
                     key={m.method}
                     type="button"
@@ -431,7 +438,7 @@ export function PaymentModal({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {METHODS.map((m) => (
+                      {methods.map((m) => (
                         <SelectItem key={m.method} value={m.method}>
                           {m.label}
                         </SelectItem>
