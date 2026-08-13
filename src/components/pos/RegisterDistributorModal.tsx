@@ -101,6 +101,9 @@ const EMPTY_FORM = {
   identificationType: '',
 };
 
+/** Formato oficial del CURP (18): mismo regex que valida el API. */
+const CURP_REGEX = /^[A-Z]{4}[0-9]{6}[HM][A-Z]{5}[A-Z0-9]{2}$/;
+
 const MARITAL_OPTIONS = [
   { value: 'soltero', label: 'Soltero(a)' },
   { value: 'casado', label: 'Casado(a)' },
@@ -281,6 +284,17 @@ export function RegisterDistributorModal({
     );
     if (!phone.ok) {
       toast.error(phone.error);
+      return;
+    }
+    // CURP: si se captura, debe traer los 18 caracteres del formato oficial
+    // (mismo regex que el API — antes se guardaba incompleto y el admin lo
+    // rechazaba después al editar).
+    const curpTyped = showCurp ? form.curp.trim().toUpperCase() : '';
+    if (curpTyped && !CURP_REGEX.test(curpTyped)) {
+      toast.error(
+        `CURP inválido: son 18 caracteres con el formato oficial (capturaste ${curpTyped.length}). ` +
+          'Revisa que no falte la segunda letra (vocal del primer apellido).',
+      );
       return;
     }
     const base = {
@@ -781,6 +795,14 @@ export function RegisterDistributorModal({
                         maxLength={18}
                         className="font-mono"
                       />
+                      {form.curp.trim().length > 0 &&
+                        !CURP_REGEX.test(form.curp.trim()) && (
+                          <p className="mt-1 text-xs text-destructive">
+                            CURP incompleto: son 18 caracteres (lleva{' '}
+                            {form.curp.trim().length}) — 4 letras + fecha +
+                            sexo + estado + 3 consonantes + 2 finales.
+                          </p>
+                        )}
                     </Field>
                   )}
                   {/* El C.P. ahora viaja dentro del DOMICILIO estructurado
