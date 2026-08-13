@@ -42,6 +42,9 @@ export interface PrinterConfig {
   hasCashDrawer: boolean;
   /** Ancho del papel (afecta layout en modo system). */
   paperWidth: 58 | 80;
+  /** Impresora de MATRIZ DE PUNTO: no soporta el raster ESC/POS (imprime
+   *  basura); los tickets salen solo texto con "TONICLIFE" como logo. */
+  dotMatrix?: boolean;
 }
 
 export interface OsPrinterInfo {
@@ -267,6 +270,7 @@ export async function testPrint(
       branchName,
       printerLabel: label,
       paperWidth: config.paperWidth,
+      textLogo: config.dotMatrix ?? false,
     });
     await sendNetwork(config.host, config.port, bytes);
     return;
@@ -286,6 +290,7 @@ export async function testPrint(
         branchName,
         printerLabel: config.deviceName,
         paperWidth: config.paperWidth,
+        textLogo: config.dotMatrix ?? false,
       });
       await sendRawToWindowsPrinter(config.deviceName, bytes);
       return;
@@ -323,6 +328,7 @@ export async function printCorte(
   const bytes = buildCorteReceiptBytes({
     ...corte,
     paperWidth: config.paperWidth,
+    textLogo: config.dotMatrix ?? false,
   });
 
   if (config.connection === 'network') {
@@ -375,6 +381,7 @@ export async function printSale(
   let bytes = buildSaleReceiptBytes({
     ...sale,
     paperWidth: config.paperWidth,
+    textLogo: config.dotMatrix ?? false,
   });
 
   if (config.connection === 'network') {

@@ -344,6 +344,26 @@ export function PrinterSettingsModal({
             </div>
           </div>
 
+          {/* Matriz de punto: sin graficos (el raster ESC/POS del logo sale
+              como basura en estas impresoras; el ticket va solo texto). */}
+          <Label className="flex items-start gap-2 text-sm cursor-pointer">
+            <Checkbox
+              checked={config.dotMatrix ?? false}
+              onCheckedChange={(c) => set('dotMatrix', c === true)}
+              disabled={busy}
+              className="mt-0.5"
+            />
+            <div>
+              <div className="font-medium text-foreground">
+                Impresora de matriz de punto (tickets solo texto)
+              </div>
+              <div className="text-[11px] text-muted-foreground">
+                Sustituye el logo grafico por &quot;TONICLIFE&quot; en texto.
+                Actívalo si el inicio del ticket sale con simbolos basura.
+              </div>
+            </div>
+          </Label>
+
           {/* Cajon de dinero */}
           <Label className="flex items-start gap-2 text-sm cursor-pointer">
             <Checkbox

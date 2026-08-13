@@ -155,6 +155,9 @@ export interface PrinterConfig {
   deviceName?: string;
   hasCashDrawer: boolean;
   paperWidth: 58 | 80;
+  /** Impresora de MATRIZ DE PUNTO: tickets solo texto ("TONICLIFE" en vez
+   *  del logo gráfico, que estas impresoras imprimen como basura). */
+  dotMatrix?: boolean;
 }
 
 export interface OsPrinterInfo {

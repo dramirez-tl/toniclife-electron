@@ -18,10 +18,39 @@ import {
 } from './escpos';
 import { buildLogoBitmapBytes } from './logo';
 
+/**
+ * Encabezado del ticket. Con `textLogo` (impresoras de MATRIZ DE PUNTO, que
+ * no entienden el raster ESC/POS y lo imprimen como basura) el logo gráfico
+ * se sustituye por "TONICLIFE" en texto doble alto/ancho.
+ */
+function printHeaderLogo(
+  p: Escpos,
+  paperWidth: 58 | 80,
+  textLogo?: boolean,
+): void {
+  if (textLogo) {
+    p.align('center');
+    p.size(2, 2).line('TONICLIFE').size(1, 1);
+    p.line('');
+    return;
+  }
+  // Logo de texto "toniclife" centrado. Proporcion ~5:1 (ancho:alto):
+  // 80mm cabe ~400 dots (~70% del cabezal 576); 58mm ~300 dots.
+  const logoWidth = paperWidth === 80 ? 400 : 300;
+  const logoBytes = buildLogoBitmapBytes(logoWidth, 'logo-text-light-r.png');
+  if (logoBytes) {
+    p.align('center');
+    p.rawBuffer(logoBytes);
+    p.line('');
+  }
+}
+
 export interface TestReceiptInput {
   branchName: string;
   printerLabel: string; // "192.168.1.50:9100" o "POS-80C"
   paperWidth: 58 | 80;
+  /** Matriz de punto: logo en texto, sin gráficos. */
+  textLogo?: boolean;
 }
 
 export interface CorteSaleRow {
@@ -41,6 +70,8 @@ export interface CorteReceiptInput {
   branchName: string;
   date: string; // YYYY-MM-DD
   paperWidth: 58 | 80;
+  /** Matriz de punto: logo en texto, sin gráficos. */
+  textLogo?: boolean;
   currencySymbol: string;
   cashier?: string;
 
@@ -122,16 +153,7 @@ export function buildTestReceiptBytes(input: TestReceiptInput): Buffer {
   const lines = buildTestLines(input);
   const p = new Escpos().init();
 
-  // Logo de texto "toniclife" centrado al inicio. Proporcion ~5:1 (ancho:alto)
-  // asi que le damos mas ancho que un logo cuadrado para que el texto se lea.
-  // 80mm cabe ~400 dots (~70% del cabezal 576); 58mm ~300 dots.
-  const logoWidth = input.paperWidth === 80 ? 400 : 300;
-  const logoBytes = buildLogoBitmapBytes(logoWidth, 'logo-text-light-r.png');
-  if (logoBytes) {
-    p.align('center');
-    p.rawBuffer(logoBytes);
-    p.line(''); // separador
-  }
+  printHeaderLogo(p, input.paperWidth, input.textLogo);
 
   for (const ln of lines) {
     p.align(ln.align ?? 'left');
@@ -263,13 +285,7 @@ export function buildCorteReceiptBytes(input: CorteReceiptInput): Buffer {
   const fmt = (n: number) => formatMoney(n, input.currencySymbol);
 
   // Logo encabezado.
-  const logoWidth = input.paperWidth === 80 ? 400 : 300;
-  const logoBytes = buildLogoBitmapBytes(logoWidth, 'logo-text-light-r.png');
-  if (logoBytes) {
-    p.align('center');
-    p.rawBuffer(logoBytes);
-    p.line('');
-  }
+  printHeaderLogo(p, input.paperWidth, input.textLogo);
 
   // Titulo.
   p.align('center');
@@ -385,6 +401,8 @@ export interface SaleReceiptInput {
    *  quién se abonaron los puntos. */
   customerNumber?: string;
   paperWidth: 58 | 80;
+  /** Matriz de punto: logo en texto, sin gráficos. */
+  textLogo?: boolean;
   currencySymbol: string;
 
   items: SaleReceiptItemRow[];
@@ -441,13 +459,7 @@ export function buildSaleReceiptBytes(input: SaleReceiptInput): Buffer {
   });
 
   // Logo encabezado (mismo asset que test/corte).
-  const logoWidth = input.paperWidth === 80 ? 400 : 300;
-  const logoBytes = buildLogoBitmapBytes(logoWidth, 'logo-text-light-r.png');
-  if (logoBytes) {
-    p.align('center');
-    p.rawBuffer(logoBytes);
-    p.line('');
-  }
+  printHeaderLogo(p, input.paperWidth, input.textLogo);
 
   p.align('center');
   // Datos fiscales del emisor (debajo del logo, antes de la sucursal).
