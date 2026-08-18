@@ -120,7 +120,10 @@ export const usePosActiveSession = (branchId: string | undefined) =>
 export const usePosSales = (
   branchId: string | undefined,
   date: string,
-  limit = 100,
+  // 1000 (API acepta hasta 5000): con 100, sucursales de alto volumen como
+  // Zacatelco (140 ventas el 17-ago) dejaban de VER sus ventas de la manana
+  // en corte/recientes/CSV — las ventas siempre estuvieron en la BD.
+  limit = 1000,
 ) =>
   useQuery({
     queryKey: posKeys.sales(branchId ?? '', date),

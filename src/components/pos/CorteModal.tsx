@@ -272,6 +272,12 @@ export function CorteModal({
                 <h3 className="text-sm font-semibold text-foreground mb-2">
                   Ventas del dia ({sales.length})
                 </h3>
+                {(salesResp?.total ?? 0) > sales.length && (
+                  <p className="mb-2 rounded-md bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800">
+                    Mostrando {sales.length} de {salesResp?.total} ventas del
+                    dia — el resumen de totales SI incluye todas.
+                  </p>
+                )}
                 {loadingSales ? (
                   <p className="text-xs text-muted-foreground">Cargando...</p>
                 ) : sales.length === 0 ? (
