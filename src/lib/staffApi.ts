@@ -17,6 +17,9 @@ interface LoginResponse {
     lastName?: string;
     fullName?: string;
     role?: { code?: string } | string;
+    /** El API de auth regresa los CODIGOS de rol aqui (ej. ['operaciones']);
+     *  `role` no existe en la respuesta real — se conserva por compatibilidad. */
+    roles?: string[];
   };
 }
 
@@ -88,7 +91,8 @@ export async function staffAuthenticate(
 
   const u = login.user;
   const roleCode =
-    typeof u.role === 'string' ? u.role : (u.role?.code ?? undefined);
+    (typeof u.role === 'string' ? u.role : u.role?.code) ??
+    (Array.isArray(u.roles) ? u.roles[0] : undefined);
   const user: StaffUser = {
     id: u.id,
     email: u.email,
