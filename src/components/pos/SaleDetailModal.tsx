@@ -26,6 +26,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { usePosSale, useCancelSale } from '@/hooks/usePos';
+import { useStaffSession } from '@/stores/staff-session.store';
 import { posApi } from '@/lib/posApi';
 import { formatDateTime } from '@/lib/date';
 import { PosSaleStatus } from '@/types/pos';
@@ -80,10 +81,18 @@ export function SaleDetailModal({
 
   const busy = cancelSale.isPending || reprinting;
   const fmt = (n: number) => posApi.formatCurrency(n, currencySymbol);
-  const canCancel =
+  // Cancelar ventas (regla 19-ago-2026): SOLO Operaciones y administracion
+  // central — el server lo exige con @Roles; aqui ademas se oculta la opcion
+  // y se muestra a sucursales/call center/cedeas como solicitarla.
+  const staffUser = useStaffSession((s) => s.user);
+  const CANCEL_ROLES = ['super_admin', 'administrador', 'admin', 'operaciones'];
+  const roleAllowsCancel =
+    !!staffUser && CANCEL_ROLES.includes(staffUser.roleCode ?? '');
+  const saleCancellable =
     sale &&
     (sale.status === PosSaleStatus.COMPLETED ||
       sale.status === PosSaleStatus.PENDING);
+  const canCancel = saleCancellable && roleAllowsCancel;
   // Reimprimir: solo ventas COMPLETADAS (pendientes no tienen cobro y
   // canceladas no deben regenerar ticket).
   const canReprint = sale && sale.status === PosSaleStatus.COMPLETED;
@@ -373,6 +382,21 @@ export function SaleDetailModal({
                     {sale.cancellationReason
                       ? ` — ${sale.cancellationReason}`
                       : ''}
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {saleCancellable && !roleAllowsCancel && (
+                <Alert className="text-xs">
+                  <Ban />
+                  <AlertDescription className="text-xs">
+                    La cancelación de ventas está a cargo del departamento de
+                    Operaciones. Si necesitas cancelar esta venta, solicítalo a
+                    Operaciones indicando el folio{' '}
+                    <span className="font-mono font-semibold">
+                      {sale.saleNumber}
+                    </span>{' '}
+                    y el motivo.
                   </AlertDescription>
                 </Alert>
               )}
