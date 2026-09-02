@@ -91,7 +91,9 @@ export function ProductGrid({
     if (!raw) return;
 
     const [skuPart, qtyPart] = raw.split(/[,;\t]/).map((s) => s.trim());
-    const sku = skuPart;
+    // Claves en mayúsculas (5373M, M005...): normalizar lo tecleado. El API
+    // ya es insensible a mayúsculas; esto mantiene consistentes los toasts.
+    const sku = skuPart.toUpperCase();
     if (!sku) return;
     const qty = Math.max(1, parseInt(qtyPart || '1', 10) || 1);
 
@@ -170,7 +172,7 @@ export function ProductGrid({
         // priceTypeId garantiza que el backend resuelva precio distribuidor
         // cuando hay un cliente con tier seleccionado.
         const product = await posApi.getProductBySku(
-          rawSku,
+          rawSku.toUpperCase(),
           branchId,
           priceTypeId,
         );
