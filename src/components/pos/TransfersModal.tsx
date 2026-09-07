@@ -36,7 +36,7 @@ import {
   useBranchInventoryMovements,
 } from '@/hooks/usePos';
 import { formatDateTime } from '@/lib/date';
-import type { IncomingTransfer } from '@/types/pos';
+import type { IncomingTransfer, IncomingTransferItem } from '@/types/pos';
 
 /** Etiqueta y color por tipo de movimiento (CHECK de inventory_movements). */
 const MOVEMENT_TYPE_META: Record<string, { label: string; className: string }> =
@@ -94,6 +94,14 @@ export function TransfersModal({
   const receive = useReceiveTransfer();
   // Confirmación en dos pasos por traspaso (evita aceptar por accidente).
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  // Recepcion PARCIAL: cantidad recibida por linea (default = enviada). Solo
+  // se manda al API lo que difiere; las diferencias quedan registradas como
+  // faltante/excedente para Operacion.
+  const [received, setReceived] = useState<Record<string, number>>({});
+  const receivedQty = (it: IncomingTransferItem) =>
+    received[it.id] ?? it.quantity;
+  const hasDifferences = (t: IncomingTransfer) =>
+    t.items.some((it) => receivedQty(it) !== it.quantity);
   // Histórico de movimientos de la sucursal (lo que Operación aplicó desde
   // el admin: entradas/salidas/ajustes/conteos, y traspasos).
   const [histPage, setHistPage] = useState(1);
@@ -111,9 +119,20 @@ export function TransfersModal({
 
   async function handleReceive(t: IncomingTransfer) {
     try {
-      await receive.mutateAsync(t.id);
-      toast.success(`Entrada aceptada: ${t.movementNumber}`);
+      const items = t.items
+        .filter((it) => receivedQty(it) !== it.quantity)
+        .map((it) => ({ detailId: it.id, quantityReceived: receivedQty(it) }));
+      await receive.mutateAsync({
+        id: t.id,
+        payload: items.length ? { items } : undefined,
+      });
+      toast.success(
+        items.length
+          ? `Entrada aceptada con ${items.length} diferencia(s) registrada(s): ${t.movementNumber}`
+          : `Entrada aceptada: ${t.movementNumber}`,
+      );
       setConfirmingId(null);
+      setReceived({});
     } catch (err) {
       const e = err as { response?: { data?: { message?: string } } };
       toast.error(
@@ -232,26 +251,57 @@ export function TransfersModal({
                               Producto
                             </TableHead>
                             <TableHead className="px-4 py-1.5 text-right font-medium text-muted-foreground">
-                              Cantidad
+                              Enviado
+                            </TableHead>
+                            <TableHead className="px-4 py-1.5 text-right font-medium text-muted-foreground">
+                              Recibido
                             </TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {t.items.map((it) => (
-                            <TableRow key={it.id}>
-                              <TableCell className="px-4 py-1.5">
-                                <div className="text-foreground">
-                                  {it.productName}
-                                </div>
-                                <div className="font-mono text-[11px] text-muted-foreground">
-                                  {it.productCode}
-                                </div>
-                              </TableCell>
-                              <TableCell className="px-4 py-1.5 text-right tabular-nums">
-                                {it.quantity}
-                              </TableCell>
-                            </TableRow>
-                          ))}
+                          {t.items.map((it) => {
+                            const rq = receivedQty(it);
+                            const diff = rq - it.quantity;
+                            return (
+                              <TableRow key={it.id}>
+                                <TableCell className="px-4 py-1.5">
+                                  <div className="text-foreground">
+                                    {it.productName}
+                                  </div>
+                                  <div className="font-mono text-[11px] text-muted-foreground">
+                                    {it.productCode}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="px-4 py-1.5 text-right tabular-nums">
+                                  {it.quantity}
+                                </TableCell>
+                                <TableCell className="px-4 py-1.5 text-right">
+                                  <div className="flex items-center justify-end gap-2">
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      step={1}
+                                      value={rq}
+                                      disabled={receive.isPending}
+                                      onChange={(e) => {
+                                        const v = Math.max(0, Math.floor(Number(e.target.value) || 0));
+                                        setReceived((prev) => ({ ...prev, [it.id]: v }));
+                                      }}
+                                      className={`h-8 w-20 rounded-md border bg-background px-2 text-right text-sm tabular-nums ${
+                                        diff !== 0 ? 'border-amber-500 text-amber-700' : 'border-input'
+                                      }`}
+                                      aria-label={`Cantidad recibida de ${it.productName}`}
+                                    />
+                                    {diff !== 0 && (
+                                      <span className="w-12 text-[11px] font-medium text-amber-700 tabular-nums">
+                                        {diff > 0 ? `+${diff}` : diff}
+                                      </span>
+                                    )}
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
                         </TableBody>
                       </Table>
                     </div>
@@ -261,7 +311,9 @@ export function TransfersModal({
                       {confirming ? (
                         <>
                           <span className="mr-auto text-xs text-muted-foreground">
-                            ¿Confirmas que recibiste toda la mercancía?
+                            {hasDifferences(t)
+                              ? 'Hay diferencias entre lo enviado y lo recibido: se registraran como faltante o excedente para Operacion. ¿Confirmas la entrada?'
+                              : '¿Confirmas que recibiste toda la mercancia?'}
                           </span>
                           <Button
                             variant="outline"

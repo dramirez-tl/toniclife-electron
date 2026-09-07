@@ -31,6 +31,7 @@ import type {
   FiscalData,
   CreateFiscalDataInput,
   IncomingTransfer,
+  ReceiveTransferPayload,
   BranchInventoryMovementList,
 } from '@/types/pos';
 
@@ -477,8 +478,14 @@ class PosApi {
 
   /** Acepta la entrada de un traspaso: aplica el movimiento e ingresa el stock
    *  al destino. */
-  async receiveTransfer(id: string): Promise<IncomingTransfer> {
-    const { data } = await api.post(`/pos/transfers/${id}/receive`);
+  async receiveTransfer(
+    id: string,
+    payload?: ReceiveTransferPayload,
+  ): Promise<IncomingTransfer> {
+    const { data } = await api.post(
+      `/pos/transfers/${id}/receive`,
+      payload ?? {},
+    );
     return data;
   }
 

@@ -655,6 +655,19 @@ export interface IncomingTransfer {
   approvedAt?: string;
 }
 
+/** Recepcion parcial: cantidades realmente recibidas por linea. */
+export interface ReceiveTransferItem {
+  detailId: string;
+  quantityReceived: number;
+  discrepancyType?: 'missing' | 'damaged' | 'excess' | 'wrong_product';
+  notes?: string;
+}
+
+export interface ReceiveTransferPayload {
+  items?: ReceiveTransferItem[];
+  notes?: string;
+}
+
 /** Aviso de socket cuando llega un traspaso nuevo a la sucursal. */
 export interface TransferIncomingEvent {
   transferId: string;

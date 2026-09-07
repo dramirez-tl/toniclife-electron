@@ -9,8 +9,7 @@ import type {
   CreateCashMovementInput,
   KitEnrollmentRequest,
   PosRegisterDistributorRequest,
-  PosRegisterPreferredRequest,
-} from '@/types/pos';
+  PosRegisterPreferredRequest, ReceiveTransferPayload } from '@/types/pos';
 
 export const posKeys = {
   all: ['pos'] as const,
@@ -324,7 +323,8 @@ export const useIncomingTransfers = (branchId: string | undefined) =>
 export const useReceiveTransfer = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => posApi.receiveTransfer(id),
+    mutationFn: (args: { id: string; payload?: ReceiveTransferPayload }) =>
+      posApi.receiveTransfer(args.id, args.payload),
     onSuccess: () => {
       // El stock del destino cambió: refrescar entradas pendientes y catálogo.
       qc.invalidateQueries({ queryKey: posKeys.all });
