@@ -48,6 +48,9 @@ export interface StoredSession {
     /** Facturación habilitada en esta terminal (piloto doble captura: false =
      *  ocultar "Requiere factura"; la factura se emite en el sistema legacy). */
     invoicingEnabled?: boolean;
+    /** Checador de asistencia habilitado en esta terminal (rollout terminal por
+     *  terminal desde /admin/sistema). undefined = APAGADO (fail-closed). */
+    attendanceEnabled?: boolean;
   };
 }
 
@@ -120,6 +123,9 @@ export interface TerminalLicenseInfo {
   operationsMessage?: string;
   /** Facturación habilitada en esta terminal (undefined en APIs viejas = true). */
   invoicingEnabled?: boolean;
+  /** Checador de asistencia habilitado en esta terminal (rollout por terminal);
+   *  undefined en APIs viejas = false (fail-closed: el botón no se muestra). */
+  attendanceEnabled?: boolean;
   serverTime: string;
 }
 
@@ -134,6 +140,9 @@ export interface HeartbeatResponse {
   operationsMessage?: string;
   /** Facturación habilitada en esta terminal (undefined en APIs viejas = true). */
   invoicingEnabled?: boolean;
+  /** Checador de asistencia habilitado en esta terminal (rollout por terminal);
+   *  undefined en APIs viejas = false (fail-closed: el botón no se muestra). */
+  attendanceEnabled?: boolean;
   /** Bloqueo por conteo de inventario (respaldo del socket — dictamen 2.1.5). */
   posInventoryLocked?: boolean;
   /** Leyenda a mostrar cuando posInventoryLocked=true. */

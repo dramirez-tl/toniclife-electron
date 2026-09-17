@@ -87,6 +87,10 @@ interface PosScreenProps {
   /** Facturación habilitada en esta terminal. false = ocultar "Requiere
    *  factura" (piloto doble captura: la factura se emite en el legacy). */
   invoicingEnabled?: boolean;
+  /** Checador de asistencia habilitado en esta terminal (rollout terminal por
+   *  terminal). false/undefined = ocultar el botón "Checador" (el server además
+   *  rechaza el checado desde esta terminal con 403). */
+  attendanceEnabled?: boolean;
   /** Re-valida contra el server (gate + datos) sin recargar la app. */
   onRefresh?: () => Promise<{
     ok: boolean;
@@ -124,6 +128,7 @@ export function PosScreen({
   operationsEnabled,
   operationsMessage,
   invoicingEnabled = true,
+  attendanceEnabled = false,
   onRefresh,
 }: PosScreenProps) {
   // Rollout: cuerpo bloqueado ("próximamente"). El header sigue vivo para poder
@@ -274,6 +279,13 @@ export function PosScreen({
   const staffBranches = useStaffSession((s) => s.branches);
   const staffActive = !!staffUser && !!staffBranch;
   const branch = staffActive ? staffBranch! : session.branch;
+
+  // Si Sistemas apaga el checador de esta terminal, el siguiente latido (≤60 s)
+  // lo refleja: además de ocultar el botón, cerramos el modal si quedó abierto
+  // (el server ya rechazaría el checado con 403).
+  useEffect(() => {
+    if (!attendanceEnabled && !staffActive) setAttendanceOpen(false);
+  }, [attendanceEnabled, staffActive]);
 
   const branchId = branch.id;
   const branchTz = branch.timezone;
@@ -853,19 +865,26 @@ export function PosScreen({
             <CircleHelp />
           </Button>
         )}
-        {/* Checador: disponible SIEMPRE (igual que la impresora), aunque el
-            cuerpo del POS esté bloqueado por el rollout. */}
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setAttendanceOpen(true)}
-          className="text-white/80 hover:text-white hover:bg-white/10"
-          title="Checador de asistencia del personal"
-          data-tour="pos-attendance"
-        >
-          <Fingerprint />
-          Checador
-        </Button>
+        {/* Checador: solo en las terminales donde Sistemas lo habilitó
+            (rollout terminal por terminal desde /admin/sistema; el server
+            también rechaza el checado con 403 si está apagado). Cuando aparece,
+            vive FUERA del gate del rollout: funciona igual que la impresora
+            aunque el cuerpo del POS esté bloqueado. En MODO STAFF el candado
+            del server no aplica (las peticiones viajan con el JWT del usuario),
+            así que el botón se muestra siempre. */}
+        {(attendanceEnabled || staffActive) && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setAttendanceOpen(true)}
+            className="text-white/80 hover:text-white hover:bg-white/10"
+            title="Checador de asistencia del personal"
+            data-tour="pos-attendance"
+          >
+            <Fingerprint />
+            Checador
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="icon"

@@ -60,6 +60,8 @@ type PosOperations = {
   message: string | null;
   /** Facturación habilitada en esta terminal (piloto doble captura). */
   invoicingEnabled: boolean;
+  /** Checador de asistencia habilitado en esta terminal (rollout por terminal). */
+  attendanceEnabled: boolean;
 };
 
 const HEARTBEAT_INTERVAL_MS = 60_000; // 60s
@@ -76,6 +78,8 @@ export function App() {
     message: null,
     // Default facturación ON: solo se apaga si el server lo indica (piloto).
     invoicingEnabled: true,
+    // Default apagado: solo se prende si el server lo indica (rollout por terminal).
+    attendanceEnabled: false,
   });
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const queryClient = useQueryClient();
@@ -118,6 +122,7 @@ export function App() {
           enabled: stored.operations.enabled,
           message: stored.operations.message ?? null,
           invoicingEnabled: stored.operations.invoicingEnabled ?? true,
+          attendanceEnabled: stored.operations.attendanceEnabled ?? false,
         });
       }
       const result = await validateLicense();
@@ -148,6 +153,7 @@ export function App() {
             enabled: result.data.operationsEnabled,
             message: result.data.operationsMessage,
             invoicingEnabled: result.data.invoicingEnabled ?? true,
+            attendanceEnabled: result.data.attendanceEnabled ?? false,
           },
         };
         await window.toniclife.session.save(updated);
@@ -155,6 +161,7 @@ export function App() {
           enabled: result.data.operationsEnabled,
           message: result.data.operationsMessage ?? null,
           invoicingEnabled: result.data.invoicingEnabled ?? true,
+          attendanceEnabled: result.data.attendanceEnabled ?? false,
         });
         // Estado de bloqueo inicial (el socket lo confirmará/actualizará al conectar).
         setLock({
@@ -287,6 +294,7 @@ export function App() {
           enabled: r.data.operationsEnabled,
           message: r.data.operationsMessage ?? null,
           invoicingEnabled: r.data.invoicingEnabled ?? true,
+          attendanceEnabled: r.data.attendanceEnabled ?? false,
         });
         // Dictamen 2.1.5: el heartbeat es el RESPALDO del socket para el
         // bloqueo por conteo — con el socket caído, el lock igual se aplica
@@ -310,6 +318,7 @@ export function App() {
                 enabled: r.data.operationsEnabled,
                 message: r.data.operationsMessage,
                 invoicingEnabled: r.data.invoicingEnabled ?? true,
+                attendanceEnabled: r.data.attendanceEnabled ?? false,
               },
             })
             .catch(() => {});
@@ -394,6 +403,7 @@ export function App() {
         enabled: result.data.operationsEnabled,
         message: result.data.operationsMessage ?? null,
         invoicingEnabled: result.data.invoicingEnabled ?? true,
+        attendanceEnabled: result.data.attendanceEnabled ?? false,
       });
       const latest = await window.toniclife.session.load();
       if (latest) {
@@ -404,6 +414,7 @@ export function App() {
               enabled: result.data.operationsEnabled,
               message: result.data.operationsMessage,
               invoicingEnabled: result.data.invoicingEnabled ?? true,
+              attendanceEnabled: result.data.attendanceEnabled ?? false,
             },
           })
           .catch(() => {});
@@ -508,6 +519,7 @@ export function App() {
             operationsEnabled={posOps.enabled}
             operationsMessage={posOps.message}
             invoicingEnabled={posOps.invoicingEnabled}
+            attendanceEnabled={posOps.attendanceEnabled}
             onRefresh={refreshStatus}
           />
         )}
