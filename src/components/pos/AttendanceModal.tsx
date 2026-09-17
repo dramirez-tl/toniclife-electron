@@ -116,6 +116,10 @@ export function AttendanceModal({
 }: AttendanceModalProps) {
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  /** Nombres de las cámaras que Windows reporta (ayuda a soporte). */
+  const [cameraDevices, setCameraDevices] = useState<string[]>([]);
+  /** Contador para forzar un nuevo intento de encender la cámara. */
+  const [cameraAttempt, setCameraAttempt] = useState(0);
   const [employeeNumber, setEmployeeNumber] = useState('');
   const [lookup, setLookup] = useState<AttendanceLookupResponse | null>(null);
   const [looking, setLooking] = useState(false);
@@ -143,34 +147,123 @@ export function AttendanceModal({
   }, []);
 
   // Cámara: se enciende al abrir y se apaga SIEMPRE al cerrar/desmontar.
+  // Robusta a lo que pasa en sucursal: cámara ocupada por otro programa (el
+  // checador anterior en el navegador), USB que se desconecta y se vuelve a
+  // conectar, drivers que rechazan la resolución pedida y el candado de
+  // privacidad de Windows. Cada caso tiene su mensaje, hay botón Reintentar,
+  // se reintenta solo cada 5 s mientras el modal siga abierto y se escucha
+  // el evento devicechange para arrancar en cuanto vuelva la cámara.
   useEffect(() => {
     if (!isOpen) return;
     let cancelled = false;
+    let retryTimer: number | null = null;
     setCameraError(null);
-    navigator.mediaDevices
-      ?.getUserMedia({ video: { width: 640, height: 480 }, audio: false })
-      .then((s) => {
-        if (cancelled) {
-          s.getTracks().forEach((t) => t.stop());
+    const md = navigator.mediaDevices;
+
+    const scheduleRetry = () => {
+      if (cancelled || retryTimer !== null) return;
+      retryTimer = window.setTimeout(() => {
+        retryTimer = null;
+        if (!cancelled) setCameraAttempt((n) => n + 1);
+      }, 5000);
+    };
+
+    const readLabels = async (): Promise<string[]> => {
+      try {
+        const devices = await md.enumerateDevices();
+        return devices
+          .filter((d) => d.kind === 'videoinput')
+          .map((d, i) => d.label || `Cámara ${i + 1}`);
+      } catch {
+        return [];
+      }
+    };
+
+    const run = async () => {
+      if (!md?.getUserMedia) {
+        setCameraError('Esta versión del POS no puede usar la cámara. Actualiza el POS.');
+        return;
+      }
+      // Qué cámaras ve Windows (antes del permiso las etiquetas pueden venir
+      // vacías; se vuelven a leer después de encenderla).
+      const labels = await readLabels();
+      if (cancelled) return;
+      setCameraDevices(labels);
+
+      const attempts: MediaStreamConstraints[] = [
+        { video: { width: { ideal: 640 }, height: { ideal: 480 } }, audio: false },
+        { video: true, audio: false },
+      ];
+      let lastErr: unknown = null;
+      for (const constraints of attempts) {
+        try {
+          const s = await md.getUserMedia(constraints);
+          if (cancelled) {
+            s.getTracks().forEach((t) => t.stop());
+            return;
+          }
+          streamRef.current = s;
+          setStream(s);
+          setCameraError(null);
+          // Con permiso concedido las etiquetas ya vienen con nombre.
+          const named = await readLabels();
+          if (!cancelled && named.length > 0) setCameraDevices(named);
+          // Si la cámara se desconecta a media sesión, avisar y reintentar.
+          s.getVideoTracks().forEach((t) => {
+            t.addEventListener('ended', () => {
+              if (cancelled) return;
+              stopCamera();
+              setCameraError(
+                'La cámara se desconectó. Revisa el cable USB; el checador la volverá a encender solo.',
+              );
+              scheduleRetry();
+            });
+          });
           return;
+        } catch (err) {
+          lastErr = err;
+          const name = (err as { name?: string })?.name;
+          // Solo vale la pena el segundo intento cuando el problema fue la
+          // resolución pedida; los demás errores son de dispositivo/permiso.
+          if (name !== 'OverconstrainedError' && name !== 'ConstraintNotSatisfiedError') break;
         }
-        streamRef.current = s;
-        setStream(s);
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        const name = (err as { name?: string })?.name;
-        setCameraError(
-          name === 'NotAllowedError'
-            ? 'Windows bloqueó el acceso a la cámara. Actívala en Configuración > Privacidad > Cámara y vuelve a abrir el checador.'
-            : 'No se detectó una cámara conectada a esta terminal. Sin cámara no se puede checar.',
-        );
-      });
+      }
+      if (cancelled) return;
+      const name = (lastErr as { name?: string })?.name ?? '';
+      const detected = labels.length > 0;
+      let message: string;
+      if (name === 'NotAllowedError' || name === 'PermissionDeniedError' || name === 'SecurityError') {
+        message =
+          'Windows bloqueó el acceso a la cámara. Actívala en Configuración > Privacidad > Cámara (permitir a las aplicaciones de escritorio) y pulsa Reintentar.';
+      } else if (name === 'NotReadableError' || name === 'TrackStartError' || name === 'AbortError') {
+        message =
+          'La cámara está conectada pero otro programa la está usando (por ejemplo el checador anterior en el navegador, Zoom o Teams). Ciérralo y pulsa Reintentar.';
+      } else if (detected) {
+        message = `La cámara no respondió (${name || 'error desconocido'}). Desconéctala y vuelve a conectarla; el checador reintenta solo.`;
+      } else {
+        message =
+          'No se detectó una cámara conectada a esta terminal. Revisa el cable USB o prueba otro puerto; el checador la buscará solo cada 5 segundos.';
+      }
+      setCameraError(message);
+      scheduleRetry();
+    };
+
+    void run();
+
+    // Cámara que se conecta/desconecta mientras el modal está abierto.
+    const onDeviceChange = () => {
+      if (cancelled || streamRef.current) return;
+      setCameraAttempt((n) => n + 1);
+    };
+    md?.addEventListener?.('devicechange', onDeviceChange);
+
     return () => {
       cancelled = true;
+      if (retryTimer !== null) window.clearTimeout(retryTimer);
+      md?.removeEventListener?.('devicechange', onDeviceChange);
       stopCamera();
     };
-  }, [isOpen, stopCamera]);
+  }, [isOpen, cameraAttempt, stopCamera]);
 
   // Enlaza el stream al <video> (srcObject, NO blob: — la CSP lo bloquearía).
   useEffect(() => {
@@ -371,6 +464,20 @@ export function AttendanceModal({
                     <>
                       <CameraOff className="size-6" />
                       <span>{cameraError}</span>
+                      <span className="text-[10px] text-white/60">
+                        {cameraDevices.length > 0
+                          ? `Cámaras detectadas: ${cameraDevices.join(', ')}`
+                          : 'Windows no reporta ninguna cámara conectada.'}
+                      </span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        className="mt-1"
+                        onClick={() => setCameraAttempt((n) => n + 1)}
+                      >
+                        Reintentar
+                      </Button>
                     </>
                   ) : (
                     <>
