@@ -288,7 +288,7 @@ export function AttendanceModal({
         `${ATTENDANCE_EVENT_LABELS[event.eventType]} registrada — ${hhmm(
           event.localTime,
         )}`,
-        { description: event.employee.name },
+        { description: event.employee.name ?? event.employee.employeeNumber },
       );
       successTimerRef.current = window.setTimeout(resetForNext, SUCCESS_MS);
     } catch (err) {
@@ -419,7 +419,7 @@ export function AttendanceModal({
                   </span>
                 </div>
                 <div className="text-sm font-semibold text-foreground">
-                  {success.event.employee.name}
+                  {success.event.employee.name ?? success.event.employee.employeeNumber}
                 </div>
                 <div className="font-mono text-3xl font-bold tabular-nums text-emerald-800">
                   {hhmm(success.event.localTime)}
@@ -489,7 +489,7 @@ export function AttendanceModal({
                 {lookup && (
                   <div className="space-y-1 rounded-lg border bg-muted/40 px-3 py-2.5">
                     <div className="text-sm font-bold text-foreground">
-                      {lookup.employee.name}
+                      {lookup.employee.name ?? lookup.employee.employeeNumber}
                     </div>
                     <div className="text-[11px] text-muted-foreground">
                       No. {lookup.employee.employeeNumber}

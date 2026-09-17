@@ -714,7 +714,8 @@ export interface AttendanceLookupResponse {
   employee: {
     id: string;
     employeeNumber: string;
-    name: string;
+    /** Puede venir null si el expediente no tiene nombre (mig 065). */
+    name: string | null;
     /** Sucursal del expediente del empleado (puede diferir de la terminal). */
     branchId?: string | null;
     branchName?: string | null;
@@ -737,7 +738,7 @@ export interface AttendanceEventResponse {
   localDate: string;
   localTime: string;
   timezone: string;
-  employee: { id: string; employeeNumber: string; name: string };
+  employee: { id: string; employeeNumber: string; name: string | null };
   branch: { id: string; name: string };
   /** false = el evento se guardó pero la foto no se pudo subir. */
   photoUploaded: boolean;
