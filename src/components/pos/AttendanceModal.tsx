@@ -380,10 +380,16 @@ export function AttendanceModal({
                   )}
                 </div>
               )}
+              {!!stream && <FaceGuide />}
               {!!stream && (
                 <span className="absolute left-2 top-2 flex items-center gap-1 rounded bg-black/55 px-1.5 py-0.5 text-[10px] font-semibold text-white">
                   <span className="size-1.5 rounded-full bg-red-500" />
                   EN VIVO
+                </span>
+              )}
+              {!!stream && (
+                <span className="absolute bottom-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-black/55 px-2 py-0.5 text-[11px] font-medium text-white">
+                  Coloca tu rostro dentro del óvalo
                 </span>
               )}
             </div>
@@ -586,5 +592,52 @@ export function AttendanceModal({
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * Guía de encuadre sobre la cámara: óvalo donde debe quedar el rostro,
+ * sombreado fuera del área y una silueta de hombros. Es solo visual (no
+ * detecta la cara): sirve para que la foto de asistencia salga siempre
+ * centrada y de frente, que es lo que la fase 2 (reconocimiento facial)
+ * va a necesitar. El viewBox 400x300 coincide con el contenedor 4:3, así que
+ * el óvalo no se deforma.
+ */
+function FaceGuide() {
+  return (
+    <svg
+      className="pointer-events-none absolute inset-0 h-full w-full"
+      viewBox="0 0 400 300"
+      preserveAspectRatio="none"
+      aria-hidden="true"
+    >
+      <defs>
+        <mask id="pos-face-guide-mask">
+          <rect width="400" height="300" fill="white" />
+          <ellipse cx="200" cy="138" rx="80" ry="106" fill="black" />
+        </mask>
+      </defs>
+      {/* Sombreado fuera del óvalo */}
+      <rect width="400" height="300" fill="rgba(0,0,0,0.42)" mask="url(#pos-face-guide-mask)" />
+      {/* Óvalo del rostro */}
+      <ellipse
+        cx="200"
+        cy="138"
+        rx="80"
+        ry="106"
+        fill="none"
+        stroke="rgba(255,255,255,0.92)"
+        strokeWidth="2.5"
+        strokeDasharray="10 7"
+      />
+      {/* Hombros */}
+      <path
+        d="M88 300 C 118 238, 282 238, 312 300"
+        fill="none"
+        stroke="rgba(255,255,255,0.45)"
+        strokeWidth="2.5"
+        strokeDasharray="8 8"
+      />
+    </svg>
   );
 }
