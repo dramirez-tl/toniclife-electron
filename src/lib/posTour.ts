@@ -76,6 +76,17 @@ export function startPosTour(): void {
       },
     },
     {
+      element: '[data-tour="pos-attendance"]',
+      popover: {
+        title: 'Checador',
+        description:
+          'El personal de la sucursal registra aquí su entrada, su salida a ' +
+          'comer, su regreso y su salida: teclea tu número de empleado y la ' +
+          'cámara toma la foto del momento. Queda disponible aunque la ' +
+          'terminal no esté liberada.',
+      },
+    },
+    {
       element: '[data-tour="pos-register"]',
       popover: {
         title: 'Registrar',

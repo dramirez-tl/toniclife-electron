@@ -16,6 +16,7 @@ import {
   CircleHelp,
   BadgePercent,
   ShieldCheck,
+  Fingerprint,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { LogoMark } from '@/components/LogoMark';
@@ -48,6 +49,7 @@ import {
   type StampRetryState,
 } from '@/components/pos/StampRetryModal';
 import { PrinterSettingsModal } from '@/components/pos/PrinterSettingsModal';
+import { AttendanceModal } from '@/components/pos/AttendanceModal';
 import { ComingSoonGate } from '@/components/pos/ComingSoonGate';
 import { StaffLoginModal } from '@/components/pos/StaffLoginModal';
 import { BranchSearchSelect } from '@/components/pos/BranchSearchSelect';
@@ -194,6 +196,9 @@ export function PosScreen({
   // Promociones vigentes del país de la sucursal (modal informativo).
   const [promosOpen, setPromosOpen] = useState(false);
   const [printerSettingsOpen, setPrinterSettingsOpen] = useState(false);
+  // Checador de asistencia del personal de la sucursal. Vive FUERA del gate de
+  // rollout: el empleado debe poder checar aunque la terminal no venda todavía.
+  const [attendanceOpen, setAttendanceOpen] = useState(false);
   const [pendingKit, setPendingKit] = useState<QuickProduct | null>(null);
   // Kit agregado con cliente ya asignado: preguntar si es RECOMPRA para el
   // propio cliente o inscripción de un NUEVO distribuidor (ver handleKitDetected).
@@ -848,6 +853,19 @@ export function PosScreen({
             <CircleHelp />
           </Button>
         )}
+        {/* Checador: disponible SIEMPRE (igual que la impresora), aunque el
+            cuerpo del POS esté bloqueado por el rollout. */}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setAttendanceOpen(true)}
+          className="text-white/80 hover:text-white hover:bg-white/10"
+          title="Checador de asistencia del personal"
+          data-tour="pos-attendance"
+        >
+          <Fingerprint />
+          Checador
+        </Button>
         <Button
           variant="ghost"
           size="icon"
@@ -1145,6 +1163,13 @@ export function PosScreen({
         isOpen={printerSettingsOpen}
         onClose={() => setPrinterSettingsOpen(false)}
         branchName={branch.name}
+      />
+
+      {/* Checador de asistencia (webcam + numero de empleado) */}
+      <AttendanceModal
+        isOpen={attendanceOpen}
+        onClose={() => setAttendanceOpen(false)}
+        branch={branch}
       />
 
       {/* Login OCULTO del modo staff (clic al logo del header) */}

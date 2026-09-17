@@ -697,3 +697,48 @@ export interface BranchInventoryMovementList {
   page: number;
   totalPages: number;
 }
+
+// ---------------------------------------------------------------------------
+// CHECADOR DE ASISTENCIA (empleados de sucursal)
+// ---------------------------------------------------------------------------
+
+/** Los cuatro toques del checador (réplica del checador legacy v1). */
+export type AttendanceEventType =
+  | 'check_in'
+  | 'break_out'
+  | 'break_in'
+  | 'check_out';
+
+/** Resolución del número de empleado + siguiente movimiento sugerido. */
+export interface AttendanceLookupResponse {
+  employee: {
+    id: string;
+    employeeNumber: string;
+    name: string;
+    /** Sucursal del expediente del empleado (puede diferir de la terminal). */
+    branchId?: string | null;
+    branchName?: string | null;
+  };
+  /** Último movimiento del día local del empleado (en cualquier sucursal). */
+  lastEvent: {
+    eventType: AttendanceEventType;
+    occurredAt: string;
+    localTime: string;
+  } | null;
+  suggestedType: AttendanceEventType;
+}
+
+/** Movimiento registrado por el checador del POS. */
+export interface AttendanceEventResponse {
+  id: string;
+  eventType: AttendanceEventType;
+  occurredAt: string;
+  /** Fecha y hora LOCALES de la sucursal, calculadas por el API. */
+  localDate: string;
+  localTime: string;
+  timezone: string;
+  employee: { id: string; employeeNumber: string; name: string };
+  branch: { id: string; name: string };
+  /** false = el evento se guardó pero la foto no se pudo subir. */
+  photoUploaded: boolean;
+}

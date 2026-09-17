@@ -33,6 +33,8 @@ import type {
   IncomingTransfer,
   ReceiveTransferPayload,
   BranchInventoryMovementList,
+  AttendanceLookupResponse,
+  AttendanceEventResponse,
 } from '@/types/pos';
 
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3001/api/v1';
@@ -518,6 +520,40 @@ class PosApi {
   /** Crea o actualiza los datos fiscales de un cliente. */
   async saveFiscalData(input: CreateFiscalDataInput): Promise<FiscalData> {
     const { data } = await api.post('/billing/fiscal-data', input);
+    return data;
+  }
+
+  // --------------------------------------------------------------------------
+  // CHECADOR DE ASISTENCIA
+  // --------------------------------------------------------------------------
+
+  /** Resuelve al empleado por su número (o número NOI) y devuelve su último
+   *  toque del día local más el tipo sugerido. La sucursal la decide el API
+   *  con el device token; branchId viaja para el MODO STAFF (JWT de usuario),
+   *  donde la terminal no identifica sucursal. */
+  async lookupAttendanceEmployee(
+    employeeNumber: string,
+    branchId?: string,
+  ): Promise<AttendanceLookupResponse> {
+    const { data } = await api.get('/pos/attendance/lookup', {
+      params: { employeeNumber, ...(branchId ? { branchId } : {}) },
+    });
+    return data;
+  }
+
+  /** Registra el movimiento del checador con la foto tomada por la webcam.
+   *  El Content-Type se pone EXPLÍCITO porque la instancia axios manda
+   *  application/json por default y el endpoint es multipart/form-data. */
+  async registerAttendance(
+    formData: FormData,
+    branchId?: string,
+  ): Promise<AttendanceEventResponse> {
+    if (branchId && !formData.has('branchId')) {
+      formData.append('branchId', branchId);
+    }
+    const { data } = await api.post('/pos/attendance/events', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
     return data;
   }
 

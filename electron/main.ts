@@ -6,7 +6,13 @@
 //   - Aplicar reglas de seguridad: contextIsolation, nodeIntegration off.
 //   - En dev: cargar Vite dev server. En prod: cargar el build estatico.
 
-import { app, BrowserWindow, ipcMain, Menu } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  Menu,
+  session as electronSession,
+} from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -266,6 +272,24 @@ ipcMain.handle(
 // ============================================================================
 
 app.whenReady().then(() => {
+  // Permisos del renderer: por default Electron CONCEDE todo lo que se pida.
+  // Aquí solo pasan los que el POS usa de verdad:
+  //   - 'media': la webcam del checador de asistencia.
+  //   - 'clipboard-sanitized-write': botones "copiar" (clave de licencia,
+  //     contraseña temporal del alta); sin él, navigator.clipboard.writeText
+  //     se rechaza en silencio.
+  // Todo lo demás (geolocalización, notificaciones, USB/HID, lectura del
+  // portapapeles, captura de pantalla…) se niega.
+  const ALLOWED_PERMISSIONS = new Set(['media', 'clipboard-sanitized-write']);
+  electronSession.defaultSession.setPermissionRequestHandler(
+    (_webContents, permission, callback) => {
+      callback(ALLOWED_PERMISSIONS.has(permission));
+    },
+  );
+  electronSession.defaultSession.setPermissionCheckHandler(
+    (_webContents, permission) => ALLOWED_PERMISSIONS.has(permission),
+  );
+
   createWindow();
 
   // Auto-actualización (solo empaquetado; en dev es no-op con log).
