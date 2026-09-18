@@ -52,15 +52,23 @@ let mainWindow: BrowserWindow | null = null;
 // SINGLE INSTANCE + LOG DE ERRORES
 // ============================================================================
 
-// Dos instancias del POS = dos sesiones de caja/heartbeats compitiendo. La
+// Dos instancias del POS = dos sesiones de caja/heartbeats compitiendo (y dos
+// checadores peleando por la misma camara: caso Acapulco, 17-sep-2026). La
 // segunda instancia sale de inmediato y la primera recupera el foco.
+//
+// OJO: app.quit() es ASINCRONO. En Windows, con el disco ocupado, el evento
+// 'ready' alcanzaba a disparar y a crear una segunda ventana antes de que el
+// cierre terminara, asi que el POS quedaba abierto dos veces. app.exit() no
+// espera a nada y la copia sobrante desaparece sin llegar a pintar ventana.
+// Ademas whenReady queda condicionado al candado (cinturon doble).
 const gotInstanceLock = app.requestSingleInstanceLock();
 if (!gotInstanceLock) {
-  app.quit();
+  app.exit(0);
 } else {
   app.on('second-instance', () => {
-    if (mainWindow) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
       if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
       mainWindow.focus();
     }
   });
@@ -272,6 +280,9 @@ ipcMain.handle(
 // ============================================================================
 
 app.whenReady().then(() => {
+  // Sin el candado de instancia unica no se arranca nada (ver arriba).
+  if (!gotInstanceLock) return;
+
   // Permisos del renderer: por default Electron CONCEDE todo lo que se pida.
   // Aquí solo pasan los que el POS usa de verdad:
   //   - 'media': la webcam del checador de asistencia.
