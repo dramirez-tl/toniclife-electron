@@ -19,7 +19,12 @@ interface ApiErrorLike {
 export function getApiErrorMessage(err: unknown, fallback: string): string {
   const e = (err ?? {}) as ApiErrorLike;
   const data = e.response?.data;
-  if (typeof data === 'string' && data.trim()) return data.trim();
+  if (typeof data === 'string') {
+    // Cuerpo string: solo si es un texto corto y no HTML (un 502/504 del proxy
+    // trae una pagina HTML completa que no debe ir al toast).
+    const t = data.trim();
+    if (t && !t.startsWith('<') && t.length <= 200) return t;
+  }
   if (data && typeof data === 'object') {
     const m = data.message;
     if (Array.isArray(m)) {
@@ -35,6 +40,11 @@ export function getApiErrorMessage(err: unknown, fallback: string): string {
     if (e.message && /network error/i.test(e.message)) {
       return 'Sin conexión con el servidor. Revisa la red e inténtalo de nuevo.';
     }
+    return fallback;
+  }
+  // Hubo respuesta pero sin mensaje usable (HTML del proxy, cuerpo vacio…).
+  if (typeof e.response.status === 'number') {
+    return `Error del servidor (HTTP ${e.response.status})`;
   }
   return fallback;
 }
