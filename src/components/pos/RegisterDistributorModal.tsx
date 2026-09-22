@@ -17,6 +17,7 @@ import {
   Search,
   Hash,
   Package,
+  AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -40,6 +41,13 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { ImageLightbox } from '@/components/pos/ImageLightbox';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { getApiErrorMessage, toastDurationFor } from '@/lib/apiError';
+import {
+  isOutOfStock,
+  kitUnavailableMessage,
+  stockShortLabel,
+} from '@/lib/kitStock';
 import {
   useRegisterDistributor,
   useRegisterPreferred,
@@ -326,11 +334,11 @@ export function RegisterDistributorModal({
       setResult(resp);
       toast.success(`${tipoLabel} registrado: ${resp.customerNumber}`);
     } catch (err) {
-      const e = err as { response?: { data?: { message?: string } } };
-      toast.error(
-        e.response?.data?.message ||
-          `Error al registrar ${isDistribuidor ? 'al distribuidor' : 'al cliente preferente'}`,
+      const msg = getApiErrorMessage(
+        err,
+        `Error al registrar ${isDistribuidor ? 'al distribuidor' : 'al cliente preferente'}`,
       );
+      toast.error(msg, { duration: toastDurationFor(msg) });
     }
   }
 
@@ -851,6 +859,10 @@ export function RegisterDistributorModal({
                   <div className="grid max-h-[420px] grid-cols-2 gap-2 overflow-y-auto pr-1">
                     {sortedKits.map((k) => {
                       const selected = k.id === kitId;
+                      // Disponibilidad en la sucursal (catálogo): armables
+                      // si se arma, pieza propia si es prearmado.
+                      const kOut = isOutOfStock(k);
+                      const kStock = stockShortLabel(k);
                       return (
                         // div clickeable (no <button>) porque la imagen lleva
                         // su propio boton anidado para abrir el lightbox.
@@ -911,6 +923,25 @@ export function RegisterDistributorModal({
                             <div className="mt-0.5 text-sm font-semibold text-foreground">
                               {posApi.formatCurrency(k.basePrice, currencySymbol)}
                             </div>
+                            {kStock && (
+                              <div className="mt-0.5">
+                                {kOut ? (
+                                  <Badge
+                                    variant="destructive"
+                                    className="px-1.5 py-0 text-[10px]"
+                                  >
+                                    Agotado en esta sucursal
+                                  </Badge>
+                                ) : (
+                                  <Badge
+                                    variant="outline"
+                                    className="border-emerald-300 bg-emerald-50 px-1.5 py-0 text-[10px] text-emerald-800"
+                                  >
+                                    Disponible · {kStock}
+                                  </Badge>
+                                )}
+                              </div>
+                            )}
                           </div>
                           {selected && (
                             <Check className="size-4 shrink-0 text-primary" />
@@ -920,6 +951,19 @@ export function RegisterDistributorModal({
                     })}
                   </div>
                 ))}
+              {/* Aviso ANTES de capturar/registrar: el kit elegido está
+                  agotado aquí. No bloquea el alta (D9). */}
+              {chargeKit && selectedKit && isOutOfStock(selectedKit) && (
+                <Alert className="border-amber-300 bg-amber-50 text-amber-900">
+                  <AlertTriangle className="size-4 text-amber-700" />
+                  <AlertTitle>
+                    Kit {selectedKit.sku} agotado en esta sucursal
+                  </AlertTitle>
+                  <AlertDescription className="text-amber-800">
+                    {kitUnavailableMessage(selectedKit)}
+                  </AlertDescription>
+                </Alert>
+              )}
               {!chargeKit && (
                 <p className="text-[11px] text-muted-foreground">
                   Sin kit, el distribuidor queda pendiente hasta que compre uno.

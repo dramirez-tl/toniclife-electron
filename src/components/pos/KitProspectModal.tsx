@@ -8,8 +8,9 @@
 
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { X, UserPlus, CheckCircle2, Copy } from 'lucide-react';
+import { X, UserPlus, CheckCircle2, Copy, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -31,6 +32,12 @@ import {
 } from '@/components/ui/dialog';
 import { useEnrollKit } from '@/hooks/usePos';
 import { posApi } from '@/lib/posApi';
+import { getApiErrorMessage, toastDurationFor } from '@/lib/apiError';
+import {
+  isOutOfStock,
+  kitUnavailableMessage,
+  stockShortLabel,
+} from '@/lib/kitStock';
 import { normalizePhone, phoneHint } from '@/lib/phone';
 import type {
   QuickProduct,
@@ -148,12 +155,15 @@ export function KitProspectModal({
       setResult(resp);
       toast.success(`Distribuidor inscrito: ${resp.customerNumber}`);
     } catch (err) {
-      const e = err as { response?: { data?: { message?: string } } };
-      toast.error(
-        e.response?.data?.message || 'Error al inscribir al distribuidor',
-      );
+      const msg = getApiErrorMessage(err, 'Error al inscribir al distribuidor');
+      toast.error(msg, { duration: toastDurationFor(msg) });
     }
   }
+
+  // Disponibilidad del kit en la sucursal (viene del catálogo: armables si se
+  // arma, pieza propia si es prearmado). Solo informa: NO bloquea el alta.
+  const kitOut = !!kit && isOutOfStock(kit);
+  const kitStockLabel = kit ? stockShortLabel(kit) : null;
 
   function handleContinue() {
     if (result && kit) {
@@ -191,6 +201,22 @@ export function KitProspectModal({
                 <DialogDescription className="text-xs">
                   Kit {kit.sku} — {kit.name}
                   {kit.kitPosition ? ` (${kit.kitPosition})` : ''}
+                  {kitStockLabel && (
+                    <>
+                      {' · '}
+                      <span
+                        className={
+                          kitOut
+                            ? 'font-semibold text-destructive'
+                            : 'font-semibold text-emerald-700'
+                        }
+                      >
+                        {kitOut
+                          ? 'Agotado en esta sucursal'
+                          : `Disponible (${kitStockLabel})`}
+                      </span>
+                    </>
+                  )}
                 </DialogDescription>
               )}
             </div>
@@ -297,6 +323,18 @@ export function KitProspectModal({
                 Debes seleccionar primero al distribuidor patrocinador en el
                 carrito.
               </p>
+            )}
+
+            {/* Aviso ANTES de capturar al prospecto: el kit está agotado
+                aquí. No bloquea el alta (D9); el cobro lo rechaza el API. */}
+            {kit && kitOut && (
+              <Alert className="border-amber-300 bg-amber-50 text-amber-900">
+                <AlertTriangle className="size-4 text-amber-700" />
+                <AlertTitle>Kit {kit.sku} agotado en esta sucursal</AlertTitle>
+                <AlertDescription className="text-amber-800">
+                  {kitUnavailableMessage(kit)}
+                </AlertDescription>
+              </Alert>
             )}
 
             <div className="grid grid-cols-2 gap-3">

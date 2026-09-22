@@ -54,6 +54,8 @@ import { ComingSoonGate } from '@/components/pos/ComingSoonGate';
 import { StaffLoginModal } from '@/components/pos/StaffLoginModal';
 import { BranchSearchSelect } from '@/components/pos/BranchSearchSelect';
 import { hasSeenPosTour, startPosTour } from '@/lib/posTour';
+import { getApiErrorMessage, toastDurationFor } from '@/lib/apiError';
+import { isOutOfStock, outOfStockReason } from '@/lib/kitStock';
 import { usePosCartStore } from '@/stores/pos-cart.store';
 import {
   useStaffSession,
@@ -661,18 +663,35 @@ export function PosScreen({
         }
       }
     } catch (err) {
-      const e = err as {
-        response?: { data?: { message?: string } };
-        message?: string;
-      };
-      toast.error(
-        e.response?.data?.message ||
-          e.message ||
-          'Error al procesar la venta',
-      );
+      // El API rechaza con 400 + `message` completo (p.ej. "Stock insuficiente
+      // para componente "X" del kit Y (requiere 1, hay 0)"). Se muestra
+      // íntegro y el tiempo suficiente para leerlo; arreglos de validación
+      // se unen con separador.
+      const msg = getApiErrorMessage(err, 'Error al procesar la venta');
+      toast.error(msg, { duration: toastDurationFor(msg) });
     } finally {
       setIsProcessing(false);
     }
+  }
+
+  /**
+   * Kit elegido en una inscripción que el catálogo reporta AGOTADO en la
+   * sucursal: se avisa (ámbar, D9) y el kit se agrega igual para que el
+   * cajero pueda intentar el cobro (el API es quien rechaza) o quitarlo.
+   * Se agrega sin el tope de existencia: con stock 0 el carrito no lo
+   * aceptaría y el alta ya ocurrió.
+   */
+  function addEnrollmentKitToCart(kit: QuickProduct, fullName: string) {
+    if (isOutOfStock(kit)) {
+      addItem({ ...kit, stock: undefined }, 1);
+      toast.warning(
+        `Registrado, pero el kit ${kit.sku} está agotado en esta sucursal (${outOfStockReason(kit)}). El cobro se rechazará hasta que haya existencia: pide traspaso o cambia el kit.`,
+        { duration: 12_000 },
+      );
+      return;
+    }
+    addItem(kit, 1);
+    toast.success(`Kit ${kit.sku} agregado para ${fullName}`);
   }
 
   function handleKitDetected(product: QuickProduct) {
@@ -703,8 +722,7 @@ export function PosScreen({
       cart.priceTypeId,
       result.customerNumber,
     );
-    addItem(kit, 1);
-    toast.success(`Kit ${kit.sku} agregado para ${result.fullName}`);
+    addEnrollmentKitToCart(kit, result.fullName);
     setPendingKit(null);
   }
 
@@ -722,8 +740,7 @@ export function PosScreen({
         cart.priceTypeId,
         result.customerNumber,
       );
-      addItem(kit, 1);
-      toast.success(`Kit ${kit.sku} agregado para ${result.fullName}`);
+      addEnrollmentKitToCart(kit, result.fullName);
     } else {
       toast.success(`Registro completo: ${result.customerNumber}`);
     }
@@ -1110,6 +1127,16 @@ export function PosScreen({
               onClick={() => {
                 const kit = kitChoice;
                 if (kit) {
+                  // Recompra = venta normal: agotado se trata igual que un
+                  // producto (no se agrega; el API lo rechazaría).
+                  if (isOutOfStock(kit)) {
+                    toast.error(
+                      `El kit ${kit.sku} está agotado en esta sucursal: ${outOfStockReason(kit)}. Pide traspaso antes de venderlo.`,
+                      { duration: 10_000 },
+                    );
+                    setKitChoice(null);
+                    return;
+                  }
                   addItem(kit, 1);
                   toast.success(
                     `Kit ${kit.sku} agregado para ${cart.customerName} — sus puntos se acreditan al cobrar.`,
