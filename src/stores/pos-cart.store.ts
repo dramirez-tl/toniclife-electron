@@ -205,6 +205,9 @@ export const usePosCartStore = create<PosCartStore>()(
             if (maxQty != null && cappedQty > maxQty) {
               cappedQty = maxQty;
             }
+            // Ahora los kits también traen `stock` (armables / pieza propia):
+            // con 0 el tope dejaría una línea en cantidad 0. No se agrega.
+            if (cappedQty <= 0) return state;
             const newItem: PosCartItem = calculateItemTotal({
               productId: product.id,
               productSku: product.sku,

@@ -412,6 +412,12 @@ export interface QuickProduct {
    * Dispara el flujo de enrolamiento de distribuidor en POS.
    */
   isEnrollmentKit?: boolean;
+  /**
+   * Solo kit/pack: TRUE = se ARMA al vender (descuenta componentes; su `stock`
+   * es cuántos se pueden armar en la sucursal, 0 si falta cualquier
+   * componente). FALSE = prearmado (su `stock` es la pieza propia).
+   */
+  kitDeductsInventory?: boolean;
 }
 
 // ============================================================================

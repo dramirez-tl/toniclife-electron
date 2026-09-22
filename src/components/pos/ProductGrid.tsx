@@ -12,6 +12,11 @@ import { cn } from '@/lib/utils';
 import { usePosCatalog } from '@/hooks/usePos';
 import { usePosCartStore } from '@/stores/pos-cart.store';
 import { posApi } from '@/lib/posApi';
+import {
+  isOutOfStock,
+  outOfStockReason,
+  stockShortLabel,
+} from '@/lib/kitStock';
 import { ProductInfoModal } from './ProductInfoModal';
 import type { QuickProduct } from '@/types/pos';
 
@@ -60,15 +65,33 @@ export function ProductGrid({
     return m;
   }, [cartItems]);
 
+  /**
+   * La búsqueda por código (GET /products/code/:sku) NO trae armables para un
+   * kit que se arma (solo su fila propia, que posApi descarta). Si el
+   * catálogo de la sucursal ya lo tiene, se toma de ahí la existencia real.
+   */
+  function withCatalogStock(product: QuickProduct): QuickProduct {
+    if (product.stock != null) return product;
+    const inCatalog = catalog.find((c) => c.id === product.id);
+    if (!inCatalog || inCatalog.stock == null) return product;
+    return {
+      ...product,
+      stock: inCatalog.stock,
+      kitDeductsInventory:
+        product.kitDeductsInventory ?? inCatalog.kitDeductsInventory,
+    };
+  }
+
   function handleAdd(product: QuickProduct) {
     // Kit de inscripcion: dispara el flujo de enrolamiento en vez de agregarse
-    // directo al carrito.
+    // directo al carrito. Agotado NO bloquea el alta (D9): el flujo avisa
+    // antes de capturar al prospecto y el servidor rechaza el cobro.
     if (product.isEnrollmentKit) {
-      onKitDetected(product);
+      onKitDetected(withCatalogStock(product));
       return;
     }
-    if (product.stock != null && product.stock <= 0) {
-      toast.error(`${product.name} esta agotado`);
+    if (isOutOfStock(product)) {
+      toast.error(`${product.name} esta agotado: ${outOfStockReason(product)}`);
       return;
     }
     const inCart = cartQtyByProduct.get(product.id) ?? 0;
@@ -101,11 +124,12 @@ export function ProductGrid({
     try {
       // priceTypeId garantiza que el backend resuelva precio distribuidor
       // cuando hay un cliente con tier seleccionado.
-      const product = await posApi.getProductBySku(sku, branchId, priceTypeId);
-      if (!product) {
+      const found = await posApi.getProductBySku(sku, branchId, priceTypeId);
+      if (!found) {
         toast.error(`No se encontro el producto con codigo "${sku}"`);
         return;
       }
+      const product = withCatalogStock(found);
       // Kit de inscripcion: deriva al flujo de enrolamiento, no al carrito.
       if (product.isEnrollmentKit) {
         onKitDetected(product);
@@ -121,7 +145,9 @@ export function ProductGrid({
 
       if (available <= 0) {
         toast.error(
-          `${product.name} esta agotado (stock: ${product.stock ?? 0})`,
+          isOutOfStock(product)
+            ? `${product.name} esta agotado: ${outOfStockReason(product)}`
+            : `${product.name} esta agotado (stock: ${product.stock ?? 0})`,
         );
         return;
       }
@@ -171,23 +197,25 @@ export function ProductGrid({
         const qty = Math.max(1, parseInt(rawQty || '1', 10) || 1);
         // priceTypeId garantiza que el backend resuelva precio distribuidor
         // cuando hay un cliente con tier seleccionado.
-        const product = await posApi.getProductBySku(
+        const found = await posApi.getProductBySku(
           rawSku.toUpperCase(),
           branchId,
           priceTypeId,
         );
-        if (!product) {
+        if (!found) {
           notFound.push(rawSku);
           continue;
         }
-        if (product.isEnrollmentKit) {
+        if (found.isEnrollmentKit) {
           notFound.push(`${rawSku} (kit — agregalo manualmente)`);
           continue;
         }
+        const product = withCatalogStock(found);
 
         // Disponibilidad real = stock - (lo que ya esta en carrito + lo que
-        // ya se agrego en este batch). Si stock es null (kits o productos
-        // sin tracking de inventario), no se hace cap.
+        // ya se agrego en este batch). Si stock es null (producto sin
+        // tracking de inventario, o kit que se arma y no está en el catálogo
+        // cargado), no se hace cap: el servidor decide al crear la venta.
         const inCart = cartQtyByProduct.get(product.id) ?? 0;
         const pending = pendingByProduct.get(product.id) ?? 0;
         const available =
@@ -336,8 +364,14 @@ export function ProductGrid({
         ) : (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(11rem,1fr))] gap-3">
             {filtered.map((product) => {
-              const out =
-                product.stock != null && product.stock <= 0;
+              // Con `stock` también para kits (armables / pieza propia) el
+              // badge "Agotado" ya cubre kits y paquetes igual que productos.
+              const out = isOutOfStock(product);
+              // Un kit de inscripción agotado sigue clickeable: abre el alta
+              // con aviso (D9: no se bloquea el registro, solo el cobro).
+              const disabled = out && !product.isEnrollmentKit;
+              const outReason = out ? outOfStockReason(product) : null;
+              const stockLabel = stockShortLabel(product);
               const inCart = cartQtyByProduct.get(product.id) ?? 0;
               return (
                 // Wrapper relativo: el botón ⓘ vive FUERA del Button del card
@@ -348,9 +382,19 @@ export function ProductGrid({
                   type="button"
                   variant="outline"
                   onClick={() => handleAdd(product)}
-                  disabled={out}
+                  disabled={disabled}
+                  title={
+                    outReason
+                      ? `Agotado: ${outReason}${
+                          product.isEnrollmentKit
+                            ? '. Puedes registrar al distribuidor, pero el cobro del kit se rechazará.'
+                            : ''
+                        }`
+                      : undefined
+                  }
                   className={cn(
                     'group relative block h-auto w-full p-0 text-left rounded-xl border bg-card overflow-hidden whitespace-normal transition-shadow hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed',
+                    out && !disabled && 'opacity-60',
                   )}
                 >
                   {/* Imagen */}
@@ -368,10 +412,15 @@ export function ProductGrid({
                       </div>
                     )}
                     {out && (
-                      <div className="absolute inset-0 bg-background/70 flex items-center justify-center">
+                      <div className="absolute inset-0 bg-background/70 flex flex-col items-center justify-center gap-0.5 px-2 text-center">
                         <span className="text-xs font-semibold text-destructive uppercase tracking-wide">
                           Agotado
                         </span>
+                        {outReason && (
+                          <span className="text-[10px] leading-tight text-destructive/90">
+                            {outReason}
+                          </span>
+                        )}
                       </div>
                     )}
                     {inCart > 0 && !out && (
@@ -399,9 +448,14 @@ export function ProductGrid({
                       <span className="text-base font-bold text-primary">
                         {posApi.formatCurrency(product.basePrice, currencySymbol)}
                       </span>
-                      {product.stock != null && (
-                        <span className="text-[11px] text-muted-foreground">
-                          {product.stock} disp.
+                      {stockLabel && (
+                        <span
+                          className={cn(
+                            'text-[11px] text-muted-foreground',
+                            out && 'font-semibold text-destructive',
+                          )}
+                        >
+                          {stockLabel}
                         </span>
                       )}
                     </div>

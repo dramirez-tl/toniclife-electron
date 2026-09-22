@@ -14,7 +14,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { ImageLightbox } from './ImageLightbox';
-import { posApi } from '@/lib/posApi';
+import { isAssembledKit, posApi } from '@/lib/posApi';
+import { outOfStockReason } from '@/lib/kitStock';
 import type { QuickProduct } from '@/types/pos';
 
 const TYPE_LABEL: Record<string, string> = {
@@ -154,13 +155,19 @@ export function ProductInfoModal({
                     )}
                   {p.stock != null && (
                     <InfoRow
-                      label="Existencia"
+                      label={
+                        isAssembledKit(p) ? 'Se pueden armar' : 'Existencia'
+                      }
                       value={
                         p.stock > 0 ? (
-                          `${p.stock} disponibles`
+                          isAssembledKit(p) ? (
+                            `${p.stock} en esta sucursal`
+                          ) : (
+                            `${p.stock} disponibles`
+                          )
                         ) : (
                           <span className="font-semibold text-destructive">
-                            Agotado
+                            Agotado — {outOfStockReason(p)}
                           </span>
                         )
                       }

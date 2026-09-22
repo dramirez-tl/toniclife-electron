@@ -48,11 +48,26 @@ export function resolveImageUrl(url?: string): string | undefined {
   return `${API_ORIGIN}${url.startsWith('/') ? '' : '/'}${url}`;
 }
 
+/** Kit o paquete que se ARMA al vender (descuenta componentes). */
+export function isAssembledKit(p: {
+  productType?: string;
+  kitDeductsInventory?: boolean;
+}): boolean {
+  return (
+    (p.productType === 'kit' || p.productType === 'pack') &&
+    p.kitDeductsInventory === true
+  );
+}
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function mapApiProduct(p: any): QuickProduct {
-  // Los paquetes ('pack') se arman con componentes igual que los kits:
-  // su stock propio no aplica cuando descuentan componentes.
-  const isKit = p.productType === 'kit' || p.productType === 'pack';
+  // `stock` viene del API con branchId: para un producto normal o un kit
+  // PREARMADO es la pieza propia en la sucursal; para un kit/paquete que se
+  // ARMA al vender (kitDeductsInventory=true) el API ya lo calcula como
+  // "cuántos se pueden armar" = MIN(disponible del componente / cantidad por
+  // kit) sobre los componentes activos, 0 si falta cualquiera
+  // (products.service.ts, listado GET /products). Antes el POS lo tiraba
+  // (`stock: isKit ? undefined : p.stock`) y el kit nunca se veía agotado.
   return {
     id: p.id,
     sku: p.code,
@@ -63,7 +78,11 @@ function mapApiProduct(p: any): QuickProduct {
     categoryName: p.categoryName,
     description: p.description ?? undefined,
     shortName: p.shortName ?? undefined,
-    stock: isKit ? undefined : p.stock,
+    stock: p.stock,
+    kitDeductsInventory:
+      typeof p.kitDeductsInventory === 'boolean'
+        ? p.kitDeductsInventory
+        : undefined,
     isActive: p.isActive,
     taxRate: p.taxRate != null ? Number(p.taxRate) : undefined,
     isIncludedInPrice: p.taxIncludedInPrice,
@@ -138,7 +157,13 @@ class PosApi {
         params: Object.keys(params).length ? params : undefined,
       });
       if (!data || data.availableInPos === false) return null;
-      return mapApiProduct(data);
+      const product = mapApiProduct(data);
+      // GET /products/code/:sku reporta SOLO la fila propia de stock_levels
+      // (no calcula armables como el listado). Para un kit que se arma esa
+      // cifra es la existencia fantasma/sembrada, no la real: se descarta y
+      // el grid la toma del catálogo ya cargado (que sí trae armables).
+      if (isAssembledKit(product)) product.stock = undefined;
+      return product;
     } catch {
       return null;
     }
