@@ -54,7 +54,15 @@ import { ComingSoonGate } from '@/components/pos/ComingSoonGate';
 import { StaffLoginModal } from '@/components/pos/StaffLoginModal';
 import { BranchSearchSelect } from '@/components/pos/BranchSearchSelect';
 import { hasSeenPosTour, startPosTour } from '@/lib/posTour';
-import { getApiErrorMessage, toastDurationFor } from '@/lib/apiError';
+import {
+  CashierError,
+  getApiErrorMessage,
+  toastDurationFor,
+} from '@/lib/apiError';
+import {
+  getRegistersWithRetry,
+  noCashRegisterMessage,
+} from '@/lib/cashRegister';
 import { isOutOfStock, outOfStockReason } from '@/lib/kitStock';
 import { usePosCartStore } from '@/stores/pos-cart.store';
 import {
@@ -425,17 +433,20 @@ export function PosScreen({
   /**
    * Asegura que exista una sesion de caja. Si no hay, auto-abre una con la
    * primera caja disponible y monto de apertura 0.
+   *
+   * Sin caja en la sucursal (alta desde el admin sin "Caja Principal"): se
+   * reintenta la consulta UNA vez tras 1.5 s y, si sigue vacía, se corta ANTES
+   * de crear la venta con un aviso que dice qué sucursal es y qué hacer.
    */
   async function ensureSession(): Promise<string> {
     const active = await posApi.getActiveSession(branchId);
     if (active?.session?.id) return active.session.id;
 
-    const registers = await posApi.getAvailableRegisters(branchId);
+    const registers = await getRegistersWithRetry(() =>
+      posApi.getAvailableRegisters(branchId),
+    );
     if (registers.length === 0) {
-      throw new Error(
-        'No hay una caja registradora configurada para esta sucursal. ' +
-          'Pide al equipo de Sistemas que cree una.',
-      );
+      throw new CashierError(noCashRegisterMessage(branch));
     }
     const newSession = await posApi.openSession({
       cashRegisterId: registers[0].id,

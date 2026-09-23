@@ -15,8 +15,24 @@ interface ApiErrorLike {
   code?: string;
 }
 
+/**
+ * Error generado en el propio POS cuyo mensaje ya está redactado para el
+ * cajero (español, accionable). `getApiErrorMessage` lo muestra tal cual; un
+ * `Error` genérico sin respuesta HTTP cae al `fallback`, así que sin esta
+ * clase el aviso se perdería en "Error al procesar la venta".
+ */
+export class CashierError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CashierError';
+  }
+}
+
 /** Texto completo del error del API (o el `fallback` si no trae mensaje). */
 export function getApiErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof CashierError && err.message.trim()) {
+    return err.message.trim();
+  }
   const e = (err ?? {}) as ApiErrorLike;
   const data = e.response?.data;
   if (typeof data === 'string') {
