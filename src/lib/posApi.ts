@@ -38,6 +38,14 @@ import type {
 } from '@/types/pos';
 
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3001/api/v1';
+
+/**
+ * Crear venta y cobrar esperan 60 s (el cliente general espera 20 s). El
+ * servidor permite hasta 120 s; el 12-oct-2026 tres creaciones terminaron
+ * entre 21 y 23 s (job del MLM a las 10:00 sobre la misma BD) y con 20 s el
+ * POS se rendía justo antes de la respuesta, dejando ventas "pendientes".
+ */
+const SALE_WRITE_TIMEOUT_MS = 60_000;
 // Origen sin /api/v1 — para resolver rutas de imagenes servidas como estaticos.
 const API_ORIGIN = API_BASE.replace(/\/api\/v1\/?$/, '');
 
@@ -285,12 +293,16 @@ class PosApi {
   // --------------------------------------------------------------------------
 
   async createSale(input: CreateSaleInput): Promise<Sale> {
-    const { data } = await api.post('/pos/sales', input);
+    const { data } = await api.post('/pos/sales', input, {
+      timeout: SALE_WRITE_TIMEOUT_MS,
+    });
     return data;
   }
 
   async processPayment(input: ProcessPaymentInput): Promise<PaymentResult> {
-    const { data } = await api.post('/pos/sales/pay', input);
+    const { data } = await api.post('/pos/sales/pay', input, {
+      timeout: SALE_WRITE_TIMEOUT_MS,
+    });
     return data;
   }
 

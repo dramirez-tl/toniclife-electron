@@ -58,6 +58,22 @@ function isAuthUrl(url: string): boolean {
   return url.includes('/auth/');
 }
 
+/**
+ * Error SIN respuesta del servidor (tiempo de espera agotado, red caída,
+ * conexión cortada): la petición pudo haberse procesado de todos modos. Para
+ * operaciones idempotentes (crear venta con clientRequestId) conviene
+ * reintentar; si el servidor SÍ respondió (400/409/500...) no es transitorio.
+ */
+export function isTransientApiError(err: unknown): boolean {
+  if (!axios.isAxiosError(err) || err.response) return false;
+  return (
+    err.code === 'ECONNABORTED' || // timeout de axios
+    err.code === 'ETIMEDOUT' ||
+    err.code === 'ECONNRESET' ||
+    err.code === 'ERR_NETWORK'
+  );
+}
+
 export function setDeviceToken(token: string | null): void {
   deviceToken = token;
 }

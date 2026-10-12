@@ -59,6 +59,7 @@ import {
   getApiErrorMessage,
   toastDurationFor,
 } from '@/lib/apiError';
+import { isTransientApiError } from '@/lib/api';
 import {
   getRegistersWithRetry,
   noCashRegisterMessage,
@@ -83,9 +84,11 @@ import { todayLocal } from '@/lib/date';
 import type { StoredSession } from '@/types';
 import type {
   CreatePaymentInput,
+  CreateSaleInput,
   InvoiceRequest,
   QuickProduct,
   KitEnrollmentResponse,
+  Sale,
 } from '@/types/pos';
 
 interface PosScreenProps {
@@ -499,7 +502,7 @@ export function PosScreen({
       // clientRequestId en vez de duplicarla.
       let saleId = attempt.saleId;
       if (!saleId) {
-        const sale = await createSale.mutateAsync({
+        const createInput: CreateSaleInput = {
           sessionId,
           customerId: cart.customerId,
           customerName: cart.customerName,
@@ -518,7 +521,23 @@ export function PosScreen({
           requiresInvoice: !!invoice,
           notes: cart.notes,
           clientRequestId: attempt.clientRequestId,
-        });
+        };
+        let sale: Sale;
+        try {
+          sale = await createSale.mutateAsync(createInput);
+        } catch (err) {
+          // Sin respuesta del servidor (tiempo agotado / red): la venta pudo
+          // haberse creado de todos modos (12-oct-2026, Cancún: el servidor
+          // tardó 23 s, el POS se rindió a los 20 y la venta quedó "pendiente"
+          // sin cobro). Un reintento con la MISMA clientRequestId es seguro:
+          // el API devuelve la venta ya creada en vez de duplicarla.
+          if (!isTransientApiError(err)) throw err;
+          toast.info('El servidor tardó en responder; reintentando la venta...', {
+            duration: 4000,
+          });
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+          sale = await createSale.mutateAsync(createInput);
+        }
         attempt.saleId = sale.id;
         saleId = sale.id;
       }
