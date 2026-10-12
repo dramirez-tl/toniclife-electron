@@ -220,6 +220,8 @@ export interface SaleReceiptPayload {
   currencySymbol: string;
   items: Array<{
     name: string;
+    /** Clave del producto: el ticket la imprime entre paréntesis antes del nombre. */
+    sku?: string;
     quantity: number;
     unitPrice: number;
     total: number;

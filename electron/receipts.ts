@@ -406,6 +406,8 @@ export function buildCorteReceiptBytes(input: CorteReceiptInput): Buffer {
 
 export interface SaleReceiptItemRow {
   name: string;
+  /** Clave del producto: se imprime entre paréntesis antes del nombre. */
+  sku?: string;
   quantity: number;
   unitPrice: number;
   total: number;
@@ -464,6 +466,46 @@ const COMPANY_FISCAL_ADDRESS = [
   'LEÓN, GTO.',
 ];
 
+/**
+ * Envuelve `text` por palabras en renglones de `width` columnas, máximo
+ * `maxLines`; si aun así no cabe, el último renglón se corta. Una palabra más
+ * larga que el ancho se parte.
+ */
+export function wrapWords(
+  text: string,
+  width: number,
+  maxLines: number,
+): string[] {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let current = '';
+  for (const word of words) {
+    if (current.length === 0) {
+      current = word;
+    } else if (current.length + 1 + word.length <= width) {
+      current += ' ' + word;
+    } else {
+      lines.push(current);
+      current = word;
+    }
+    while (current.length > width) {
+      lines.push(current.slice(0, width));
+      current = current.slice(width);
+    }
+  }
+  if (current.length > 0) lines.push(current);
+  if (lines.length === 0) return [''];
+  if (lines.length > maxLines) {
+    // Se corta: el último renglón termina en "..." para que se note.
+    const kept = lines.slice(0, maxLines);
+    const last = kept[maxLines - 1];
+    kept[maxLines - 1] =
+      (last.length > width - 3 ? last.slice(0, width - 3) : last) + '...';
+    return kept;
+  }
+  return lines;
+}
+
 /** Nombre legible de la moneda para el pie del total. */
 function currencyDisplayName(code?: string): string | null {
   if (!code) return null;
@@ -514,12 +556,16 @@ export function buildSaleReceiptBytes(input: SaleReceiptInput): Buffer {
   if (input.customerName || input.customerNumber || input.cashier) p.line(sep);
 
   // --- ITEMS ---
+  // Cada producto ocupa dos renglones: "(clave) nombre" completo (envuelto por
+  // palabras, hasta 2 líneas) y debajo "cantidad x precio unitario ... total".
+  // Antes iba todo en una línea y el nombre se cortaba a 27 caracteres en
+  // 80 mm (11 en 58 mm) sin la clave; observación de sucursal del 12-oct-2026.
   for (const it of input.items) {
+    const title = it.sku ? `(${it.sku}) ${it.name}` : it.name;
+    for (const line of wrapWords(title, cols, 2)) p.line(line);
     p.line(
-      itemLine(
-        it.name,
-        String(it.quantity),
-        fmt(it.unitPrice),
+      labelValue(
+        `  ${it.quantity} x ${fmt(it.unitPrice)}`,
         fmt(it.total),
         cols,
       ),

@@ -625,6 +625,7 @@ export function PosScreen({
               const comps = componentsByProduct.get(it.productId);
               return {
                 name: it.productName,
+                sku: it.productSku,
                 quantity: it.quantity,
                 unitPrice: it.unitPrice,
                 total: it.total,

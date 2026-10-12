@@ -121,6 +121,7 @@ export function SaleDetailModal({
           currencySymbol,
           items: sale.items.map((it) => ({
             name: it.productName,
+            sku: it.productSku,
             quantity: it.quantity,
             unitPrice: Number(it.unitPrice),
             total: Number(it.total),
