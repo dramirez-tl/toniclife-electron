@@ -3,6 +3,15 @@
 Terminal de punto de venta para sucursales. Ver `../CLAUDE.md` (workspace) para
 contexto general del sistema.
 
+## Requisitos de la terminal
+
+- **Windows 10 o superior (64 bits).** Electron 33 (Chromium 130) no arranca en
+  Windows 8.1 ni 7: el instalador termina, pero al abrir el acceso directo Windows
+  responde "Este archivo no tiene ningún programa asociado para realizar esta
+  acción" (caso real: CEDEAS Jiutepec, 12-oct-2026). La salida es actualizar esa
+  PC a Windows 10 (acepta la clave de 8.1) o usar otra; no hay build para 8.1.
+- 4 GB de RAM y ~500 MB libres en disco; impresora térmica ESC/POS (red o USB).
+
 ## Desarrollo
 
 ```bash
