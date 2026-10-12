@@ -176,6 +176,11 @@ export interface Sale {
    *  personal (modo staff/call center o admin web). Migradas del legacy
    *  (folio M-%) no aplican. */
   capturedVia?: 'terminal' | 'usuario';
+  /** Licencia (terminal POS) que cobró la venta; vacío en modo staff / call
+   *  center y en migradas. Etiqueta y clave las resuelve el API. */
+  posLicenseId?: string;
+  posLicenseLabel?: string;
+  posLicenseKey?: string;
   status: PosSaleStatus;
   subtotal: number;
   discountAmount: number;
@@ -263,6 +268,19 @@ export interface DailySalesSummary {
   refundsCount: number;
   averageTicket: number;
   itemsSold: number;
+  /** Desglose del día por terminal (licencia POS): sucursales con varias
+   *  cajas separan su corte. posLicenseId null = sin licencia (modo staff /
+   *  call center). Ausente en APIs anteriores. */
+  byTerminal?: DailySalesTerminalRow[];
+}
+
+export interface DailySalesTerminalRow {
+  posLicenseId: string | null;
+  label: string | null;
+  licenseKey: string | null;
+  salesCount: number;
+  totalAmount: number;
+  cancelledCount: number;
 }
 
 // ============================================================================

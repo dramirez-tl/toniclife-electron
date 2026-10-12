@@ -39,6 +39,27 @@ interface CorteModalProps {
   onSelectSale?: (saleId: string) => void;
 }
 
+const SIN_TERMINAL = 'Sin terminal (call center)';
+
+/** Nombre legible de una terminal: su etiqueta o, si no tiene, el final de
+ *  la clave de licencia. */
+function terminalName(
+  label: string | null | undefined,
+  licenseKey: string | null | undefined,
+): string {
+  if (label && label.trim()) return label.trim();
+  if (licenseKey) return `Terminal ${licenseKey.slice(-9)}`;
+  return SIN_TERMINAL;
+}
+
+interface TerminalRow {
+  id: string | null;
+  label: string;
+  salesCount: number;
+  amount: number;
+  cancelledCount: number;
+}
+
 export function CorteModal({
   isOpen,
   onClose,
@@ -82,6 +103,22 @@ export function CorteModal({
       ].filter((r) => Number(r.value) > 0)
     : [];
 
+  // Desglose por terminal (licencia POS). Solo se muestra e imprime cuando la
+  // sucursal cobró con más de una terminal ese día: ahí el supervisor
+  // necesita separar el corte por caja.
+  const terminalRows: TerminalRow[] = (summary?.byTerminal ?? []).map((t) => ({
+    id: t.posLicenseId,
+    label: terminalName(t.label, t.licenseKey),
+    salesCount: Number(t.salesCount),
+    amount: Number(t.totalAmount),
+    cancelledCount: Number(t.cancelledCount),
+  }));
+  const multiTerminal = terminalRows.length > 1;
+  const saleTerminal = (s: Sale): string =>
+    s.posLicenseId
+      ? terminalName(s.posLicenseLabel, s.posLicenseKey)
+      : SIN_TERMINAL;
+
   async function handlePrint() {
     if (!summary) return;
     setPrinting(true);
@@ -99,11 +136,17 @@ export function CorteModal({
         label: p.label,
         amount: Number(p.value),
       })),
+      terminals: terminalRows.map((t) => ({
+        label: t.label,
+        salesCount: t.salesCount,
+        amount: t.amount,
+      })),
       sales: sales.map((s) => ({
         saleNumber: s.saleNumber,
         createdAt: s.createdAt,
         customerName: s.customerName,
         total: Number(s.total),
+        terminal: multiTerminal ? saleTerminal(s) : undefined,
       })),
     });
     setPrinting(false);
@@ -123,6 +166,8 @@ export function CorteModal({
         date,
         summary,
         paymentRows,
+        terminalRows: multiTerminal ? terminalRows : [],
+        saleTerminal: multiTerminal ? saleTerminal : undefined,
         sales,
       });
       // BOM UTF-8 para que Excel detecte acentos correctamente.
@@ -267,6 +312,37 @@ export function CorteModal({
                 )}
               </div>
 
+              {/* Desglose por terminal: solo con varias cajas en el dia */}
+              {multiTerminal && (
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground mb-2">
+                    Ventas por terminal
+                  </h3>
+                  <div className="rounded-lg border divide-y">
+                    {terminalRows.map((t) => (
+                      <div
+                        key={t.id ?? 'sin-terminal'}
+                        className="flex items-center justify-between px-3 py-2 text-sm"
+                      >
+                        <span className="text-muted-foreground">
+                          {t.label}
+                          <span className="ml-1.5 text-xs text-muted-foreground/80">
+                            · {t.salesCount}{' '}
+                            {t.salesCount === 1 ? 'venta' : 'ventas'}
+                            {t.cancelledCount > 0
+                              ? ` · ${t.cancelledCount} cancelada${t.cancelledCount === 1 ? '' : 's'}`
+                              : ''}
+                          </span>
+                        </span>
+                        <span className="font-medium text-foreground tabular-nums">
+                          {fmt(t.amount)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Tabla de ventas */}
               <div>
                 <h3 className="text-sm font-semibold text-foreground mb-2">
@@ -298,6 +374,11 @@ export function CorteModal({
                           <TableHead className="text-left px-3 py-1.5 font-medium text-muted-foreground">
                             Cliente
                           </TableHead>
+                          {multiTerminal && (
+                            <TableHead className="text-left px-3 py-1.5 font-medium text-muted-foreground">
+                              Terminal
+                            </TableHead>
+                          )}
                           <TableHead className="text-right px-3 py-1.5 font-medium text-muted-foreground">
                             Total
                           </TableHead>
@@ -326,6 +407,11 @@ export function CorteModal({
                             <TableCell className="px-3 py-1.5 text-muted-foreground truncate max-w-[10rem]">
                               {s.customerName ?? 'Publico'}
                             </TableCell>
+                            {multiTerminal && (
+                              <TableCell className="px-3 py-1.5 text-xs text-muted-foreground truncate max-w-[8rem]">
+                                {saleTerminal(s)}
+                              </TableCell>
+                            )}
                             <TableCell className="px-3 py-1.5 text-right font-medium tabular-nums">
                               {fmt(Number(s.total))}
                             </TableCell>
@@ -386,6 +472,10 @@ interface CsvInput {
     refundsCount: number;
   };
   paymentRows: Array<{ label: string; value: number }>;
+  /** Vacío cuando la sucursal cobró con una sola terminal (no se exporta). */
+  terminalRows: TerminalRow[];
+  /** Nombre de la terminal de cada venta (solo con varias terminales). */
+  saleTerminal?: (s: Sale) => string;
   sales: Sale[];
 }
 
@@ -427,14 +517,34 @@ function buildCorteCsv(input: CsvInput): string {
   }
   lines.push('');
 
+  if (input.terminalRows.length > 0) {
+    lines.push('VENTAS POR TERMINAL');
+    lines.push('Terminal,Ventas,Canceladas,Monto');
+    for (const t of input.terminalRows) {
+      lines.push(
+        [
+          csvCell(t.label),
+          t.salesCount,
+          t.cancelledCount,
+          Number(t.amount).toFixed(2),
+        ].join(','),
+      );
+    }
+    lines.push('');
+  }
+
+  const withTerminal = !!input.saleTerminal;
   lines.push('VENTAS DEL DIA');
-  lines.push('Folio,Hora,Cliente,Total');
+  lines.push(
+    withTerminal ? 'Folio,Hora,Cliente,Terminal,Total' : 'Folio,Hora,Cliente,Total',
+  );
   for (const s of sales) {
     lines.push(
       [
         csvCell(s.saleNumber),
         csvCell(formatTime(s.createdAt)),
         csvCell(s.customerName ?? 'Publico'),
+        ...(withTerminal ? [csvCell(input.saleTerminal!(s))] : []),
         Number(s.total).toFixed(2),
       ].join(','),
     );

@@ -59,10 +59,19 @@ export interface CorteSaleRow {
   createdAt: string;
   customerName?: string;
   total: number;
+  /** Etiqueta de la terminal que cobró (se imprime solo con varias terminales). */
+  terminal?: string;
 }
 
 export interface CortePaymentRow {
   label: string;
+  amount: number;
+}
+
+/** Ventas del día de una terminal (licencia POS). */
+export interface CorteTerminalRow {
+  label: string;
+  salesCount: number;
   amount: number;
 }
 
@@ -85,6 +94,10 @@ export interface CorteReceiptInput {
 
   // Desglose
   payments: CortePaymentRow[];
+
+  /** Desglose por terminal: solo se imprime cuando hay más de una
+   *  (sucursales con varias cajas separan su corte). */
+  terminals?: CorteTerminalRow[];
 
   // Lista de ventas
   sales: CorteSaleRow[];
@@ -323,6 +336,19 @@ export function buildCorteReceiptBytes(input: CorteReceiptInput): Buffer {
   }
   p.line(sep);
 
+  // --- POR TERMINAL (solo sucursales con varias cajas) ---
+  const terminals = input.terminals ?? [];
+  const multiTerminal = terminals.length > 1;
+  if (multiTerminal) {
+    p.bold(true).line('VENTAS POR TERMINAL').bold(false);
+    for (const t of terminals) {
+      p.line(
+        labelValue(`${t.label} (${t.salesCount})`, fmt(t.amount), cols),
+      );
+    }
+    p.line(sep);
+  }
+
   // --- VENTAS DEL DIA ---
   p.bold(true).line(`VENTAS DEL DIA (${input.sales.length})`).bold(false);
   if (input.sales.length === 0) {
@@ -342,9 +368,15 @@ export function buildCorteReceiptBytes(input: CorteReceiptInput): Buffer {
         padRight('Total', wTotal),
     );
     for (const s of input.sales) {
+      // Con varias terminales, el folio lleva la terminal entre corchetes
+      // para que el supervisor separe las ventas por caja.
+      const folio =
+        multiTerminal && s.terminal
+          ? `${s.saleNumber} [${s.terminal}]`
+          : s.saleNumber;
       p.line(
         itemLineFixed(
-          s.saleNumber,
+          folio,
           formatTime12h(s.createdAt),
           fmt(Number(s.total)),
           wFolio,

@@ -39,6 +39,9 @@ interface RecentSalesProps {
   onSelectSale: (saleId: string) => void;
   /** Si se provee, muestra un botón para plegar el panel. */
   onCollapse?: () => void;
+  /** Licencia de ESTA terminal: las ventas cobradas en otra terminal de la
+   *  sucursal se marcan con su etiqueta (sucursales con varias cajas). */
+  currentLicenseId?: string;
 }
 
 function statusBadge(status: PosSaleStatus) {
@@ -86,6 +89,7 @@ export function RecentSales({
   onOpenMovements,
   onSelectSale,
   onCollapse,
+  currentLicenseId,
 }: RecentSalesProps) {
   const {
     data: salesResp,
@@ -217,6 +221,19 @@ export function RecentSales({
                             title={`Capturada por ${sale.sellerName} (call center / corporativo)`}
                           >
                             CC
+                          </span>
+                        )}
+                      {/* Cobrada en OTRA terminal de la sucursal: etiqueta de
+                          esa caja (sucursales con varias terminales). */}
+                      {sale.posLicenseId &&
+                        currentLicenseId &&
+                        sale.posLicenseId !== currentLicenseId && (
+                          <span
+                            className="shrink-0 truncate max-w-[7rem] rounded bg-sky-100 px-1 py-px font-sans text-[9px] font-bold text-sky-700"
+                            title={`Cobrada en la terminal ${sale.posLicenseLabel ?? sale.posLicenseKey ?? ''}`}
+                          >
+                            {sale.posLicenseLabel ??
+                              `Terminal ${(sale.posLicenseKey ?? '').slice(-4)}`}
                           </span>
                         )}
                     </span>

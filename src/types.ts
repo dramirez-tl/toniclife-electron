@@ -194,11 +194,15 @@ export interface CorteReceiptPayload {
   totalRefunds: number;
   refundsCount: number;
   payments: Array<{ label: string; amount: number }>;
+  /** Desglose por terminal (solo se imprime si la sucursal tiene varias). */
+  terminals?: Array<{ label: string; salesCount: number; amount: number }>;
   sales: Array<{
     saleNumber: string;
     createdAt: string;
     customerName?: string;
     total: number;
+    /** Etiqueta de la terminal que cobró (columna solo con varias terminales). */
+    terminal?: string;
   }>;
 }
 

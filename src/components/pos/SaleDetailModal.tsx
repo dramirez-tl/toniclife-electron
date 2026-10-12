@@ -221,8 +221,14 @@ export function SaleDetailModal({
                       Call center / corporativo
                     </span>
                   ) : sale.capturedVia === 'terminal' ? (
-                    <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700">
-                      Terminal de sucursal
+                    <span
+                      className="rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700"
+                      title={sale.posLicenseKey ?? undefined}
+                    >
+                      {/* Etiqueta de la terminal que cobró (varias cajas). */}
+                      {sale.posLicenseLabel
+                        ? `Terminal: ${sale.posLicenseLabel}`
+                        : 'Terminal de sucursal'}
                     </span>
                   ) : null}
                 </DialogDescription>

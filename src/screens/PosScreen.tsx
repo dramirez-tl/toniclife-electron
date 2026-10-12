@@ -1021,6 +1021,7 @@ export function PosScreen({
               onOpenMovements={() => setMovementsOpen(true)}
               onSelectSale={(id) => setSelectedSaleId(id)}
               onCollapse={() => toggleSalesPanel(true)}
+              currentLicenseId={session.license.id}
             />
           </aside>
         )}
