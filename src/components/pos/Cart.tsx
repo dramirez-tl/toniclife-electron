@@ -12,8 +12,6 @@ import {
   X,
   Tag,
   Package,
-  ChevronDown,
-  ChevronUp,
   Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -21,6 +19,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { usePosCartStore } from '@/stores/pos-cart.store';
 import { posApi } from '@/lib/posApi';
+import { formatIncludes, isKitLikeType } from '@/lib/kitComponents';
 import { CustomerSelector } from './CustomerSelector';
 import { PosPointsBar } from './PosPointsBar';
 
@@ -54,12 +53,6 @@ export function Cart({
   const clearCart = usePosCartStore((s) => s.clearCart);
   const setCoupon = usePosCartStore((s) => s.setCoupon);
   const clearCoupon = usePosCartStore((s) => s.clearCoupon);
-
-  const [expandedIncludes, setExpandedIncludes] = useState<
-    Record<string, boolean>
-  >({});
-  const toggleIncludes = (productId: string) =>
-    setExpandedIncludes((prev) => ({ ...prev, [productId]: !prev[productId] }));
 
   const [showCoupon, setShowCoupon] = useState(false);
   const [couponInput, setCouponInput] = useState('');
@@ -216,46 +209,24 @@ export function Cart({
                     </Button>
                   </div>
 
-                  {/* "Incluye" — componentes de la promo/kit */}
-                  {item.components && item.components.length > 0 && (
-                    <div className="mt-1">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => toggleIncludes(item.productId)}
-                        className="h-auto gap-1 p-0 text-[11px] font-medium text-primary hover:bg-transparent"
-                      >
-                        <Package className="size-3" />
-                        Incluye ({item.components.length})
-                        {expandedIncludes[item.productId] ? (
-                          <ChevronUp className="size-3" />
-                        ) : (
-                          <ChevronDown className="size-3" />
-                        )}
-                      </Button>
-                      {expandedIncludes[item.productId] && (
-                        <ul className="mt-1 space-y-0.5 rounded-md bg-muted/50 px-2 py-1.5 text-[11px] text-muted-foreground">
-                          {item.components.map((c) => (
-                            <li
-                              key={c.code}
-                              className="flex justify-between gap-2"
-                            >
-                              <span className="truncate">
-                                {c.name}{' '}
-                                <span className="font-mono text-muted-foreground/80">
-                                  ({c.code})
-                                </span>
-                              </span>
-                              <span className="shrink-0 tabular-nums">
-                                ×{c.quantity}
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  )}
+                  {/* "Incluye" — contenido del kit/paquete/promo en una
+                      línea (lo mismo que imprimirá el ticket, por unidad).
+                      El texto completo va en el title. */}
+                  {isKitLikeType(item.productType) &&
+                    item.components &&
+                    item.components.length > 0 &&
+                    (() => {
+                      const inc = formatIncludes(item.components);
+                      return (
+                        <p
+                          className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground"
+                          title={inc.full}
+                        >
+                          <Package className="size-3 shrink-0" />
+                          <span className="truncate">{inc.truncated}</span>
+                        </p>
+                      );
+                    })()}
 
                   <div className="mt-1.5 flex items-center justify-between">
                     {/* Stepper de cantidad */}

@@ -142,6 +142,10 @@ export interface SaleItem {
   notes?: string;
   points: number;
   businessValue: number;
+  /** Tipo del producto vendido (kit | pack | promotional | ...). AUSENTE en
+   *  APIs anteriores: la reimpresión entonces consulta el contenido de todos
+   *  los productos de la venta. */
+  productType?: string;
 }
 
 export interface SalePayment {
@@ -341,6 +345,23 @@ export interface PaymentResult {
 }
 
 // ============================================================================
+// COMPONENTES DE KIT / PAQUETE / PROMO (contenido que se entrega)
+// ============================================================================
+
+/** Un renglón del contenido de un kit/paquete/promo. `quantity` es POR
+ *  UNIDAD del kit (el ticket la multiplica por la cantidad de la línea).
+ *  Viene de GET /pos/products/:id/components, de las promos canjeables
+ *  (`items`) o del endpoint público viejo; `code` puede faltar en las
+ *  fuentes antiguas. */
+export interface KitComponent {
+  componentProductId?: string;
+  code?: string | null;
+  name: string;
+  quantity: number;
+  sortOrder?: number;
+}
+
+// ============================================================================
 // POS CART (estado local)
 // ============================================================================
 
@@ -365,8 +386,10 @@ export interface PosCartItem {
   productType?: string;
   /** Tope de cantidad: para promos = derechos disponibles (default 1). */
   maxQuantity?: number;
-  /** Productos que incluye (BoM) — para mostrar/imprimir "qué incluye" la promo. */
-  components?: Array<{ code: string; name: string; quantity: number }>;
+  /** Productos que incluye (BoM) — para mostrar/imprimir "qué incluye".
+   *  undefined = aún no se consultó (PosScreen lo completa en segundo plano
+   *  para kit/pack/promocional); [] = se consultó y no tiene contenido. */
+  components?: KitComponent[];
   lotId?: string;
   notes?: string;
 }
@@ -436,7 +459,7 @@ export interface QuickProduct {
   productType?: string;
   kitPosition?: string;
   /** Productos que incluye (BoM) — para promos/kits, mostrar "qué incluye". */
-  components?: Array<{ code: string; name: string; quantity: number }>;
+  components?: KitComponent[];
   /** Tope de cantidad en el carrito. Para promos canjeables = derechos
    *  disponibles del distribuidor (availableCount); sin dato, promo = 1. */
   maxQuantity?: number;

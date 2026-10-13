@@ -3,13 +3,21 @@
 // de calculo de impuestos/descuentos/totales es identica para mantener paridad.
 
 import { create } from 'zustand';
-import type { PosCart, PosCartItem, QuickProduct } from '@/types/pos';
+import type {
+  KitComponent,
+  PosCart,
+  PosCartItem,
+  QuickProduct,
+} from '@/types/pos';
 
 interface PosCartStore {
   cart: PosCart;
   addItem: (product: QuickProduct, quantity?: number) => void;
   updateItemQuantity: (productId: string, quantity: number) => void;
   removeItem: (productId: string) => void;
+  /** Completa el contenido ("Incluye") de una línea agregada sin él; lo
+   *  resuelve PosScreen en segundo plano (el store se mantiene síncrono). */
+  setItemComponents: (productId: string, components: KitComponent[]) => void;
   clearCart: () => void;
   setCustomer: (
     customerId?: string,
@@ -276,6 +284,21 @@ export const usePosCartStore = create<PosCartStore>()(
           return {
             cart: calculateCartTotals({ ...state.cart, items: newItems }),
           };
+        });
+      },
+
+      setItemComponents: (productId, components) => {
+        set((state) => {
+          const idx = state.cart.items.findIndex(
+            (item) => item.productId === productId,
+          );
+          // La línea pudo quitarse mientras se consultaba; no hay totales
+          // que recalcular (el contenido no cambia precios ni puntos).
+          if (idx < 0) return state;
+          const items = state.cart.items.map((item, i) =>
+            i === idx ? { ...item, components } : item,
+          );
+          return { cart: { ...state.cart, items } };
         });
       },
 

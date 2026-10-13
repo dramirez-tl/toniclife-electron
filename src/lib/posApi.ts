@@ -2,9 +2,11 @@
 // Portado de toniclife-next/src/services/pos.service.ts, adaptado al cliente
 // `api` del Electron (Bearer = deviceToken de licencia).
 
+import axios from 'axios';
 import { api } from './api';
 import type {
   CashRegister,
+  KitComponent,
   Session,
   ActiveSession,
   OpenSessionInput,
@@ -58,6 +60,26 @@ export function resolveImageUrl(url?: string): string | undefined {
   if (!url) return undefined;
   if (url.startsWith('http://') || url.startsWith('https://')) return url;
   return `${API_ORIGIN}${url.startsWith('/') ? '' : '/'}${url}`;
+}
+
+/**
+ * Nombre completo de una persona: `fullName` del API si viene con texto; si
+ * no, nombre + apellido paterno + apellido MATERNO con blancos colapsados
+ * (misma regla que el API al guardar/imprimir: los dos apellidos siempre).
+ */
+export function composeFullName(
+  fullName: unknown,
+  firstName?: unknown,
+  lastName?: unknown,
+  mothersLastName?: unknown,
+): string {
+  const given = typeof fullName === 'string' ? fullName.trim() : '';
+  if (given) return given.replace(/\s+/g, ' ');
+  return [firstName, lastName, mothersLastName]
+    .map((s) => (typeof s === 'string' ? s.trim() : ''))
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\s+/g, ' ');
 }
 
 /** Kit o paquete que se ARMA al vender (descuenta componentes). */
@@ -214,28 +236,40 @@ class PosApi {
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
   private mapCustomer(c: any): PosCustomer {
+    // El API (CustomerResponseDto) expone el apellido materno como
+    // `lastNameMother`; antes se leía `mothersLastName` (clave inexistente) y
+    // el nombre que se guardaba en la venta e imprimía en el ticket salía con
+    // UN solo apellido. Se prefiere `fullName` cuando el API ya lo manda.
+    const mothersLastName =
+      c.lastNameMother ?? c.mothersLastName ?? c.mothers_last_name ?? undefined;
+    const firstName = c.firstName ?? c.first_name ?? '';
+    const lastName = c.lastName ?? c.last_name ?? '';
+    const sponsor = c.sponsor;
     return {
       id: c.id,
       customerNumber: c.customerNumber ?? c.customer_number,
-      firstName: c.firstName ?? c.first_name ?? '',
-      lastName: c.lastName ?? c.last_name ?? '',
-      mothersLastName: c.mothersLastName ?? c.mothers_last_name,
-      fullName:
-        c.fullName ??
-        c.full_name ??
-        [c.firstName ?? c.first_name, c.lastName ?? c.last_name, c.mothersLastName ?? c.mothers_last_name]
-          .filter(Boolean)
-          .join(' '),
+      firstName,
+      lastName,
+      mothersLastName,
+      fullName: composeFullName(
+        c.fullName ?? c.full_name,
+        firstName,
+        lastName,
+        mothersLastName,
+      ),
       email: c.email,
       rfc: c.rfc,
       priceTypeId: c.priceTypeId ?? c.price_type_id,
       status: c.status,
-      sponsorName:
-        c.sponsor?.fullName ??
-        (c.sponsor
-          ? [c.sponsor.firstName, c.sponsor.lastName].filter(Boolean).join(' ')
-          : undefined),
-      sponsorNumber: c.sponsor?.customerNumber,
+      sponsorName: sponsor
+        ? composeFullName(
+            sponsor.fullName,
+            sponsor.firstName,
+            sponsor.lastName,
+            sponsor.lastNameMother ?? sponsor.mothersLastName,
+          ) || undefined
+        : undefined,
+      sponsorNumber: sponsor?.customerNumber,
     };
   }
   /* eslint-enable @typescript-eslint/no-explicit-any */
@@ -494,7 +528,7 @@ class PosApi {
   async getKitComponents(
     productId: string,
     branchCountryId?: string,
-  ): Promise<Array<{ name: string; quantity: number }>> {
+  ): Promise<KitComponent[]> {
     const { data } = await api.get(`/products/${productId}/components`);
     /* eslint-disable @typescript-eslint/no-explicit-any */
     const rows = ((data ?? []) as any[]).filter(
@@ -504,11 +538,49 @@ class PosApi {
       ? rows.filter((c) => c.countryId === branchCountryId)
       : [];
     const chosen = ofCountry.length > 0 ? ofCountry : rows.filter((c) => !c.countryId);
-    return chosen.map((c) => ({
+    return chosen.map((c, i) => ({
+      componentProductId: String(c.componentProductId),
+      code: c.componentProductCode != null ? String(c.componentProductCode) : null,
       name: String(c.componentProductName ?? c.componentProductCode ?? 'Componente'),
       quantity: Number(c.quantity) || 1,
+      sortOrder: Number(c.sortOrder ?? i) || i,
     }));
     /* eslint-enable @typescript-eslint/no-explicit-any */
+  }
+
+  /**
+   * Contenido de un kit/paquete/promo YA resuelto por el API para la sucursal
+   * (GET /pos/products/:id/components): renglones del país de la sucursal si
+   * existen, si no los globales. La terminal se identifica sola por su
+   * licencia; en modo staff (JWT de usuario) el API exige `branchId`.
+   * Devuelve null si el API aún no tiene la ruta (404) para que el llamador
+   * caiga al endpoint público viejo.
+   */
+  async getPosProductComponents(
+    productId: string,
+    branchId?: string,
+  ): Promise<KitComponent[] | null> {
+    try {
+      const { data } = await api.get(`/pos/products/${productId}/components`, {
+        params: branchId ? { branchId } : undefined,
+      });
+      /* eslint-disable @typescript-eslint/no-explicit-any */
+      return ((data ?? []) as any[])
+        .map((c, i) => ({
+          componentProductId: String(c.componentProductId ?? ''),
+          code: c.code != null ? String(c.code) : null,
+          name: String(c.name ?? c.code ?? 'Componente'),
+          quantity: Number(c.quantity) || 1,
+          sortOrder: Number(c.sortOrder ?? i) || i,
+        }))
+        .sort((a, b) => a.sortOrder - b.sortOrder);
+      /* eslint-enable @typescript-eslint/no-explicit-any */
+    } catch (err) {
+      // 404 = API anterior sin la ruta (o producto inexistente): el llamador
+      // decide el fallback. Cualquier otro error sube tal cual.
+      if (axios.isAxiosError(err) && err.response?.status === 404) return null;
+      throw err;
+    }
   }
 
   /** Estados/departamentos del país (endpoint público, catálogo tonic.states)

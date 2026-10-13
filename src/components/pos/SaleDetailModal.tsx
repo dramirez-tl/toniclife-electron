@@ -38,7 +38,8 @@ import {
   firstRecipient,
   looksLikeEmail,
 } from '@/lib/invoiceEmail';
-import { PosSaleStatus } from '@/types/pos';
+import { resolveComponentsForLines } from '@/lib/kitComponents';
+import { PosSaleStatus, type KitComponent } from '@/types/pos';
 
 interface SaleDetailModalProps {
   isOpen: boolean;
@@ -141,6 +142,22 @@ export function SaleDetailModal({
         (s, p) => s + (Number(p.changeGiven) || 0),
         0,
       );
+      // Contenido de kits/paquetes/promos, igual que el ticket original. Si
+      // el detalle trae productType se consulta solo esas líneas; con APIs
+      // anteriores (sin productType) se consulta cada producto de la venta y
+      // se imprime lo que tenga contenido. Tolerante: nunca bloquea.
+      const detailHasType = sale.items.some((it) => it.productType != null);
+      const componentsByProduct = await resolveComponentsForLines(
+        sale.items,
+        {
+          // Modo staff (JWT de usuario): el API exige la sucursal; la de la
+          // venta es la correcta aunque el operador haya cambiado de sucursal.
+          branchId: staffUser ? sale.branchId : undefined,
+          branchCountryCode,
+        },
+        { onlyKitLike: detailHasType },
+      ).catch(() => new Map<string, KitComponent[]>());
+
       // openDrawer=false: una reimpresion NUNCA abre el cajon de dinero.
       const r = await window.toniclife.printer.printSale(
         {
@@ -151,13 +168,21 @@ export function SaleDetailModal({
           customerName: sale.customerName ?? undefined,
           customerNumber: sale.customerNumber ?? undefined,
           currencySymbol,
-          items: sale.items.map((it) => ({
-            name: it.productName,
-            sku: it.productSku,
-            quantity: it.quantity,
-            unitPrice: Number(it.unitPrice),
-            total: Number(it.total),
-          })),
+          items: sale.items.map((it) => {
+            const comps = componentsByProduct.get(it.productId);
+            return {
+              name: it.productName,
+              sku: it.productSku,
+              quantity: it.quantity,
+              unitPrice: Number(it.unitPrice),
+              total: Number(it.total),
+              // Cantidad impresa = por unidad × cantidad de la línea.
+              components: comps?.map((c) => ({
+                name: c.name,
+                quantity: c.quantity * it.quantity,
+              })),
+            };
+          }),
           subtotal: Number(sale.subtotal),
           discountAmount: Number(sale.discountAmount) || 0,
           taxAmount: Number(sale.taxAmount),

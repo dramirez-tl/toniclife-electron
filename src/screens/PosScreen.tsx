@@ -67,6 +67,12 @@ import {
   noCashRegisterMessage,
 } from '@/lib/cashRegister';
 import { isOutOfStock, outOfStockReason } from '@/lib/kitStock';
+import {
+  fetchKitComponents,
+  isKitLikeType,
+  resolveComponentsForLines,
+  type ComponentsContext,
+} from '@/lib/kitComponents';
 import { usePosCartStore } from '@/stores/pos-cart.store';
 import {
   useStaffSession,
@@ -94,6 +100,7 @@ import type {
   CreatePaymentInput,
   CreateSaleInput,
   InvoiceRequest,
+  KitComponent,
   QuickProduct,
   KitEnrollmentResponse,
   Sale,
@@ -437,6 +444,45 @@ export function PosScreen({
     };
   }, [cartPriceTypeId, branchId]);
 
+  // Contexto para resolver el contenido de kits/paquetes/promos: en modo
+  // staff el API exige la sucursal (JWT de usuario); la terminal se
+  // identifica sola. El país solo sirve para el fallback con API anterior.
+  const branchCountryCode = branch.country?.code;
+  const componentsCtx = useMemo<ComponentsContext>(
+    () => ({
+      branchId: staffActive ? branchId : undefined,
+      branchCountryCode,
+    }),
+    [staffActive, branchId, branchCountryCode],
+  );
+
+  // Líneas kit/pack/promo agregadas SIN contenido (catálogo, SKU, lote,
+  // kit de inscripción): se completa en segundo plano para que el carrito
+  // lo muestre y el ticket no dependa de una consulta en el cobro. Con []
+  // (consultado y vacío) no se vuelve a pedir; un fallo deja undefined y se
+  // reintenta en el siguiente cambio del carrito (la caché evita tormentas).
+  const cartItems = cart.items;
+  useEffect(() => {
+    const missing = cartItems.filter(
+      (it) => isKitLikeType(it.productType) && it.components === undefined,
+    );
+    if (missing.length === 0) return;
+    let cancelled = false;
+    for (const pid of new Set(missing.map((it) => it.productId))) {
+      void fetchKitComponents(pid, componentsCtx)
+        .then((comps) => {
+          if (cancelled) return;
+          usePosCartStore.getState().setItemComponents(pid, comps);
+        })
+        .catch(() => {
+          /* la línea queda sin contenido; el cobro lo reintenta */
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [cartItems, componentsCtx]);
+
   // Re-valida el CUPÓN cuando cambia la base del descuento (subtotal +
   // impuestos, antes de cupón): el % cambia con el total y la compra mínima
   // puede dejar de cumplirse. Si ya no aplica, se retira con aviso.
@@ -627,34 +673,16 @@ export function PosScreen({
 
       // Contenido de kits/paquetes/promos para el ticket (pedido de las
       // sucursales: al vender un kit el ticket lista lo que INCLUYE para
-      // poder armarlo/entregarlo — paridad con el legacy). Falla-tolerante:
-      // si el fetch no responde, el ticket sale como siempre.
-      const componentsByProduct = new Map<
-        string,
-        Array<{ name: string; quantity: number }>
-      >();
+      // poder armarlo/entregarlo — paridad con el legacy). Se usa lo que ya
+      // trae la línea (promos canjeables, o lo resuelto en segundo plano al
+      // agregar) y solo se consulta lo que falte. Falla-tolerante: si nada
+      // responde, el ticket sale sin "Incluye" pero sale.
+      let componentsByProduct = new Map<string, KitComponent[]>();
       try {
-        const kitItems = cart.items.filter(
-          (it) =>
-            it.productType === 'kit' ||
-            it.productType === 'pack' ||
-            it.productType === 'promotional',
+        componentsByProduct = await resolveComponentsForLines(
+          cart.items,
+          componentsCtx,
         );
-        if (kitItems.length > 0) {
-          const countries = await posApi.getActiveCountries().catch(() => []);
-          const branchCountryId = countries.find(
-            (c) => c.code?.toUpperCase() === branch.country?.code?.toUpperCase(),
-          )?.id;
-          const uniqueIds = [...new Set(kitItems.map((it) => it.productId))];
-          await Promise.all(
-            uniqueIds.map(async (pid) => {
-              const comps = await posApi
-                .getKitComponents(pid, branchCountryId)
-                .catch(() => []);
-              if (comps.length > 0) componentsByProduct.set(pid, comps);
-            }),
-          );
-        }
       } catch {
         // sin componentes: el ticket imprime solo las líneas normales
       }
