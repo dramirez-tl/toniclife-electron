@@ -14,6 +14,7 @@ import {
   Wifi,
   Monitor,
   Ban,
+  FileText,
   Printer as PrinterIcon,
   Banknote,
   CheckCircle2,
@@ -99,7 +100,7 @@ export function PrinterSettingsModal({
       ? networkConfigured
       : config.connection === 'system'
         ? systemConfigured
-        : false;
+        : config.connection === 'pdf';
   // "Sin impresora" no requiere configuracion: se puede guardar directo.
   const canSave = config.connection === 'none' || canTest;
 
@@ -201,7 +202,7 @@ export function PrinterSettingsModal({
           {/* Tipo de conexion */}
           <div>
             <Label className="block mb-2">Tipo de conexion</Label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-4 gap-2">
               <Button
                 type="button"
                 variant="outline"
@@ -234,6 +235,23 @@ export function PrinterSettingsModal({
                 type="button"
                 variant="outline"
                 onClick={() => {
+                  set('connection', 'pdf');
+                  set('hasCashDrawer', false);
+                }}
+                disabled={busy}
+                className={cn(
+                  'h-auto flex-col items-center gap-1 rounded-lg px-3 py-3 text-sm font-medium',
+                  config.connection === 'pdf' &&
+                    'border-primary bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary',
+                )}
+              >
+                <FileText className="size-4" />
+                Impresora normal / PDF
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
                   set('connection', 'none');
                   set('hasCashDrawer', false);
                 }}
@@ -253,7 +271,9 @@ export function PrinterSettingsModal({
                 ? 'ESC/POS directo via TCP. Soporta cajon de dinero.'
                 : config.connection === 'system'
                   ? 'Usa el driver instalado en el sistema. No soporta cajon de dinero.'
-                  : 'Esta terminal no imprimira tickets ni abrira cajon de dinero.'}
+                  : config.connection === 'pdf'
+                    ? 'Sin impresora termica: cada ticket y corte se genera en PDF y se abre para imprimirlo en una impresora normal o guardarlo.'
+                    : 'Esta terminal no imprimira tickets ni abrira cajon de dinero.'}
             </p>
           </div>
 
@@ -283,6 +303,17 @@ export function PrinterSettingsModal({
                   disabled={busy}
                 />
               </div>
+            </div>
+          ) : config.connection === 'pdf' ? (
+            <div className="rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground flex items-start gap-2">
+              <FileText className="size-4 shrink-0 mt-0.5" />
+              <span>
+                Al cobrar, reimprimir o hacer el corte, el POS genera el ticket
+                en <strong>PDF</strong> (hoja carta, mismo contenido que el
+                ticket termico), lo guarda en{' '}
+                <strong>Documentos\Tonic Life\Tickets</strong> y lo abre en el
+                visor de PDF: desde ahi lo imprimes en tu impresora normal.
+              </span>
             </div>
           ) : (
             <div>
@@ -430,8 +461,9 @@ export function PrinterSettingsModal({
                 <>
                   <CheckCircle2 className="size-3.5 text-emerald-600 shrink-0 mt-0.5" />
                   <span>
-                    Listo para probar. La pagina de prueba imprime el nombre de
-                    la sucursal + fecha.
+                    {config.connection === 'pdf'
+                      ? 'Listo para probar: se abrira un PDF de prueba con el nombre de la sucursal + fecha.'
+                      : 'Listo para probar. La pagina de prueba imprime el nombre de la sucursal + fecha.'}
                   </span>
                 </>
               ) : (

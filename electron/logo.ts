@@ -43,6 +43,22 @@ function findLogoPath(filename: string): string | null {
 }
 
 /**
+ * Logo como data URL (PNG base64) para los tickets en HTML/PDF. null si el
+ * asset no se encuentra (el ticket cae al logo de texto).
+ */
+export function loadLogoDataUrl(
+  filename = 'logo-text-light-r.png',
+): string | null {
+  const file = findLogoPath(filename);
+  if (!file) return null;
+  try {
+    return `data:image/png;base64,${fs.readFileSync(file).toString('base64')}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Construye los bytes ESC/POS GS v 0 para imprimir un logo.
  *
  * @param widthDots Ancho objetivo en puntos. Debe ser multiplo de 8 para

@@ -16,7 +16,127 @@ import {
   center,
   sanitizeForPrinter,
 } from './escpos';
-import { buildLogoBitmapBytes } from './logo';
+import { buildLogoBitmapBytes, loadLogoDataUrl } from './logo';
+
+// ============================================================================
+// ESCRITOR DE TICKET: ESC/POS (Escpos) o HTML (HtmlReceipt, para PDF)
+// ============================================================================
+
+/**
+ * Lo que usan los renderers de ticket/corte. `Escpos` lo cumple tal cual;
+ * `HtmlReceipt` genera el mismo ticket como HTML para el modo "Impresora
+ * normal / PDF" (CEDEAS sin térmica, 13-oct-2026): mismo contenido, mismas
+ * líneas, solo cambia el transporte.
+ */
+export interface ReceiptWriter {
+  init(): this;
+  align(mode: 'left' | 'center' | 'right'): this;
+  bold(on: boolean): this;
+  size(width?: 1 | 2, height?: 1 | 2): this;
+  line(s?: string): this;
+  feed(lines?: number): this;
+  cut(partial?: boolean): this;
+  rawBuffer(buf: Buffer | Uint8Array): this;
+}
+
+interface HtmlLine {
+  text?: string;
+  logo?: string;
+  align: 'left' | 'center' | 'right';
+  bold: boolean;
+  big: boolean;
+}
+
+export class HtmlReceipt implements ReceiptWriter {
+  private lines: HtmlLine[] = [];
+  private curAlign: 'left' | 'center' | 'right' = 'left';
+  private curBold = false;
+  private curBig = false;
+
+  init(): this {
+    return this;
+  }
+  align(mode: 'left' | 'center' | 'right'): this {
+    this.curAlign = mode;
+    return this;
+  }
+  bold(on: boolean): this {
+    this.curBold = on;
+    return this;
+  }
+  size(width: 1 | 2 = 1, height: 1 | 2 = 1): this {
+    this.curBig = width === 2 || height === 2;
+    return this;
+  }
+  line(s = ''): this {
+    this.lines.push({
+      text: s,
+      align: this.curAlign,
+      bold: this.curBold,
+      big: this.curBig,
+    });
+    return this;
+  }
+  /** En PDF no hace falta "alimentar" papel: máximo 2 renglones en blanco. */
+  feed(lines = 1): this {
+    for (let i = 0; i < Math.min(2, lines); i++) this.line('');
+    return this;
+  }
+  cut(): this {
+    return this;
+  }
+  rawBuffer(): this {
+    return this;
+  }
+  logo(dataUrl: string): this {
+    this.lines.push({ logo: dataUrl, align: 'center', bold: false, big: false });
+    return this;
+  }
+
+  /**
+   * Documento para `printToPDF` en hoja carta: el ticket va centrado con el
+   * ancho exacto de `cols` caracteres monoespaciados (misma alineación por
+   * columnas que la térmica).
+   */
+  html(opts: { cols: number; title: string }): string {
+    const body = this.lines
+      .map((ln) => {
+        if (ln.logo) {
+          return `<div class="logo"><img src="${ln.logo}" alt="toniclife" /></div>`;
+        }
+        const cls = ['ln'];
+        if (ln.align === 'center') cls.push('c');
+        if (ln.align === 'right') cls.push('r');
+        if (ln.bold) cls.push('b');
+        if (ln.big) cls.push('big');
+        const text = escapeHtml(sanitizeForPrinter(ln.text ?? '')) || ' ';
+        return `<div class="${cls.join(' ')}">${text}</div>`;
+      })
+      .join('\n');
+    return `<!doctype html>
+<html><head><meta charset="utf-8"><title>${escapeHtml(opts.title)}</title><style>
+  @page { size: letter; margin: 12mm; }
+  html, body { margin: 0; padding: 0; background: #fff; color: #000; }
+  .ticket {
+    width: ${opts.cols}ch;
+    margin: 0 auto;
+    font-family: 'Consolas', 'Lucida Console', 'Courier New', monospace;
+    font-size: 10pt;
+    line-height: 1.3;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .ln { white-space: pre; min-height: 1.3em; }
+  .c { text-align: center; }
+  .r { text-align: right; }
+  .b { font-weight: 700; }
+  .big { font-size: 15pt; font-weight: 700; }
+  .logo { text-align: center; margin: 2mm 0 3mm; }
+  .logo img { height: 11mm; }
+</style></head>
+<body><div class="ticket">${body}</div></body></html>`;
+  }
+}
 
 /**
  * Encabezado del ticket. Con `textLogo` (impresoras de MATRIZ DE PUNTO, que
@@ -24,10 +144,22 @@ import { buildLogoBitmapBytes } from './logo';
  * se sustituye por "TONICLIFE" en texto doble alto/ancho.
  */
 function printHeaderLogo(
-  p: Escpos,
+  p: ReceiptWriter,
   paperWidth: 58 | 80,
   textLogo?: boolean,
 ): void {
+  if (p instanceof HtmlReceipt) {
+    // PDF: el logo va como imagen; sin asset cae al texto.
+    const url = textLogo ? null : loadLogoDataUrl('logo-text-light-r.png');
+    if (url) {
+      p.logo(url);
+    } else {
+      p.align('center');
+      p.size(2, 2).line('TONICLIFE').size(1, 1);
+      p.line('');
+    }
+    return;
+  }
   if (textLogo) {
     p.align('center');
     p.size(2, 2).line('TONICLIFE').size(1, 1);
@@ -300,9 +432,25 @@ function formatMoney(n: number, sym: string): string {
 }
 
 export function buildCorteReceiptBytes(input: CorteReceiptInput): Buffer {
+  const p = new Escpos();
+  renderCorte(p, input);
+  return p.bytes();
+}
+
+/** Mismo corte como HTML (modo "Impresora normal / PDF"). */
+export function buildCorteReceiptHtml(input: CorteReceiptInput): string {
+  const p = new HtmlReceipt();
+  renderCorte(p, input);
+  return p.html({
+    cols: colsFor(input.paperWidth),
+    title: `Corte ${input.date}${input.dateTo && input.dateTo !== input.date ? ` al ${input.dateTo}` : ''}`,
+  });
+}
+
+function renderCorte(p: ReceiptWriter, input: CorteReceiptInput): void {
   const cols = colsFor(input.paperWidth);
   const sep = '-'.repeat(cols);
-  const p = new Escpos().init();
+  p.init();
   const fmt = (n: number) => formatMoney(n, input.currencySymbol);
 
   // Logo encabezado.
@@ -422,7 +570,6 @@ export function buildCorteReceiptBytes(input: CorteReceiptInput): Buffer {
 
   p.feed(6);
   p.cut(true);
-  return p.bytes();
 }
 
 // ============================================================================
@@ -545,9 +692,25 @@ function currencyDisplayName(code?: string): string | null {
 }
 
 export function buildSaleReceiptBytes(input: SaleReceiptInput): Buffer {
+  const p = new Escpos();
+  renderSale(p, input);
+  return p.bytes();
+}
+
+/** Mismo ticket de venta como HTML (modo "Impresora normal / PDF"). */
+export function buildSaleReceiptHtml(input: SaleReceiptInput): string {
+  const p = new HtmlReceipt();
+  renderSale(p, input);
+  return p.html({
+    cols: colsFor(input.paperWidth),
+    title: `Ticket ${input.saleNumber}`,
+  });
+}
+
+function renderSale(p: ReceiptWriter, input: SaleReceiptInput): void {
   const cols = colsFor(input.paperWidth);
   const sep = '-'.repeat(cols);
-  const p = new Escpos().init();
+  p.init();
   const fmt = (n: number) => formatMoney(n, input.currencySymbol);
   const fecha = new Date(input.createdAt).toLocaleString('es-MX', {
     day: '2-digit',
@@ -659,7 +822,6 @@ export function buildSaleReceiptBytes(input: SaleReceiptInput): Buffer {
 
   p.feed(6);
   p.cut(true);
-  return p.bytes();
 }
 
 /** 3-col row con anchos fijos: folio / hora / total (total right-aligned). */

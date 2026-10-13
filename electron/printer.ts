@@ -13,7 +13,7 @@
 // tickets viven en `./receipts.ts`; los comandos ESC/POS de bajo nivel
 // en `./escpos.ts`.
 
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, shell } from 'electron';
 import { Socket } from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -22,7 +22,9 @@ import {
   buildTestReceiptBytes,
   buildTestReceiptHtml,
   buildCorteReceiptBytes,
+  buildCorteReceiptHtml,
   buildSaleReceiptBytes,
+  buildSaleReceiptHtml,
   type CorteReceiptInput,
   type SaleReceiptInput,
 } from './receipts';
@@ -33,7 +35,9 @@ import { sendRawToWindowsPrinter } from './printraw';
 // ============================================================================
 
 export interface PrinterConfig {
-  connection: 'network' | 'system' | 'none';
+  /** 'pdf' = impresora normal / sin térmica: el ticket se genera en PDF y se
+   *  abre en el visor del sistema para imprimirlo o guardarlo. */
+  connection: 'network' | 'system' | 'pdf' | 'none';
   /** Solo para 'network'. */
   host?: string;
   port?: number;
@@ -68,6 +72,7 @@ export function loadPrinterConfig(): PrinterConfig | null {
     if (
       parsed.connection !== 'network' &&
       parsed.connection !== 'system' &&
+      parsed.connection !== 'pdf' &&
       parsed.connection !== 'none'
     ) {
       return null;
@@ -253,6 +258,77 @@ async function printSystem(
 }
 
 // ============================================================================
+// MODO PDF (impresora normal / sin termica)
+// ============================================================================
+
+/** Carpeta donde quedan los tickets: Documentos\Tonic Life\Tickets. */
+function pdfOutputDir(): string {
+  const dir = path.join(app.getPath('documents'), 'Tonic Life', 'Tickets');
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function safeFileName(name: string): string {
+  return name.replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 80) || 'ticket';
+}
+
+/**
+ * Renderiza `html` a PDF (hoja carta, el ticket centrado), lo guarda en
+ * Documentos\Tonic Life\Tickets\<fileName> y lo abre con el visor del
+ * sistema, desde donde la sucursal lo imprime en su impresora normal o lo
+ * guarda. Devuelve la ruta del archivo.
+ */
+async function renderPdf(html: string, fileName: string): Promise<string> {
+  const tmpDir = path.join(app.getPath('userData'), 'print-tmp');
+  if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+  const tmpFile = path.join(tmpDir, `pdf-${Date.now()}.html`);
+  fs.writeFileSync(tmpFile, html, 'utf-8');
+  const outFile = path.join(pdfOutputDir(), safeFileName(fileName));
+
+  const win = new BrowserWindow({
+    show: false,
+    width: 800,
+    height: 1000,
+    webPreferences: { offscreen: false, sandbox: false },
+  });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      win.webContents.once('did-finish-load', () => resolve());
+      win.webContents.once('did-fail-load', (_e, code, desc) =>
+        reject(new Error(`Carga de ticket fallo: ${code} ${desc}`)),
+      );
+      win.loadFile(tmpFile).catch(reject);
+    });
+    await new Promise((r) => setTimeout(r, 200));
+    const pdf = await win.webContents.printToPDF({
+      pageSize: 'Letter',
+      printBackground: true,
+      margins: { top: 0.4, bottom: 0.4, left: 0.4, right: 0.4 },
+    });
+    fs.writeFileSync(outFile, pdf);
+  } finally {
+    try {
+      win.close();
+    } catch {
+      // ignore
+    }
+    try {
+      fs.unlinkSync(tmpFile);
+    } catch {
+      // ignore
+    }
+  }
+  console.log(`[printer] pdf: ${outFile}`);
+  const openError = await shell.openPath(outFile);
+  if (openError) {
+    throw new Error(
+      `El PDF se guardo en ${outFile} pero no se pudo abrir: ${openError}`,
+    );
+  }
+  return outFile;
+}
+
+// ============================================================================
 // PUBLIC API (usado por los handlers IPC en main.ts)
 // ============================================================================
 
@@ -275,6 +351,18 @@ export async function testPrint(
     await sendNetwork(config.host, config.port, bytes);
     return;
   }
+  if (config.connection === 'pdf') {
+    await renderPdf(
+      buildTestReceiptHtml({
+        branchName,
+        printerLabel: 'PDF (impresora normal)',
+        paperWidth: config.paperWidth,
+      }),
+      'prueba-de-impresion.pdf',
+    );
+    return;
+  }
+
   // system
   if (!config.deviceName) {
     throw new Error('Selecciona una impresora del sistema.');
@@ -339,6 +427,19 @@ export async function printCorte(
     return;
   }
 
+  if (config.connection === 'pdf') {
+    const html = buildCorteReceiptHtml({
+      ...corte,
+      paperWidth: config.paperWidth,
+    });
+    const rango =
+      corte.dateTo && corte.dateTo !== corte.date
+        ? `${corte.date}_al_${corte.dateTo}`
+        : corte.date;
+    await renderPdf(html, `corte-${rango}.pdf`);
+    return;
+  }
+
   // system
   if (!config.deviceName) {
     throw new Error('Selecciona una impresora del sistema.');
@@ -392,6 +493,15 @@ export async function printSale(
       bytes = Buffer.concat([bytes, buildKickDrawer()]);
     }
     await sendNetwork(config.host, config.port, bytes);
+    return;
+  }
+
+  if (config.connection === 'pdf') {
+    const html = buildSaleReceiptHtml({
+      ...sale,
+      paperWidth: config.paperWidth,
+    });
+    await renderPdf(html, `ticket-${sale.saleNumber}.pdf`);
     return;
   }
 
