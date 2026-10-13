@@ -31,7 +31,6 @@ import {
   INVOICE_INELIGIBLE_LABELS,
   invoiceEligibility,
 } from '@/lib/invoiceEligibility';
-import { PosPaymentMethod } from '@/types/pos';
 import {
   EMPTY_FISCAL_FORM,
   FiscalDataFields,
@@ -127,13 +126,13 @@ export function InvoiceSaleModal({
     };
   }, [open, saleId, customerId, saleRfc, prefilledFor]);
 
-  // PPD solo si la venta se cobró (en parte) a crédito; si no, fijo PUE.
-  const hasCredit = !!sale?.payments?.some(
-    (p) => p.paymentMethod === PosPaymentMethod.CREDIT,
-  );
+  // Siempre PUE: en el POS "T. Credito" (método `credit`) es TARJETA de crédito,
+  // un cobro recibido en el momento (forma SAT 04), no una venta a crédito.
+  // El 13-oct-2026 se forzaba PPD por ese método y Naucalpan/327 no podían
+  // facturar; el API aplica la misma regla.
   useEffect(() => {
-    if (!hasCredit) setPaymentMethod('PUE');
-  }, [hasCredit]);
+    if (open) setPaymentMethod('PUE');
+  }, [open, saleId]);
 
   const eligibility = sale
     ? invoiceEligibility({
@@ -157,10 +156,7 @@ export function InvoiceSaleModal({
         ...normalizeFiscalForm(fiscal),
         customerId: sale.customerId,
       });
-      const stamped = await posApi.stampSale(
-        sale.id,
-        hasCredit ? paymentMethod : 'PUE',
-      );
+      const stamped = await posApi.stampSale(sale.id, 'PUE');
       // Avisa también si el correo salió o no (el API la manda al timbrar);
       // relee la venta porque la respuesta del timbrado no trae el envío.
       void notifyInvoiceStamped(sale.id, sale.saleNumber, stamped);
@@ -272,7 +268,7 @@ export function InvoiceSaleModal({
                   catalogs={catalogs}
                   paymentMethod={paymentMethod}
                   onPaymentMethodChange={setPaymentMethod}
-                  allowPpd={hasCredit}
+                  allowPpd={false}
                   disabled={stamping || !eligibility?.eligible}
                 />
               )}
