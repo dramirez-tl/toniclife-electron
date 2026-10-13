@@ -46,7 +46,11 @@ import {
   formatTime,
   localDateOf,
 } from '@/lib/date';
-import { canInvoiceSale, isCfdiCountry } from '@/lib/invoiceEligibility';
+import {
+  INVOICE_INELIGIBLE_LABELS,
+  invoiceEligibility,
+  isCfdiCountry,
+} from '@/lib/invoiceEligibility';
 import {
   aggregateTerminalRows,
   ALL_TERMINALS,
@@ -243,19 +247,31 @@ export function RecentSales({
   );
   const rows = useMemo(
     () =>
-      sales.map((sale) => ({
-        sale,
-        invoiceable: canInvoiceSale({
+      sales.map((sale) => {
+        const eligibility = invoiceEligibility({
           sale,
           branchCountryCode,
           branchTz,
           invoicingEnabled,
           today,
-        }),
-        when: singleDay
-          ? formatTime(sale.createdAt, branchTz)
-          : `${localDateOf(sale.createdAt, branchTz).slice(5)} ${formatTime(sale.createdAt, branchTz)}`,
-      })),
+        });
+        return {
+          sale,
+          invoiceable: eligibility.eligible,
+          // Motivo por el que NO se puede facturar desde aquí (tooltip del
+          // icono apagado); las ya facturadas / en global ya llevan badge.
+          ineligibleReason:
+            !eligibility.eligible &&
+            sale.status === PosSaleStatus.COMPLETED &&
+            eligibility.reason !== 'already_invoiced' &&
+            eligibility.reason !== 'in_global'
+              ? INVOICE_INELIGIBLE_LABELS[eligibility.reason]
+              : null,
+          when: singleDay
+            ? formatTime(sale.createdAt, branchTz)
+            : `${localDateOf(sale.createdAt, branchTz).slice(5)} ${formatTime(sale.createdAt, branchTz)}`,
+        };
+      }),
     [sales, branchCountryCode, branchTz, invoicingEnabled, today, singleDay],
   );
 
@@ -475,7 +491,7 @@ export function RecentSales({
           </div>
         ) : (
           <ul className="divide-y">
-            {rows.map(({ sale, invoiceable, when }) => {
+            {rows.map(({ sale, invoiceable, ineligibleReason, when }) => {
               return (
                 <li key={sale.id} className="flex items-stretch">
                   <Button
@@ -558,6 +574,17 @@ export function RecentSales({
                     >
                       <FileText className="size-4" />
                     </Button>
+                  )}
+                  {/* No se puede facturar desde el POS: icono apagado con el
+                      motivo, para que el cajero no busque el botón. */}
+                  {!invoiceable && ineligibleReason && (
+                    <span
+                      className="flex w-9 shrink-0 items-center justify-center text-muted-foreground/40"
+                      title={ineligibleReason}
+                      aria-label={`No se puede facturar: ${ineligibleReason}`}
+                    >
+                      <FileText className="size-4" />
+                    </span>
                   )}
                 </li>
               );

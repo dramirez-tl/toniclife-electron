@@ -48,6 +48,7 @@ import {
 } from '@/lib/terminalRows';
 import type { Sale } from '@/types/pos';
 import { GlobalDayCard } from './GlobalDayCard';
+import { GlobalDaysTable } from './GlobalDaysTable';
 import type { SalesRange } from './RecentSales';
 
 interface CorteModalProps {
@@ -463,6 +464,20 @@ export function CorteModal({
                 />
               )}
               </div>
+
+              {/* Varios días: la global de CADA día del rango, con "Emitir"
+                  en los que están listos (el corte es donde el cajero cierra
+                  sus días). */}
+              {isOpen && !singleDay && isCfdiCountry(branchCountryCode) && (
+                <GlobalDaysTable
+                  branchId={branchId}
+                  branchName={branchName}
+                  from={from}
+                  to={to}
+                  currencySymbol={currencySymbol}
+                  invoicingEnabled={invoicingEnabled}
+                />
+              )}
 
               {/* Tabla de ventas */}
               <div>
