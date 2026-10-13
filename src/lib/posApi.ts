@@ -38,6 +38,7 @@ import type {
   GlobalDayStatusRow,
   GlobalPreview,
   InvoiceDetail,
+  InvoiceEmailResult,
 } from '@/types/pos';
 
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3001/api/v1';
@@ -366,6 +367,64 @@ class PosApi {
     const { data } = await api.post(`/pos/sales/${saleId}/stamp`, {
       paymentMethod: invoicePaymentMethod,
     });
+    return data;
+  }
+
+  /** PDF de la factura nominativa de la venta (GET /pos/sales/:id/invoice-pdf,
+   *  mismo alcance por sucursal que el timbrado). Bytes crudos: el renderer no
+   *  puede abrir archivos, los pasa al main por IPC (invoice:openPdf). El
+   *  nombre sale del Content-Disposition del API; si no viene, uno estable
+   *  por folio de venta. */
+  async getInvoicePdf(
+    saleId: string,
+    saleNumber?: string,
+  ): Promise<{ bytes: ArrayBuffer; filename: string }> {
+    let res;
+    try {
+      res = await api.get<ArrayBuffer>(`/pos/sales/${saleId}/invoice-pdf`, {
+        responseType: 'arraybuffer',
+        // El PAC puede tardar si el archivo no está en el bucket (fallback).
+        timeout: SALE_WRITE_TIMEOUT_MS,
+      });
+    } catch (err) {
+      // Con responseType 'arraybuffer' axios también entrega el cuerpo de un
+      // 4xx/5xx como bytes; se decodifica el JSON del API para que el toast
+      // muestre su mensaje en español y no "Error del servidor (HTTP n)".
+      const e = err as { response?: { data?: unknown } };
+      const d = e?.response?.data;
+      if (e?.response && (d instanceof ArrayBuffer || ArrayBuffer.isView(d))) {
+        try {
+          e.response.data = JSON.parse(
+            new TextDecoder('utf-8').decode(d as ArrayBuffer | ArrayBufferView),
+          );
+        } catch {
+          e.response.data = undefined;
+        }
+      }
+      throw err;
+    }
+    const disposition = String(res.headers?.['content-disposition'] ?? '');
+    const m = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition);
+    const fromHeader = m?.[1] ? decodeURIComponent(m[1].trim()) : '';
+    return {
+      bytes: res.data,
+      filename:
+        fromHeader || `factura-${saleNumber ?? saleId}.pdf`,
+    };
+  }
+
+  /** Reenvía la factura de la venta por correo (POST /pos/sales/:id/invoice-email).
+   *  Sin `to`, el API usa el correo fiscal/de contacto guardado del cliente. */
+  async sendInvoiceEmail(
+    saleId: string,
+    to?: string[],
+  ): Promise<InvoiceEmailResult> {
+    const recipients = (to ?? []).map((s) => s.trim()).filter(Boolean);
+    const { data } = await api.post(
+      `/pos/sales/${saleId}/invoice-email`,
+      recipients.length ? { to: recipients } : {},
+      { timeout: SALE_WRITE_TIMEOUT_MS },
+    );
     return data;
   }
 

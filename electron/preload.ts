@@ -71,6 +71,12 @@ const api = {
     ): Promise<PrinterOpResult> =>
       ipcRenderer.invoke('printer:printSale', sale, openDrawer),
   },
+  invoice: {
+    /** Guarda el PDF de la factura en la carpeta temporal y lo abre con el
+     *  visor del SO (desde ahí el cajero lo imprime o lo guarda). */
+    openPdf: (filename: string, bytes: Uint8Array): Promise<PrinterOpResult> =>
+      ipcRenderer.invoke('invoice:openPdf', { filename, bytes }),
+  },
 };
 
 contextBridge.exposeInMainWorld('toniclife', api);

@@ -300,6 +300,14 @@ declare global {
           openDrawer: boolean,
         ) => Promise<PrinterOpResult>;
       };
+      invoice: {
+        /** Guarda el PDF de la factura en la carpeta temporal del usuario y lo
+         *  abre con el visor del SO (desde ahí se imprime o se guarda). */
+        openPdf: (
+          filename: string,
+          bytes: Uint8Array,
+        ) => Promise<PrinterOpResult>;
+      };
     };
   }
 }

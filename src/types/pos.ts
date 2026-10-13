@@ -194,6 +194,9 @@ export interface Sale {
   requiresInvoice: boolean;
   invoiceId?: string;
   invoiceUuid?: string;
+  /** Resumen de la factura nominativa viva (GET /pos/sales/:id y respuesta
+   *  de POST /pos/sales/:id/stamp): folio, estado y envío por correo. */
+  invoice?: InvoiceSummary;
   /** Factura GLOBAL viva que incluye esta venta (pos_sales.global_invoice_id).
    *  Con valor, la venta ya no admite CFDI nominativa. Ausente en APIs
    *  anteriores. */
@@ -823,6 +826,20 @@ export interface InvoiceSummary {
   createdAt: string;
   globalLocalDate: string | null;
   providerError: string | null;
+  /** Último envío por correo (invoices.emailed_at); null = nunca enviada. */
+  emailedAt: string | null;
+  /** Destinatarios del último envío tal como se guardaron (separados por
+   *  coma). null = nunca enviada. */
+  emailedTo: string | null;
+  /** Veces que se ha enviado (invoices.email_count). */
+  emailCount: number;
+}
+
+/** Respuesta de POST /pos/sales/:id/invoice-email (InvoiceEmailResultDto). */
+export interface InvoiceEmailResult {
+  sentTo: string[];
+  emailedAt: string;
+  emailCount: number;
 }
 
 /** Detalle de una factura (InvoiceDetailDto): lo que el POS consume. */

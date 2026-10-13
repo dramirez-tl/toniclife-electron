@@ -2,11 +2,13 @@
 // Se abre al hacer click en una venta de la barra lateral de ventas recientes.
 
 import { useEffect, useState } from 'react';
-import { X, Ban, Receipt, Printer, FileText } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { X, Ban, Receipt, Printer, FileText, Mail, Send } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import {
@@ -25,11 +27,17 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { usePosSale, useCancelSale } from '@/hooks/usePos';
+import { posKeys, usePosSale, useCancelSale } from '@/hooks/usePos';
 import { useStaffSession } from '@/stores/staff-session.store';
 import { posApi } from '@/lib/posApi';
+import { getApiErrorMessage } from '@/lib/apiError';
 import { formatDateTime } from '@/lib/date';
 import { canInvoiceSale } from '@/lib/invoiceEligibility';
+import {
+  INVOICE_STATUS_LABELS,
+  firstRecipient,
+  looksLikeEmail,
+} from '@/lib/invoiceEmail';
 import { PosSaleStatus } from '@/types/pos';
 
 interface SaleDetailModalProps {
@@ -77,19 +85,27 @@ export function SaleDetailModal({
   onInvoiceSale,
 }: SaleDetailModalProps) {
   const { data: sale, isLoading } = usePosSale(saleId ?? undefined, isOpen);
+  const qc = useQueryClient();
   const cancelSale = useCancelSale();
   const [showCancel, setShowCancel] = useState(false);
   const [reason, setReason] = useState('');
   const [reprinting, setReprinting] = useState(false);
+  // Factura: abrir el PDF y reenviarla por correo (formulario inline).
+  const [openingPdf, setOpeningPdf] = useState(false);
+  const [showResend, setShowResend] = useState(false);
+  const [resendEmail, setResendEmail] = useState('');
+  const [sendingEmail, setSendingEmail] = useState(false);
 
   useEffect(() => {
     if (!isOpen) {
       setShowCancel(false);
       setReason('');
+      setShowResend(false);
+      setResendEmail('');
     }
   }, [isOpen]);
 
-  const busy = cancelSale.isPending || reprinting;
+  const busy = cancelSale.isPending || reprinting || openingPdf || sendingEmail;
   const fmt = (n: number) => posApi.formatCurrency(n, currencySymbol);
   // Cancelar ventas (regla 19-ago-2026): SOLO Operaciones y administracion
   // central — el server lo exige con @Roles; aqui ademas se oculta la opcion
@@ -174,6 +190,73 @@ export function SaleDetailModal({
       );
     } finally {
       setReprinting(false);
+    }
+  }
+
+  async function handleOpenPdf() {
+    if (!sale) return;
+    setOpeningPdf(true);
+    try {
+      const { bytes, filename } = await posApi.getInvoicePdf(
+        sale.id,
+        sale.saleNumber,
+      );
+      const r = await window.toniclife.invoice.openPdf(
+        filename,
+        new Uint8Array(bytes),
+      );
+      if (!r.ok) {
+        toast.error('No se pudo abrir el PDF', { description: r.error });
+      }
+    } catch (err) {
+      toast.error(
+        getApiErrorMessage(err, 'No se pudo descargar el PDF de la factura'),
+      );
+    } finally {
+      setOpeningPdf(false);
+    }
+  }
+
+  /** Abre el formulario de reenvío con el último destinatario o, si nunca se
+   *  envió, con el correo fiscal guardado del cliente (404 = sin datos). */
+  async function handleShowResend() {
+    if (!sale) return;
+    setShowResend(true);
+    const last = firstRecipient(sale.invoice?.emailedTo);
+    if (last) {
+      setResendEmail(last);
+      return;
+    }
+    if (!sale.customerId) return;
+    try {
+      const rows = await posApi.getCustomerFiscalData(sale.customerId);
+      const fd = rows.find((r) => r.isDefault) ?? rows[0];
+      if (fd?.email) setResendEmail((cur) => cur || fd.email || '');
+    } catch {
+      // Sin red o error del API: el cajero captura el correo a mano.
+    }
+  }
+
+  async function handleSendEmail() {
+    if (!sale) return;
+    const email = resendEmail.trim();
+    if (!looksLikeEmail(email)) {
+      toast.error('Captura un correo válido');
+      return;
+    }
+    setSendingEmail(true);
+    try {
+      const r = await posApi.sendInvoiceEmail(sale.id, [email]);
+      toast.success(`Factura enviada a ${r.sentTo.join(', ')}`);
+      setShowResend(false);
+      // El detalle debe reflejar el nuevo envío (fecha y conteo).
+      void qc.invalidateQueries({ queryKey: posKeys.all });
+    } catch (err) {
+      toast.error(
+        getApiErrorMessage(err, 'No se pudo enviar la factura por correo'),
+      );
+    } finally {
+      setSendingEmail(false);
     }
   }
 
@@ -385,11 +468,127 @@ export function SaleDetailModal({
                 </div>
               )}
 
-              {/* Factura */}
-              {sale.invoiceUuid && (
-                <div className="text-xs text-muted-foreground">
-                  Factura CFDI:{' '}
-                  <span className="font-mono">{sale.invoiceUuid}</span>
+              {/* Factura nominativa: folio, UUID, estado del PAC y envío por
+                  correo (el API la manda al timbrar; aquí se puede reenviar). */}
+              {(sale.invoice || sale.invoiceUuid) && (
+                <div className="rounded-lg border p-3 space-y-2 text-xs">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="font-semibold text-muted-foreground uppercase tracking-wide">
+                      Factura CFDI
+                      {sale.invoice?.folioDisplay ? (
+                        <span className="ml-2 font-mono normal-case tracking-normal text-foreground">
+                          {sale.invoice.folioDisplay}
+                        </span>
+                      ) : null}
+                    </h3>
+                    {sale.invoice?.providerStatus && (
+                      <Badge
+                        variant="outline"
+                        className={
+                          sale.invoice.providerStatus === 'cancelled'
+                            ? 'border-destructive/40 text-destructive'
+                            : 'border-emerald-300 text-emerald-700'
+                        }
+                      >
+                        {INVOICE_STATUS_LABELS[sale.invoice.providerStatus] ??
+                          sale.invoice.providerStatus}
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="text-muted-foreground">
+                    UUID{' '}
+                    <span className="font-mono text-foreground">
+                      {sale.invoice?.satUuid ?? sale.invoiceUuid}
+                    </span>
+                  </div>
+                  {/* Estado del correo sólo cuando el API adjunta `invoice`
+                      (API anterior: sólo trae invoiceUuid y no se sabe si se
+                      envió; no afirmar "sin enviar" ni ofrecer reenvío). */}
+                  {sale.invoice ? (
+                    sale.invoice.emailedAt ? (
+                      <div className="flex items-start gap-1.5 text-muted-foreground">
+                        <Mail className="mt-0.5 size-3.5 shrink-0 text-emerald-600" />
+                        <span>
+                          Correo enviado a{' '}
+                          <span className="text-foreground">
+                            {sale.invoice.emailedTo ?? '—'}
+                          </span>{' '}
+                          · {formatDateTime(sale.invoice.emailedAt, branchTz)} ·{' '}
+                          {sale.invoice.emailCount ?? 1}{' '}
+                          {(sale.invoice.emailCount ?? 1) === 1
+                            ? 'envío'
+                            : 'envíos'}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1.5 text-amber-700">
+                        <Mail className="size-3.5 shrink-0" />
+                        Sin enviar por correo
+                      </div>
+                    )
+                  ) : null}
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleOpenPdf}
+                      disabled={busy}
+                      title="Abrir el PDF para verlo o imprimirlo"
+                    >
+                      <FileText />
+                      {openingPdf ? 'Abriendo…' : 'Ver PDF'}
+                    </Button>
+                    {sale.invoice && !showResend && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleShowResend}
+                        disabled={busy}
+                      >
+                        <Mail />
+                        Reenviar por correo
+                      </Button>
+                    )}
+                  </div>
+                  {showResend && (
+                    <div className="space-y-1.5 rounded-md bg-muted/40 p-2">
+                      <Label className="text-xs">Enviar la factura a</Label>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="email"
+                          value={resendEmail}
+                          onChange={(e) => setResendEmail(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') void handleSendEmail();
+                          }}
+                          placeholder="correo@ejemplo.com"
+                          className="h-8 text-xs"
+                          disabled={sendingEmail}
+                          autoFocus
+                        />
+                        <Button
+                          size="sm"
+                          onClick={handleSendEmail}
+                          disabled={sendingEmail || !resendEmail.trim()}
+                        >
+                          <Send />
+                          {sendingEmail ? 'Enviando…' : 'Enviar'}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setShowResend(false)}
+                          disabled={sendingEmail}
+                        >
+                          Cancelar
+                        </Button>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        Se envían el PDF y el XML. Puedes cambiar el correo si el
+                        cliente no lo recibió.
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
               {sale.globalInvoiceId && (

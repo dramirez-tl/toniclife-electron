@@ -12,6 +12,7 @@ import {
   ipcMain,
   Menu,
   session as electronSession,
+  shell,
 } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -215,6 +216,51 @@ ipcMain.handle('window:close', () => {
 // Diagnostico: ruta donde Electron guarda la sesion (session.json) y la
 // configuracion de la impresora (printer.json).
 ipcMain.handle('app:getUserDataPath', () => app.getPath('userData'));
+
+// ----- Factura CFDI (PDF) -----
+
+// El renderer descarga el PDF por el API (Bearer de la terminal) y lo manda
+// aquí porque sólo el main puede escribir a disco y abrir el visor del SO
+// (Adobe/Edge, desde donde el cajero imprime). Va a la carpeta temporal del
+// usuario: no queda en el userData y el SO la limpia. Nunca lanza: devuelve
+// { ok:false } para que el toast muestre el motivo.
+ipcMain.handle(
+  'invoice:openPdf',
+  async (_evt, payload: { filename: string; bytes: Uint8Array }) => {
+    try {
+      // Sólo caracteres seguros: evita rutas relativas o nombres inválidos
+      // en Windows si el Content-Disposition trajera algo raro.
+      const safe = String(payload?.filename ?? '')
+        .replace(/[^A-Za-z0-9._-]/g, '_')
+        .replace(/^\.+/, '');
+      const filename = safe && safe !== '_' ? safe : 'factura.pdf';
+      const bytes = payload?.bytes;
+      if (!bytes || !bytes.byteLength) {
+        return { ok: false, error: 'El PDF llegó vacío' };
+      }
+      const dir = path.join(app.getPath('temp'), 'toniclife-facturas');
+      fs.mkdirSync(dir, { recursive: true });
+      const file = path.join(dir, filename);
+      try {
+        fs.writeFileSync(file, Buffer.from(bytes));
+      } catch (writeErr) {
+        // Adobe/Edge dejan bloqueado el PDF mientras está abierto en Windows
+        // (EBUSY/EPERM al reescribirlo). El nombre es por factura, así que el
+        // archivo que ya está en disco es el mismo: se abre de nuevo sin
+        // reescribirlo en vez de fallar con un error crudo del SO.
+        const code = (writeErr as NodeJS.ErrnoException | undefined)?.code;
+        const locked = code === 'EBUSY' || code === 'EPERM';
+        if (!locked || !fs.existsSync(file)) throw writeErr;
+      }
+      // shell.openPath resuelve '' si abrió; si no, el texto del error del SO.
+      const err = await shell.openPath(file);
+      if (err) return { ok: false, error: err };
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+);
 
 // ----- Impresora termica -----
 

@@ -7,7 +7,6 @@
 
 import { useEffect, useState } from 'react';
 import { X, AlertTriangle, FileText } from 'lucide-react';
-import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
@@ -20,6 +19,7 @@ import {
 } from '@/components/ui/dialog';
 import { useFiscalCatalogs } from '@/hooks/usePos';
 import { posApi } from '@/lib/posApi';
+import { notifyInvoiceStamped } from '@/lib/invoiceEmail';
 import type { CreateFiscalDataInput } from '@/types/pos';
 import {
   FiscalDataFields,
@@ -74,8 +74,10 @@ export function StampRetryModal({
         ...normalizeFiscalForm(fiscal),
         customerId: fiscal.customerId,
       });
-      await posApi.stampSale(state.saleId, paymentMethod);
-      toast.success(`Factura de la venta ${state.saleNumber} timbrada`);
+      const stamped = await posApi.stampSale(state.saleId, paymentMethod);
+      // Avisa también si el correo salió o no (el API la manda al timbrar);
+      // relee la venta porque la respuesta del timbrado no trae el envío.
+      void notifyInvoiceStamped(state.saleId, state.saleNumber, stamped);
       onStamped();
       onClose();
     } catch (err) {

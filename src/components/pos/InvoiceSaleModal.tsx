@@ -12,7 +12,6 @@
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { X, AlertTriangle, FileText } from 'lucide-react';
-import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
@@ -27,6 +26,7 @@ import { posKeys, useFiscalCatalogs, usePosSale } from '@/hooks/usePos';
 import { posApi } from '@/lib/posApi';
 import { getApiErrorMessage } from '@/lib/apiError';
 import { formatDateTime } from '@/lib/date';
+import { notifyInvoiceStamped } from '@/lib/invoiceEmail';
 import {
   INVOICE_INELIGIBLE_LABELS,
   invoiceEligibility,
@@ -157,8 +157,13 @@ export function InvoiceSaleModal({
         ...normalizeFiscalForm(fiscal),
         customerId: sale.customerId,
       });
-      await posApi.stampSale(sale.id, hasCredit ? paymentMethod : 'PUE');
-      toast.success(`Factura de la venta ${sale.saleNumber} timbrada`);
+      const stamped = await posApi.stampSale(
+        sale.id,
+        hasCredit ? paymentMethod : 'PUE',
+      );
+      // Avisa también si el correo salió o no (el API la manda al timbrar);
+      // relee la venta porque la respuesta del timbrado no trae el envío.
+      void notifyInvoiceStamped(sale.id, sale.saleNumber, stamped);
       // La lista y el detalle deben reflejar el CFDI de inmediato.
       void qc.invalidateQueries({ queryKey: posKeys.all });
       onStamped?.();

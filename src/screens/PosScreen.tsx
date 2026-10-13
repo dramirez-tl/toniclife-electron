@@ -61,6 +61,7 @@ import {
   toastDurationFor,
 } from '@/lib/apiError';
 import { isTransientApiError } from '@/lib/api';
+import { notifyInvoiceStamped } from '@/lib/invoiceEmail';
 import {
   getRegistersWithRetry,
   noCashRegisterMessage,
@@ -723,8 +724,13 @@ export function PosScreen({
       if (invoice) {
         try {
           await posApi.saveFiscalData(invoice.fiscalData);
-          await posApi.stampSale(saleId, invoice.invoicePaymentMethod);
-          toast.success('Factura timbrada correctamente');
+          const stamped = await posApi.stampSale(
+            saleId,
+            invoice.invoicePaymentMethod,
+          );
+          // Avisa también si el correo salió o no (el API la manda al timbrar);
+          // relee la venta porque la respuesta del timbrado no trae el envío.
+          void notifyInvoiceStamped(saleId, result.saleNumber, stamped);
         } catch (stampErr) {
           const se = stampErr as {
             response?: { data?: { message?: string } };
