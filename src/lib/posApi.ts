@@ -35,6 +35,9 @@ import type {
   BranchInventoryMovementList,
   AttendanceLookupResponse,
   AttendanceEventResponse,
+  GlobalDayStatusRow,
+  GlobalPreview,
+  InvoiceDetail,
 } from '@/types/pos';
 
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3001/api/v1';
@@ -306,11 +309,16 @@ class PosApi {
     return data;
   }
 
+  /** Ventas de la sucursal en un rango de días LOCALES (fromDate..toDate,
+   *  YYYY-MM-DD). posLicenseId filtra por terminal ("caja") y capturedVia por
+   *  canal; limit ≤ 5000 (lo acepta el API). */
   async getSales(params: {
     branchId?: string;
     sessionId?: string;
     fromDate?: string;
     toDate?: string;
+    posLicenseId?: string;
+    capturedVia?: 'terminal' | 'usuario';
     limit?: number;
   }): Promise<{ data: Sale[]; total: number }> {
     const { data } = await api.get('/pos/sales', { params });
@@ -554,9 +562,68 @@ class PosApi {
     return data;
   }
 
+  /** Datos fiscales de un cliente para pre-llenar un formulario: [] si no
+   *  tiene (un 404 también se trata como "sin datos", no como error). */
+  async getCustomerFiscalData(customerId: string): Promise<FiscalData[]> {
+    try {
+      const rows = await this.getFiscalDataByCustomer(customerId);
+      return Array.isArray(rows) ? rows : [];
+    } catch (err) {
+      const e = err as { response?: { status?: number } };
+      if (e.response?.status === 404) return [];
+      throw err;
+    }
+  }
+
   /** Crea o actualiza los datos fiscales de un cliente. */
   async saveFiscalData(input: CreateFiscalDataInput): Promise<FiscalData> {
     const { data } = await api.post('/billing/fiscal-data', input);
+    return data;
+  }
+
+  // --------------------------------------------------------------------------
+  // FACTURA GLOBAL (público en general) desde el POS
+  // --------------------------------------------------------------------------
+  // La sucursal la decide el API con el device token (terminal); branchId
+  // viaja para el MODO STAFF (JWT de usuario), donde es obligatorio y el API
+  // valida el alcance de sucursal. Nunca se manda acknowledgeGlobal ni
+  // conceptMode: el POS usa los defaults de Contabilidad.
+
+  /** Estado de la factura global por día local (from..to, YYYY-MM-DD). */
+  async getGlobalDays(
+    from: string,
+    to: string,
+    branchId?: string,
+  ): Promise<GlobalDayStatusRow[]> {
+    const { data } = await api.get('/pos/billing/global/days', {
+      params: { from, to, ...(branchId ? { branchId } : {}) },
+    });
+    return data ?? [];
+  }
+
+  /** Vista previa (solo lectura) de la global de un día local. */
+  async getGlobalPreview(
+    date: string,
+    branchId?: string,
+  ): Promise<GlobalPreview> {
+    const { data } = await api.get('/pos/billing/global/preview', {
+      params: { date, ...(branchId ? { branchId } : {}) },
+    });
+    return data;
+  }
+
+  /** Timbra la global del día que el cajero confirmó en la vista previa
+   *  (previewHash). Espera hasta 60 s: el PAC puede tardar. */
+  async createGlobalInvoice(
+    date: string,
+    previewHash: string,
+    branchId?: string,
+  ): Promise<InvoiceDetail> {
+    const { data } = await api.post(
+      '/pos/billing/global',
+      { date, previewHash, ...(branchId ? { branchId } : {}) },
+      { timeout: SALE_WRITE_TIMEOUT_MS },
+    );
     return data;
   }
 

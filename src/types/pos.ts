@@ -194,6 +194,10 @@ export interface Sale {
   requiresInvoice: boolean;
   invoiceId?: string;
   invoiceUuid?: string;
+  /** Factura GLOBAL viva que incluye esta venta (pos_sales.global_invoice_id).
+   *  Con valor, la venta ya no admite CFDI nominativa. Ausente en APIs
+   *  anteriores. */
+  globalInvoiceId?: string | null;
   notes?: string;
   cancelledAt?: string;
   cancelledByName?: string;
@@ -624,6 +628,209 @@ export interface InvoiceRequest {
   fiscalData: CreateFiscalDataInput;
   /** PUE = pago en una sola exhibicion, PPD = parcialidades/diferido. */
   invoicePaymentMethod: 'PUE' | 'PPD';
+}
+
+/** Cuerpo de error del módulo de facturación (BillingErrorFilter). */
+export interface BillingErrorBody {
+  statusCode: number;
+  code: string;
+  message: string;
+  field?: string;
+  details?: unknown;
+  invoiceId?: string;
+}
+
+// ============================================================================
+// FACTURA GLOBAL (público en general) — espejo de billing-global.dto.ts
+// ============================================================================
+
+export const GLOBAL_DAY_STATUSES = [
+  'not_eligible',
+  'no_sales',
+  'ready',
+  'blocked',
+  'open',
+  'emitted',
+  'cancelled',
+  'pending_reissue',
+] as const;
+export type GlobalDayStatus = (typeof GLOBAL_DAY_STATUSES)[number];
+
+/** Etiqueta en español de cada estado del día (GlobalDayStatus). */
+export const GLOBAL_DAY_STATUS_LABELS: Record<GlobalDayStatus, string> = {
+  not_eligible: 'No aplica',
+  no_sales: 'Sin ventas que declarar',
+  ready: 'Lista para emitir',
+  blocked: 'Bloqueada',
+  open: 'Día en curso',
+  emitted: 'Factura global emitida',
+  cancelled: 'Global cancelada',
+  pending_reissue: 'Pendiente de reexpedir',
+};
+
+/** Motivos de bloqueo del día (GlobalDayStatusDto.blockReason). */
+export const GLOBAL_BLOCK_REASON_LABELS: Record<string, string> = {
+  tickets:
+    'Hay tickets del día con bloqueos (p. ej. forma de pago sin clave SAT); revísalos en la vista previa.',
+  terminals_off:
+    'Alguna terminal de la sucursal tiene la facturación apagada; todas deben estar encendidas.',
+  attempt_in_progress:
+    'Hay un intento de timbrado en curso; espera a que termine.',
+  stale_error:
+    'El último intento quedó en error; Contabilidad debe revisarlo desde el admin.',
+  uncovered_tickets:
+    'La global emitida no incluye todas las ventas del día; Contabilidad debe reexpedirla desde el admin.',
+};
+
+/** Motivos por los que un ticket queda FUERA de la global (excluded.reason). */
+export const GLOBAL_EXCLUDED_REASON_LABELS: Record<string, string> = {
+  nominative_invoiced: 'Ya tiene factura nominativa',
+  zero_total: 'Ticket en $0',
+  credit_sale: 'Venta a crédito (PPD)',
+  already_in_global: 'Ya está en otra global',
+};
+
+export type GlobalConceptMode = 'ticket' | 'product';
+
+export interface GlobalDayStatusRow {
+  localDate: string;
+  status: GlobalDayStatus;
+  invoiceId: string | null;
+  providerStatus: string | null;
+  providerFolio: string | null;
+  ticketCount: number;
+  total: number;
+  blockers: number;
+  blockReason: string | null;
+  lateEmission: boolean;
+  uncoveredCount: number;
+  uncoveredTotal: number;
+}
+
+export interface GlobalTax {
+  rate: number;
+  factor: string;
+  base: number;
+  tax: number;
+}
+
+export interface GlobalPreviewIncluded {
+  kind: 'pos_sale' | 'order';
+  id: string;
+  folio: string;
+  /** HH:mm en la zona de la sucursal. */
+  time: string;
+  customerName: string | null;
+  paymentFormCode: string;
+  subtotal: number;
+  taxAmount: number;
+  total: number;
+  taxBreakdown: GlobalTax[];
+}
+
+export interface GlobalPreviewExcluded {
+  kind: 'pos_sale' | 'order';
+  id: string;
+  folio: string;
+  total: number;
+  reason: string;
+  detail: string;
+}
+
+export interface GlobalPreviewBlocker {
+  code: string;
+  message: string;
+  folio?: string | null;
+  sku?: string | null;
+  method?: string | null;
+}
+
+export interface GlobalEligibilityError {
+  code: string;
+  message: string;
+}
+
+export interface GlobalPreviewTotals {
+  documents: number;
+  subtotal: number;
+  taxes: number;
+  total: number;
+  byRate: GlobalTax[];
+  paymentForm: string | null;
+}
+
+export interface GlobalExisting {
+  invoiceId: string;
+  providerStatus: string | null;
+  folioDisplay: string;
+  satUuid: string | null;
+}
+
+export interface GlobalPreview {
+  branch: {
+    id: string;
+    code: string | null;
+    name: string | null;
+    timezone: string;
+    expeditionZip: string | null;
+    v2InvoicingSince: string | null;
+    terminalsOff: string[];
+  };
+  localDate: string;
+  conceptMode: GlobalConceptMode;
+  eligible: boolean;
+  eligibilityErrors: GlobalEligibilityError[];
+  lateEmission: boolean;
+  included: GlobalPreviewIncluded[];
+  excluded: GlobalPreviewExcluded[];
+  blockers: GlobalPreviewBlocker[];
+  totals: GlobalPreviewTotals;
+  /** Conceptos como se enviarán al PAC (vacío si hay bloqueadores). */
+  items: unknown[];
+  existingGlobal: GlobalExisting | null;
+  canStamp: boolean;
+  previewHash: string;
+}
+
+/** Resumen de una factura (InvoiceSummaryDto): campos que usa el POS. */
+export interface InvoiceSummary {
+  id: string;
+  invoiceNumber: string | null;
+  providerSerie: string | null;
+  providerFolio: string | null;
+  /** "serie-folio" | folio | invoiceNumber. */
+  folioDisplay: string;
+  satUuid: string | null;
+  invoiceType: string;
+  cfdiType: string | null;
+  providerStatus: string | null;
+  satStatus: string | null;
+  receiverRfc: string | null;
+  receiverName: string;
+  total: number;
+  currencyCode: string;
+  branchId: string | null;
+  branchName: string | null;
+  stampedAt: string | null;
+  createdAt: string;
+  globalLocalDate: string | null;
+  providerError: string | null;
+}
+
+/** Detalle de una factura (InvoiceDetailDto): lo que el POS consume. */
+export interface InvoiceDetail extends InvoiceSummary {
+  totals: {
+    subtotal: number;
+    discount: number;
+    taxes: number;
+    total: number;
+  };
+  satStampDate: string | null;
+  providerErrorMapped: {
+    message: string;
+    providerCode: string | null;
+    field: string | null;
+  } | null;
 }
 
 // ============================================================================

@@ -2,7 +2,7 @@
 // Se abre al hacer click en una venta de la barra lateral de ventas recientes.
 
 import { useEffect, useState } from 'react';
-import { X, Ban, Receipt, Printer } from 'lucide-react';
+import { X, Ban, Receipt, Printer, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -29,6 +29,7 @@ import { usePosSale, useCancelSale } from '@/hooks/usePos';
 import { useStaffSession } from '@/stores/staff-session.store';
 import { posApi } from '@/lib/posApi';
 import { formatDateTime } from '@/lib/date';
+import { canInvoiceSale } from '@/lib/invoiceEligibility';
 import { PosSaleStatus } from '@/types/pos';
 
 interface SaleDetailModalProps {
@@ -41,6 +42,12 @@ interface SaleDetailModalProps {
   /** Datos de la sucursal para la REIMPRESION del ticket. */
   branchName: string;
   ticketName?: string;
+  /** ISO-2 del país de la sucursal (CFDI solo en MX / FN). */
+  branchCountryCode?: string;
+  /** Interruptor "Facturación" de la terminal. undefined = apagado. */
+  invoicingEnabled?: boolean;
+  /** Abre "Facturar" para esta venta (cobrada, sin factura, del mes). */
+  onInvoiceSale?: (saleId: string) => void;
 }
 
 const PAYMENT_LABELS: Record<string, string> = {
@@ -65,6 +72,9 @@ export function SaleDetailModal({
   branchTz,
   branchName,
   ticketName,
+  branchCountryCode,
+  invoicingEnabled = false,
+  onInvoiceSale,
 }: SaleDetailModalProps) {
   const { data: sale, isLoading } = usePosSale(saleId ?? undefined, isOpen);
   const cancelSale = useCancelSale();
@@ -96,6 +106,12 @@ export function SaleDetailModal({
   // Reimprimir: solo ventas COMPLETADAS (pendientes no tienen cobro y
   // canceladas no deben regenerar ticket).
   const canReprint = sale && sale.status === PosSaleStatus.COMPLETED;
+  // Facturar después del cobro: mismas reglas que el API (ver
+  // lib/invoiceEligibility). Sin handler no se ofrece.
+  const canInvoice =
+    !!sale &&
+    !!onInvoiceSale &&
+    canInvoiceSale({ sale, branchCountryCode, branchTz, invoicingEnabled });
 
   async function handleReprint() {
     if (!sale) return;
@@ -376,6 +392,15 @@ export function SaleDetailModal({
                   <span className="font-mono">{sale.invoiceUuid}</span>
                 </div>
               )}
+              {sale.globalInvoiceId && (
+                <div className="text-xs text-muted-foreground">
+                  Incluida en la{' '}
+                  <span className="font-medium text-foreground">
+                    factura global
+                  </span>{' '}
+                  del día; ya no admite factura nominativa.
+                </div>
+              )}
 
               {/* Cancelacion */}
               {sale.status === PosSaleStatus.CANCELLED && (
@@ -454,6 +479,17 @@ export function SaleDetailModal({
             <span />
           )}
           <div className="flex items-center gap-2">
+            {canInvoice && sale && (
+              <Button
+                variant="outline"
+                onClick={() => onInvoiceSale?.(sale.id)}
+                disabled={busy}
+                title="Facturar esta venta"
+              >
+                <FileText />
+                Facturar
+              </Button>
+            )}
             {canReprint && (
               <Button
                 variant="outline"

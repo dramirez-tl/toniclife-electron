@@ -38,8 +38,9 @@ import { ResizeHandle } from '@/components/pos/ResizeHandle';
 import { TransfersModal } from '@/components/pos/TransfersModal';
 import { CurrentPromotionsModal } from '@/components/pos/CurrentPromotionsModal';
 import { PaymentModal } from '@/components/pos/PaymentModal';
-import { RecentSales } from '@/components/pos/RecentSales';
+import { RecentSales, type SalesRange } from '@/components/pos/RecentSales';
 import { CorteModal } from '@/components/pos/CorteModal';
+import { InvoiceSaleModal } from '@/components/pos/InvoiceSaleModal';
 import { CashMovementModal } from '@/components/pos/CashMovementModal';
 import { KitProspectModal } from '@/components/pos/KitProspectModal';
 import { RegisterDistributorModal } from '@/components/pos/RegisterDistributorModal';
@@ -223,10 +224,17 @@ export function PosScreen({
   const [kitChoice, setKitChoice] = useState<QuickProduct | null>(null);
   const [registerOpen, setRegisterOpen] = useState(false);
   const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null);
+  // Venta cobrada que el cajero quiere facturar "a la mera hora".
+  const [invoiceSaleId, setInvoiceSaleId] = useState<string | null>(null);
   const [stampRetry, setStampRetry] = useState<StampRetryState | null>(null);
   // "Hoy" y todas las horas se calculan en la zona horaria de la SUCURSAL
   // (no la del equipo): una venta a las 00:26 en Tulsa es del día correcto.
-  const [salesDate, setSalesDate] = useState(todayLocal(session.branch.timezone));
+  // Rango De/Hasta del panel de ventas; el corte trabaja sobre UN día
+  // (range.to).
+  const [salesRange, setSalesRange] = useState<SalesRange>(() => {
+    const today = todayLocal(session.branch.timezone);
+    return { from: today, to: today };
+  });
 
   // Panel "Ventas recientes" plegable. Se recuerda la preferencia.
   const [salesCollapsed, setSalesCollapsed] = useState<boolean>(() => {
@@ -304,6 +312,9 @@ export function PosScreen({
   const branchTz = branch.timezone;
   const currencyCode = branch.currencyCode ?? 'MXN';
   const currencySymbol = currencySymbolFor(branch.currencyCode);
+  // Facturación efectiva: en MODO STAFF las peticiones viajan con el JWT del
+  // usuario (el candado de la terminal no aplica), igual que en el cobro.
+  const effectiveInvoicingEnabled = staffActive ? true : invoicingEnabled;
 
   // Cambio de sucursal efectiva (entrar/salir/cambiar en modo staff): el
   // carrito se vacía (precios/stock/moneda de otra sucursal) y el día de
@@ -315,7 +326,8 @@ export function PosScreen({
     prevBranchIdRef.current = branchId;
     clearCart();
     saleAttemptRef.current = null;
-    setSalesDate(todayLocal(branch.timezone));
+    const today = todayLocal(branch.timezone);
+    setSalesRange({ from: today, to: today });
     // Cerrar TODO modal operativo abierto: un modal que sobrevive al cambio
     // (p.ej. el timeout de inactividad disparó con el alta a medias) operaría
     // la sucursal EQUIVOCADA — e incluso por encima del gate de rollout.
@@ -324,6 +336,7 @@ export function PosScreen({
     setPendingKit(null);
     setPaymentOpen(false);
     setSelectedSaleId(null);
+    setInvoiceSaleId(null);
     setCorteOpen(false);
     setMovementsOpen(false);
     setTransfersOpen(false);
@@ -1033,13 +1046,17 @@ export function PosScreen({
           <aside className="w-72 shrink-0" data-tour="pos-sales-panel">
             <RecentSales
               branchId={branchId}
+              branchName={branch.name}
               branchTz={branchTz}
+              branchCountryCode={branch.country?.code}
               currencySymbol={currencySymbol}
-              date={salesDate}
-              onDateChange={setSalesDate}
+              range={salesRange}
+              onRangeChange={setSalesRange}
               onOpenCorte={() => setCorteOpen(true)}
               onOpenMovements={() => setMovementsOpen(true)}
               onSelectSale={(id) => setSelectedSaleId(id)}
+              onInvoiceSale={(id) => setInvoiceSaleId(id)}
+              invoicingEnabled={effectiveInvoicingEnabled}
               onCollapse={() => toggleSalesPanel(true)}
               currentLicenseId={session.license.id}
             />
@@ -1104,20 +1121,22 @@ export function PosScreen({
         branchCountry={branch.country?.code}
         customerId={cart.customerId}
         customerRfc={cart.customerRfc}
-        invoicingEnabled={staffActive ? true : invoicingEnabled}
+        invoicingEnabled={effectiveInvoicingEnabled}
         isProcessing={isProcessing}
         onConfirm={handlePaymentConfirm}
       />
 
-      {/* Modal de corte del dia */}
+      {/* Modal de corte del dia (un solo día: el "Hasta" del panel) */}
       <CorteModal
         isOpen={corteOpen}
         onClose={() => setCorteOpen(false)}
         branchId={branchId}
         branchName={branch.name}
-        date={salesDate}
+        date={salesRange.to}
         currencySymbol={currencySymbol}
         onSelectSale={(id) => setSelectedSaleId(id)}
+        invoicingEnabled={effectiveInvoicingEnabled}
+        branchCountryCode={branch.country?.code}
       />
 
       {/* Modal de movimientos de caja */}
@@ -1227,6 +1246,19 @@ export function PosScreen({
         branchTz={branchTz}
         branchName={branch.name}
         ticketName={branch.ticketName}
+        branchCountryCode={branch.country?.code}
+        invoicingEnabled={effectiveInvoicingEnabled}
+        onInvoiceSale={(id) => setInvoiceSaleId(id)}
+      />
+
+      {/* Facturar una venta ya cobrada (desde la lista o el detalle) */}
+      <InvoiceSaleModal
+        saleId={invoiceSaleId}
+        onClose={() => setInvoiceSaleId(null)}
+        currencySymbol={currencySymbol}
+        branchTz={branchTz}
+        branchCountryCode={branch.country?.code}
+        invoicingEnabled={effectiveInvoicingEnabled}
       />
 
       {/* Modal de reintento de timbrado CFDI */}

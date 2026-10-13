@@ -3,14 +3,12 @@
 //
 // La venta YA esta cobrada; este modal solo gestiona la factura. Si el cajero
 // cierra sin lograrlo, la venta queda con requiresInvoice=true y puede
-// completarse despues desde el admin web.
+// completarse despues desde "Facturar" en ventas recientes o desde el admin.
 
 import { useEffect, useState } from 'react';
 import { X, AlertTriangle, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   Dialog,
@@ -20,17 +18,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { cn } from '@/lib/utils';
 import { useFiscalCatalogs } from '@/hooks/usePos';
 import { posApi } from '@/lib/posApi';
 import type { CreateFiscalDataInput } from '@/types/pos';
+import {
+  FiscalDataFields,
+  isFiscalFormComplete,
+  normalizeFiscalForm,
+} from './FiscalDataFields';
 
 export interface StampRetryState {
   saleId: string;
@@ -68,15 +63,7 @@ export function StampRetryModal({
 
   if (!state || !fiscal) return null;
 
-  function setF(k: keyof CreateFiscalDataInput, v: string) {
-    setFiscal((f) => (f ? { ...f, [k]: v } : f));
-  }
-
-  const complete =
-    fiscal.rfc.trim() &&
-    fiscal.legalName.trim() &&
-    fiscal.fiscalRegime &&
-    fiscal.postalCode.trim();
+  const complete = isFiscalFormComplete(fiscal);
 
   async function handleRetry() {
     if (!fiscal || !complete || !state) return;
@@ -84,10 +71,8 @@ export function StampRetryModal({
     setError('');
     try {
       await posApi.saveFiscalData({
-        ...fiscal,
-        rfc: fiscal.rfc.trim().toUpperCase(),
-        legalName: fiscal.legalName.trim().toUpperCase(),
-        postalCode: fiscal.postalCode.trim(),
+        ...normalizeFiscalForm(fiscal),
+        customerId: fiscal.customerId,
       });
       await posApi.stampSale(state.saleId, paymentMethod);
       toast.success(`Factura de la venta ${state.saleNumber} timbrada`);
@@ -155,97 +140,16 @@ export function StampRetryModal({
             </Alert>
           )}
 
-          <div className="grid grid-cols-2 gap-3">
-            <FField label="RFC *">
-              <Input
-                value={fiscal.rfc}
-                onChange={(e) => setF('rfc', e.target.value.toUpperCase())}
-                maxLength={13}
-                className="font-mono"
-              />
-            </FField>
-            <FField label="Codigo postal *">
-              <Input
-                value={fiscal.postalCode}
-                onChange={(e) =>
-                  setF(
-                    'postalCode',
-                    e.target.value.replace(/\D/g, '').slice(0, 5),
-                  )
-                }
-                maxLength={5}
-              />
-            </FField>
-            <FField label="Razon social *" full>
-              <Input
-                value={fiscal.legalName}
-                onChange={(e) =>
-                  setF('legalName', e.target.value.toUpperCase())
-                }
-              />
-            </FField>
-            <FField label="Regimen fiscal *" full>
-              <Select
-                value={fiscal.fiscalRegime}
-                onValueChange={(v) => setF('fiscalRegime', v)}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Selecciona..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {(catalogs?.regimes ?? []).map((r) => (
-                    <SelectItem key={r.Value} value={r.Value}>
-                      {r.Value} — {r.Name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </FField>
-            <FField label="Uso CFDI" full>
-              <Select
-                value={fiscal.cfdiUse ?? 'G03'}
-                onValueChange={(v) => setF('cfdiUse', v)}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Selecciona..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {(catalogs?.cfdiUses ?? []).map((u) => (
-                    <SelectItem key={u.Value} value={u.Value}>
-                      {u.Value} — {u.Name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </FField>
-            <FField label="Correo (opcional)" full>
-              <Input
-                type="email"
-                value={fiscal.email ?? ''}
-                onChange={(e) => setF('email', e.target.value)}
-              />
-            </FField>
-            <FField label="Metodo de pago CFDI" full>
-              <div className="flex gap-2">
-                {(['PUE', 'PPD'] as const).map((pm) => (
-                  <Button
-                    key={pm}
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setPaymentMethod(pm)}
-                    className={cn(
-                      'flex-1',
-                      paymentMethod === pm &&
-                        'border-primary bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary',
-                    )}
-                  >
-                    {pm}
-                  </Button>
-                ))}
-              </div>
-            </FField>
-          </div>
+          <FiscalDataFields
+            value={fiscal}
+            onChange={(patch) =>
+              setFiscal((f) => (f ? { ...f, ...patch } : f))
+            }
+            catalogs={catalogs}
+            paymentMethod={paymentMethod}
+            onPaymentMethodChange={setPaymentMethod}
+            disabled={retrying}
+          />
         </div>
 
         {/* Footer */}
@@ -259,24 +163,5 @@ export function StampRetryModal({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function FField({
-  label,
-  full,
-  children,
-}: {
-  label: string;
-  full?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className={full ? 'col-span-2' : ''}>
-      <Label className="mb-1 block text-xs font-medium text-muted-foreground">
-        {label}
-      </Label>
-      {children}
-    </div>
   );
 }

@@ -26,7 +26,14 @@ import {
 import { usePosDailySummary, usePosSales } from '@/hooks/usePos';
 import { posApi } from '@/lib/posApi';
 import { formatTime } from '@/lib/date';
+import { isCfdiCountry } from '@/lib/invoiceEligibility';
+import {
+  saleTerminalName,
+  terminalRowsFromSummary,
+  type TerminalRow,
+} from '@/lib/terminalRows';
 import type { Sale } from '@/types/pos';
+import { GlobalDayCard } from './GlobalDayCard';
 
 interface CorteModalProps {
   isOpen: boolean;
@@ -37,27 +44,12 @@ interface CorteModalProps {
   currencySymbol: string;
   /** Click en una fila de venta — abre el detalle de la venta. */
   onSelectSale?: (saleId: string) => void;
-}
-
-const SIN_TERMINAL = 'Sin terminal (call center)';
-
-/** Nombre legible de una terminal: su etiqueta o, si no tiene, el final de
- *  la clave de licencia. */
-function terminalName(
-  label: string | null | undefined,
-  licenseKey: string | null | undefined,
-): string {
-  if (label && label.trim()) return label.trim();
-  if (licenseKey) return `Terminal ${licenseKey.slice(-9)}`;
-  return SIN_TERMINAL;
-}
-
-interface TerminalRow {
-  id: string | null;
-  label: string;
-  salesCount: number;
-  amount: number;
-  cancelledCount: number;
+  /** Interruptor "Facturación" de la terminal: habilita emitir la global
+   *  del día desde el corte. undefined = apagado (fail-closed). */
+  invoicingEnabled?: boolean;
+  /** ISO-2 del país de la sucursal: la factura global (CFDI) solo se muestra
+   *  en MX / FN, igual que el botón "Facturar" del panel de ventas. */
+  branchCountryCode?: string;
 }
 
 export function CorteModal({
@@ -68,14 +60,19 @@ export function CorteModal({
   date,
   currencySymbol,
   onSelectSale,
+  invoicingEnabled = false,
+  branchCountryCode,
 }: CorteModalProps) {
   const { data: summary, isLoading: loadingSummary } = usePosDailySummary(
     branchId,
     date,
     isOpen,
   );
+  // El corte es de UN día: rango date..date (misma query que el panel
+  // lateral cuando muestra ese día).
   const { data: salesResp, isLoading: loadingSales } = usePosSales(
     isOpen ? branchId : undefined,
+    date,
     date,
   );
 
@@ -106,18 +103,11 @@ export function CorteModal({
   // Desglose por terminal (licencia POS). Solo se muestra e imprime cuando la
   // sucursal cobró con más de una terminal ese día: ahí el supervisor
   // necesita separar el corte por caja.
-  const terminalRows: TerminalRow[] = (summary?.byTerminal ?? []).map((t) => ({
-    id: t.posLicenseId,
-    label: terminalName(t.label, t.licenseKey),
-    salesCount: Number(t.salesCount),
-    amount: Number(t.totalAmount),
-    cancelledCount: Number(t.cancelledCount),
-  }));
+  const terminalRows: TerminalRow[] = terminalRowsFromSummary(
+    summary?.byTerminal,
+  );
   const multiTerminal = terminalRows.length > 1;
-  const saleTerminal = (s: Sale): string =>
-    s.posLicenseId
-      ? terminalName(s.posLicenseLabel, s.posLicenseKey)
-      : SIN_TERMINAL;
+  const saleTerminal = (s: Sale): string => saleTerminalName(s);
 
   async function handlePrint() {
     if (!summary) return;
@@ -341,6 +331,18 @@ export function CorteModal({
                     ))}
                   </div>
                 </div>
+              )}
+
+              {/* Factura global (público en general) del día: solo en
+                  sucursales que emiten CFDI */}
+              {isOpen && isCfdiCountry(branchCountryCode) && (
+                <GlobalDayCard
+                  branchId={branchId}
+                  branchName={branchName}
+                  day={date}
+                  currencySymbol={currencySymbol}
+                  invoicingEnabled={invoicingEnabled}
+                />
               )}
 
               {/* Tabla de ventas */}

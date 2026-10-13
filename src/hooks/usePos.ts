@@ -26,8 +26,10 @@ export const posKeys = {
     [...posKeys.all, 'sponsor-by-number', num] as const,
   activeSession: (branchId: string) =>
     [...posKeys.all, 'active-session', branchId] as const,
-  sales: (branchId: string, date: string) =>
-    [...posKeys.all, 'sales', branchId, date] as const,
+  sales: (branchId: string, from: string, to: string, posLicenseId = '') =>
+    [...posKeys.all, 'sales', branchId, from, to, posLicenseId] as const,
+  globalDays: (branchId: string, from: string, to: string) =>
+    [...posKeys.all, 'global-days', branchId, from, to] as const,
   dailySummary: (branchId: string, date: string) =>
     [...posKeys.all, 'daily-summary', branchId, date] as const,
   balance: (sessionId: string) => [...posKeys.all, 'balance', sessionId] as const,
@@ -115,21 +117,49 @@ export const usePosActiveSession = (branchId: string | undefined) =>
     staleTime: 15 * 1000,
   });
 
-/** Ventas de la sucursal en una fecha (YYYY-MM-DD). */
+/** Ventas de la sucursal en un rango de días locales (from..to, YYYY-MM-DD;
+ *  un solo día = from === to). opts.posLicenseId filtra por terminal en el
+ *  API. */
 export const usePosSales = (
   branchId: string | undefined,
-  date: string,
-  // 1000 (API acepta hasta 5000): con 100, sucursales de alto volumen como
-  // Zacatelco (140 ventas el 17-ago) dejaban de VER sus ventas de la manana
-  // en corte/recientes/CSV — las ventas siempre estuvieron en la BD.
-  limit = 1000,
+  from: string,
+  to: string,
+  opts?: { posLicenseId?: string; limit?: number },
+) => {
+  // 5000 = tope del API. Con 100, sucursales de alto volumen como Zacatelco
+  // (140 ventas el 17-ago) dejaban de VER sus ventas de la mañana en
+  // corte/recientes/CSV; con rangos de hasta 31 días hace falta el tope.
+  const limit = opts?.limit ?? 5000;
+  const posLicenseId = opts?.posLicenseId;
+  return useQuery({
+    queryKey: posKeys.sales(branchId ?? '', from, to, posLicenseId ?? ''),
+    queryFn: () =>
+      posApi.getSales({
+        branchId,
+        fromDate: from,
+        toDate: to,
+        ...(posLicenseId ? { posLicenseId } : {}),
+        limit,
+      }),
+    enabled: !!branchId && !!from && !!to,
+    staleTime: 15 * 1000,
+  });
+};
+
+/** Estado de la factura global de la sucursal por día local (from..to). */
+export const useGlobalDays = (
+  branchId: string | undefined,
+  from: string,
+  to: string,
+  enabled = true,
 ) =>
   useQuery({
-    queryKey: posKeys.sales(branchId ?? '', date),
-    queryFn: () =>
-      posApi.getSales({ branchId, fromDate: date, toDate: date, limit }),
-    enabled: !!branchId,
-    staleTime: 15 * 1000,
+    queryKey: posKeys.globalDays(branchId ?? '', from, to),
+    queryFn: () => posApi.getGlobalDays(from, to, branchId),
+    enabled: !!branchId && !!from && !!to && enabled,
+    staleTime: 30 * 1000,
+    // 403/404 (terminal sin facturación, API viejo) no se reintentan.
+    retry: false,
   });
 
 /** Detalle completo de una venta (items + pagos). */

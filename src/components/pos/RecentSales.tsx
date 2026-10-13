@@ -1,5 +1,9 @@
 // RecentSales - Barra lateral izquierda del POS.
-// Muestra ventas del dia + accesos a movimientos de caja y corte del dia.
+// Muestra las ventas de un RANGO de días (De / Hasta, máx. 31 días) con filtro
+// por terminal ("caja"), resumen por caja, badges de factura (CFDI / Global),
+// acción "Facturar" para ventas cobradas sin factura y, cuando el rango es un
+// solo día, el estado de la factura global de ese día. Accesos a movimientos
+// de caja y corte del día.
 // La sesion de caja se abre automaticamente al primer cobro (ver
 // ensureSession en PosScreen) — no hay UI manual de apertura.
 //
@@ -8,41 +12,80 @@ const SHOW_CASH_MOVEMENTS = false; // "Movimientos de caja" — ocultado may-202
                                    // a peticion del usuario; el modal y el
                                    // IPC siguen montados para reactivar.
 
+/** Máximo de días (inclusive) que se listan de una vez. */
+export const SALES_RANGE_MAX_DAYS = 31;
+
 import { useMemo, useState } from 'react';
 import {
   Receipt,
-  CalendarDays,
   ClipboardList,
   RefreshCw,
   Wallet,
   PanelLeftClose,
   Search,
   X,
+  FileText,
+  Monitor,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { usePosSales } from '@/hooks/usePos';
 import { posApi } from '@/lib/posApi';
-import { formatTime } from '@/lib/date';
+import {
+  addDaysIso,
+  daysBetweenIso,
+  formatTime,
+  localDateOf,
+} from '@/lib/date';
+import { canInvoiceSale, isCfdiCountry } from '@/lib/invoiceEligibility';
+import {
+  aggregateTerminalRows,
+  saleTerminalKey,
+  SIN_TERMINAL,
+  SIN_TERMINAL_KEY,
+} from '@/lib/terminalRows';
 import { PosSaleStatus, type Sale } from '@/types/pos';
+import { GlobalDayCard } from './GlobalDayCard';
+
+export interface SalesRange {
+  from: string;
+  to: string;
+}
 
 interface RecentSalesProps {
   branchId: string;
+  branchName: string;
   /** Zona horaria de la sucursal (para mostrar las horas en su hora local). */
   branchTz?: string;
+  /** ISO-2 del país de la sucursal (CFDI solo en MX / FN). */
+  branchCountryCode?: string;
   currencySymbol: string;
-  date: string;
-  onDateChange: (date: string) => void;
+  range: SalesRange;
+  onRangeChange: (range: SalesRange) => void;
   onOpenCorte: () => void;
   onOpenMovements: () => void;
   onSelectSale: (saleId: string) => void;
+  /** Abre "Facturar" para una venta cobrada sin factura. */
+  onInvoiceSale: (saleId: string) => void;
+  /** Interruptor "Facturación" de la terminal (heartbeat). */
+  invoicingEnabled: boolean;
   /** Si se provee, muestra un botón para plegar el panel. */
   onCollapse?: () => void;
   /** Licencia de ESTA terminal: las ventas cobradas en otra terminal de la
    *  sucursal se marcan con su etiqueta (sucursales con varias cajas). */
   currentLicenseId?: string;
 }
+
+const ALL_TERMINALS = '__all__';
 
 function statusBadge(status: PosSaleStatus) {
   switch (status) {
@@ -79,15 +122,44 @@ function statusBadge(status: PosSaleStatus) {
   }
 }
 
+/**
+ * Normaliza un rango: from ≤ to y a lo más SALES_RANGE_MAX_DAYS días. El
+ * extremo que NO se movió es el que cede (si cambió "De", se ajusta "Hasta" y
+ * viceversa). Devuelve además si hubo que corregir (para avisar).
+ */
+export function clampSalesRange(
+  next: SalesRange,
+  changed: 'from' | 'to',
+): { range: SalesRange; clamped: boolean } {
+  let { from, to } = next;
+  let clamped = false;
+  if (!from || !to) return { range: next, clamped: false };
+  if (daysBetweenIso(from, to) < 0) {
+    if (changed === 'from') to = from;
+    else from = to;
+    clamped = true;
+  }
+  if (daysBetweenIso(from, to) > SALES_RANGE_MAX_DAYS - 1) {
+    if (changed === 'from') to = addDaysIso(from, SALES_RANGE_MAX_DAYS - 1);
+    else from = addDaysIso(to, -(SALES_RANGE_MAX_DAYS - 1));
+    clamped = true;
+  }
+  return { range: { from, to }, clamped };
+}
+
 export function RecentSales({
   branchId,
+  branchName,
   branchTz,
+  branchCountryCode,
   currencySymbol,
-  date,
-  onDateChange,
+  range,
+  onRangeChange,
   onOpenCorte,
   onOpenMovements,
   onSelectSale,
+  onInvoiceSale,
+  invoicingEnabled,
   onCollapse,
   currentLicenseId,
 }: RecentSalesProps) {
@@ -96,20 +168,58 @@ export function RecentSales({
     isLoading,
     refetch,
     isFetching,
-  } = usePosSales(branchId, date);
+  } = usePosSales(branchId, range.from, range.to);
 
-  // Buscador local del día: por nombre de cliente, número de distribuidor o
-  // folio. Filtra sobre las ventas ya cargadas (la lista del día es corta).
-  const [query, setQuery] = useState('');
+  const singleDay = range.from === range.to;
+
+  function changeRange(changed: 'from' | 'to', value: string) {
+    if (!value) return;
+    const { range: fixed, clamped } = clampSalesRange(
+      { ...range, [changed]: value },
+      changed,
+    );
+    if (clamped) {
+      toast.info(
+        `El rango se ajustó: máximo ${SALES_RANGE_MAX_DAYS} días y "De" no puede ser posterior a "Hasta".`,
+      );
+    }
+    onRangeChange(fixed);
+  }
+
+  // Filtro por terminal ("caja"): la lista de cajas sale de las ventas
+  // cargadas del rango (no hay catálogo de licencias en el POS).
+  const [terminal, setTerminal] = useState<string>(ALL_TERMINALS);
   const allSales: Sale[] = salesResp?.data ?? [];
+  const terminalRows = useMemo(
+    () => aggregateTerminalRows(allSales, 4),
+    [allSales],
+  );
+  const multiTerminal = terminalRows.length >= 2;
+  const terminalKeys = new Set(
+    terminalRows.map((t) => t.id ?? SIN_TERMINAL_KEY),
+  );
+  // Si la caja elegida ya no aparece en el rango nuevo, el filtro cae a
+  // "todas" (sin dejar la lista vacía por un filtro invisible).
+  const effectiveTerminal =
+    terminal !== ALL_TERMINALS && !terminalKeys.has(terminal)
+      ? ALL_TERMINALS
+      : terminal;
+
+  // Buscador local: por nombre de cliente, número de distribuidor o folio.
+  // Filtra sobre las ventas ya cargadas (máx. 5000 por rango).
+  const [query, setQuery] = useState('');
   const sales: Sale[] = useMemo(() => {
+    const byTerminal =
+      effectiveTerminal === ALL_TERMINALS
+        ? allSales
+        : allSales.filter((s) => saleTerminalKey(s) === effectiveTerminal);
     const q = query
       .trim()
       .toLowerCase()
       .normalize('NFD')
       .replace(/[̀-ͯ]/g, '');
-    if (!q) return allSales;
-    return allSales.filter((s) => {
+    if (!q) return byTerminal;
+    return byTerminal.filter((s) => {
       const doc = [s.customerName, s.customerNumber, s.saleNumber]
         .filter(Boolean)
         .join(' ')
@@ -118,14 +228,56 @@ export function RecentSales({
         .replace(/[̀-ͯ]/g, '');
       return doc.includes(q);
     });
-  }, [allSales, query]);
+  }, [allSales, effectiveTerminal, query]);
+
+  // Filas listas para pintar: elegibilidad de "Facturar" y fecha/hora en el
+  // día LOCAL de la sucursal, calculadas una vez por cambio de datos y no en
+  // cada render (hasta 5000 filas; cada tecla del buscador re-renderiza).
+  // "Hoy" se fija una vez por lote: allSales cambia con cada refetch, así que
+  // el cambio de día se recoge con la siguiente carga.
+  const today = useMemo(
+    () => localDateOf(new Date(), branchTz),
+    [branchTz, allSales],
+  );
+  const rows = useMemo(
+    () =>
+      sales.map((sale) => ({
+        sale,
+        invoiceable: canInvoiceSale({
+          sale,
+          branchCountryCode,
+          branchTz,
+          invoicingEnabled,
+          today,
+        }),
+        when: singleDay
+          ? formatTime(sale.createdAt, branchTz)
+          : `${localDateOf(sale.createdAt, branchTz).slice(5)} ${formatTime(sale.createdAt, branchTz)}`,
+      })),
+    [sales, branchCountryCode, branchTz, invoicingEnabled, today, singleDay],
+  );
+
+  // Total del rango (ventas COMPLETADAS de todas las cajas).
+  const rangeTotals = useMemo(() => {
+    let count = 0;
+    let amount = 0;
+    for (const s of allSales) {
+      if (s.status === PosSaleStatus.COMPLETED) {
+        count += 1;
+        amount += Number(s.total) || 0;
+      }
+    }
+    return { count, amount };
+  }, [allSales]);
+
   const fmt = (n: number) => posApi.formatCurrency(n, currencySymbol);
+  const truncated = (salesResp?.total ?? 0) > allSales.length;
 
   return (
     <div className="flex flex-col h-full bg-card border-r">
-      {/* Filtro de fecha + ventas recientes */}
-      <div className="p-4 border-b">
-        <div className="flex items-center justify-between mb-2">
+      {/* Filtros: rango de fechas, caja y buscador */}
+      <div className="p-4 border-b space-y-2">
+        <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             <Receipt className="size-4 text-primary" />
             <h3 className="text-sm font-semibold text-foreground">
@@ -157,17 +309,59 @@ export function RecentSales({
             )}
           </div>
         </div>
-        <div className="relative">
-          <CalendarDays className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
-          <Input
-            type="date"
-            value={date}
-            onChange={(e) => onDateChange(e.target.value)}
-            className="w-full pl-8 pr-2 py-1.5 text-xs bg-background text-foreground"
-          />
+
+        {/* Rango De / Hasta (máx. 31 días) */}
+        <div className="grid grid-cols-2 gap-1.5">
+          <label className="block">
+            <span className="mb-0.5 block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              De
+            </span>
+            <Input
+              type="date"
+              value={range.from}
+              max={range.to}
+              onChange={(e) => changeRange('from', e.target.value)}
+              className="w-full px-2 py-1.5 text-xs bg-background text-foreground"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-0.5 block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              Hasta
+            </span>
+            <Input
+              type="date"
+              value={range.to}
+              min={range.from}
+              onChange={(e) => changeRange('to', e.target.value)}
+              className="w-full px-2 py-1.5 text-xs bg-background text-foreground"
+            />
+          </label>
         </div>
-        {/* Buscador del día: cliente, número de distribuidor o folio */}
-        <div className="relative mt-2">
+
+        {/* Filtro por caja: solo tiene sentido con varias terminales */}
+        {multiTerminal && (
+          <Select value={effectiveTerminal} onValueChange={setTerminal}>
+            <SelectTrigger
+              size="sm"
+              className="w-full text-xs"
+              title="Filtrar por caja (terminal que cobró)"
+            >
+              <Monitor className="size-3.5 text-muted-foreground" />
+              <SelectValue placeholder="Todas las cajas" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_TERMINALS}>Todas las cajas</SelectItem>
+              {terminalRows.map((t) => (
+                <SelectItem key={t.id ?? SIN_TERMINAL_KEY} value={t.id ?? SIN_TERMINAL_KEY}>
+                  {t.id ? t.label : SIN_TERMINAL}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
+        {/* Buscador: cliente, número de distribuidor o folio */}
+        <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
           <Input
             type="text"
@@ -189,6 +383,77 @@ export function RecentSales({
         </div>
       </div>
 
+      {/* Resumen del rango + por caja */}
+      {!isLoading && allSales.length > 0 && (
+        <div className="px-4 py-2 border-b bg-muted/30 space-y-1">
+          <div className="flex items-center justify-between text-[11px]">
+            <span className="text-muted-foreground">
+              {singleDay ? 'Total del día' : 'Total del rango'} ·{' '}
+              {rangeTotals.count}{' '}
+              {rangeTotals.count === 1 ? 'venta' : 'ventas'}
+            </span>
+            <span className="font-semibold text-foreground tabular-nums">
+              {fmt(rangeTotals.amount)}
+            </span>
+          </div>
+          {multiTerminal && (
+            <ul className="space-y-0.5">
+              {terminalRows.map((t) => (
+                <li
+                  key={t.id ?? SIN_TERMINAL_KEY}
+                  className="flex items-center justify-between gap-2 text-[11px]"
+                  title={
+                    t.cancelledCount > 0
+                      ? `${t.cancelledCount} cancelada${t.cancelledCount === 1 ? '' : 's'}`
+                      : undefined
+                  }
+                >
+                  <span className="min-w-0 truncate text-muted-foreground">
+                    <span
+                      className={
+                        t.id && currentLicenseId && t.id === currentLicenseId
+                          ? 'font-semibold text-foreground'
+                          : ''
+                      }
+                    >
+                      {t.label}
+                    </span>
+                    <span className="ml-1 text-muted-foreground/80">
+                      · {t.salesCount}
+                      {t.cancelledCount > 0 ? ` (${t.cancelledCount} canc.)` : ''}
+                    </span>
+                  </span>
+                  <span className="shrink-0 tabular-nums text-foreground">
+                    {fmt(t.amount)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {truncated && (
+            <p className="text-[10px] text-amber-700">
+              Mostrando {allSales.length} de {salesResp?.total} ventas: acorta
+              el rango para verlas todas.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Factura global del día (solo con un día seleccionado y en sucursales
+          que emiten CFDI: mismo candado que el botón "Facturar") */}
+      {singleDay && isCfdiCountry(branchCountryCode) && (
+        <div className="px-4 py-2 border-b">
+          <GlobalDayCard
+            branchId={branchId}
+            branchName={branchName}
+            day={range.to}
+            currencySymbol={currencySymbol}
+            invoicingEnabled={invoicingEnabled}
+            compact
+          />
+        </div>
+      )}
+
       {/* Lista de ventas */}
       <div className="flex-1 overflow-y-auto">
         {isLoading ? (
@@ -196,64 +461,102 @@ export function RecentSales({
         ) : sales.length === 0 ? (
           <div className="p-4 text-xs text-muted-foreground italic">
             {query
-              ? `Sin ventas que coincidan con “${query}” en esta fecha.`
-              : 'No hay ventas en esta fecha.'}
+              ? `Sin ventas que coincidan con “${query}” en estas fechas.`
+              : effectiveTerminal !== ALL_TERMINALS
+                ? 'Esta caja no tiene ventas en estas fechas.'
+                : singleDay
+                  ? 'No hay ventas en esta fecha.'
+                  : 'No hay ventas en este rango.'}
           </div>
         ) : (
           <ul className="divide-y">
-            {sales.map((sale) => (
-              <li key={sale.id}>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => onSelectSale(sale.id)}
-                  className="block h-auto w-full rounded-none px-4 py-2.5 text-left whitespace-normal hover:bg-muted/60"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="flex min-w-0 items-center gap-1.5 text-xs font-mono text-foreground">
-                      <span className="truncate">{sale.saleNumber}</span>
-                      {/* Capturada con cuenta personal (modo staff / call
-                          center), no por la terminal de la sucursal. */}
-                      {sale.capturedVia === 'usuario' &&
-                        !sale.saleNumber.startsWith('M-') && (
-                          <span
-                            className="shrink-0 rounded bg-violet-100 px-1 py-px font-sans text-[9px] font-bold text-violet-700"
-                            title={`Capturada por ${sale.sellerName} (call center / corporativo)`}
-                          >
-                            CC
-                          </span>
-                        )}
-                      {/* Cobrada en OTRA terminal de la sucursal: etiqueta de
-                          esa caja (sucursales con varias terminales). */}
-                      {sale.posLicenseId &&
-                        currentLicenseId &&
-                        sale.posLicenseId !== currentLicenseId && (
-                          <span
-                            className="shrink-0 truncate max-w-[7rem] rounded bg-sky-100 px-1 py-px font-sans text-[9px] font-bold text-sky-700"
-                            title={`Cobrada en la terminal ${sale.posLicenseLabel ?? sale.posLicenseKey ?? ''}`}
-                          >
-                            {sale.posLicenseLabel ??
-                              `Terminal ${(sale.posLicenseKey ?? '').slice(-4)}`}
-                          </span>
-                        )}
-                    </span>
-                    {statusBadge(sale.status)}
-                  </div>
-                  <div className="flex items-center justify-between mt-0.5">
-                    <span className="text-[11px] text-muted-foreground">
-                      {formatTime(sale.createdAt, branchTz)}
-                      {sale.customerName ? ` · ${sale.customerName}` : ''}
-                      {/* Número de distribuidor SIEMPRE visible: hay homónimos
-                          en la red y el número es la única forma de cotejar. */}
-                      {sale.customerNumber ? ` #${sale.customerNumber}` : ''}
-                    </span>
-                    <span className="text-sm font-semibold text-foreground tabular-nums">
-                      {fmt(Number(sale.total))}
-                    </span>
-                  </div>
-                </Button>
-              </li>
-            ))}
+            {rows.map(({ sale, invoiceable, when }) => {
+              return (
+                <li key={sale.id} className="flex items-stretch">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => onSelectSale(sale.id)}
+                    className="block h-auto min-w-0 flex-1 rounded-none px-4 py-2.5 text-left whitespace-normal hover:bg-muted/60"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="flex min-w-0 items-center gap-1.5 text-xs font-mono text-foreground">
+                        <span className="truncate">{sale.saleNumber}</span>
+                        {/* Capturada con cuenta personal (modo staff / call
+                            center), no por la terminal de la sucursal. */}
+                        {sale.capturedVia === 'usuario' &&
+                          !sale.saleNumber.startsWith('M-') && (
+                            <span
+                              className="shrink-0 rounded bg-violet-100 px-1 py-px font-sans text-[9px] font-bold text-violet-700"
+                              title={`Capturada por ${sale.sellerName} (call center / corporativo)`}
+                            >
+                              CC
+                            </span>
+                          )}
+                        {/* Cobrada en OTRA terminal de la sucursal: etiqueta de
+                            esa caja (sucursales con varias terminales). */}
+                        {sale.posLicenseId &&
+                          currentLicenseId &&
+                          sale.posLicenseId !== currentLicenseId && (
+                            <span
+                              className="shrink-0 truncate max-w-[7rem] rounded bg-sky-100 px-1 py-px font-sans text-[9px] font-bold text-sky-700"
+                              title={`Cobrada en la terminal ${sale.posLicenseLabel ?? sale.posLicenseKey ?? ''}`}
+                            >
+                              {sale.posLicenseLabel ??
+                                `Terminal ${(sale.posLicenseKey ?? '').slice(-4)}`}
+                            </span>
+                          )}
+                        {/* Factura: nominativa (CFDI) o incluida en la global */}
+                        {sale.status === PosSaleStatus.COMPLETED &&
+                          sale.invoiceUuid && (
+                            <span
+                              className="shrink-0 rounded bg-emerald-100 px-1 py-px font-sans text-[9px] font-bold text-emerald-700"
+                              title={`Factura CFDI ${sale.invoiceUuid}`}
+                            >
+                              CFDI
+                            </span>
+                          )}
+                        {sale.status === PosSaleStatus.COMPLETED &&
+                          sale.globalInvoiceId && (
+                            <span
+                              className="shrink-0 rounded bg-slate-200 px-1 py-px font-sans text-[9px] font-bold text-slate-700"
+                              title="Incluida en la factura global del día"
+                            >
+                              Global
+                            </span>
+                          )}
+                      </span>
+                      {statusBadge(sale.status)}
+                    </div>
+                    <div className="flex items-center justify-between mt-0.5">
+                      <span className="text-[11px] text-muted-foreground">
+                        {when}
+                        {sale.customerName ? ` · ${sale.customerName}` : ''}
+                        {/* Número de distribuidor SIEMPRE visible: hay homónimos
+                            en la red y el número es la única forma de cotejar. */}
+                        {sale.customerNumber ? ` #${sale.customerNumber}` : ''}
+                      </span>
+                      <span className="text-sm font-semibold text-foreground tabular-nums">
+                        {fmt(Number(sale.total))}
+                      </span>
+                    </div>
+                  </Button>
+                  {invoiceable && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => onInvoiceSale(sale.id)}
+                      className="h-auto w-9 shrink-0 rounded-none text-primary hover:bg-primary/10 hover:text-primary"
+                      title="Facturar esta venta"
+                      aria-label={`Facturar la venta ${sale.saleNumber}`}
+                    >
+                      <FileText className="size-4" />
+                    </Button>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
@@ -275,6 +578,7 @@ export function RecentSales({
           className="w-full"
           onClick={onOpenCorte}
           data-tour="pos-corte"
+          title={`Corte del día ${range.to}`}
         >
           <ClipboardList />
           Corte del dia
