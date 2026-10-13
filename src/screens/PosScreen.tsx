@@ -3,7 +3,7 @@
 // Phase 4 completa: catalogo + carrito + cliente + cobro + sesiones + corte
 // + ventas recientes + movimientos de caja + kits de inscripcion + CFDI.
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   LogOut,
   Clock,
@@ -78,10 +78,16 @@ import {
   usePosActiveSession,
   useIncomingTransfers,
   usePosCatalog,
+  usePosSales,
 } from '@/hooks/usePos';
 import { posApi } from '@/lib/posApi';
 import { APP_VERSION } from '@/lib/version';
 import { todayLocal } from '@/lib/date';
+import {
+  aggregateTerminalRows,
+  ALL_TERMINALS,
+  terminalOptionsFromRows,
+} from '@/lib/terminalRows';
 import type { StoredSession } from '@/types';
 import type {
   CreatePaymentInput,
@@ -229,12 +235,14 @@ export function PosScreen({
   const [stampRetry, setStampRetry] = useState<StampRetryState | null>(null);
   // "Hoy" y todas las horas se calculan en la zona horaria de la SUCURSAL
   // (no la del equipo): una venta a las 00:26 en Tulsa es del día correcto.
-  // Rango De/Hasta del panel de ventas; el corte trabaja sobre UN día
-  // (range.to).
+  // Rango De/Hasta del panel de ventas; el corte respeta el MISMO rango y el
+  // mismo filtro de caja (un solo estado para los dos).
   const [salesRange, setSalesRange] = useState<SalesRange>(() => {
     const today = todayLocal(session.branch.timezone);
     return { from: today, to: today };
   });
+  // Filtro de caja: ALL_TERMINALS | SIN_TERMINAL_KEY | posLicenseId.
+  const [salesTerminal, setSalesTerminal] = useState<string>(ALL_TERMINALS);
 
   // Panel "Ventas recientes" plegable. Se recuerda la preferencia.
   const [salesCollapsed, setSalesCollapsed] = useState<boolean>(() => {
@@ -316,6 +324,31 @@ export function PosScreen({
   // usuario (el candado de la terminal no aplica), igual que en el cobro.
   const effectiveInvoicingEnabled = staffActive ? true : invoicingEnabled;
 
+  // Cajas que aparecen en el rango (no hay catálogo de licencias en el POS):
+  // misma query SIN filtro que usa el panel (React Query la comparte), para
+  // que el corte ofrezca las mismas opciones aunque el panel esté plegado.
+  const { data: rangeSalesResp } = usePosSales(
+    branchId,
+    salesRange.from,
+    salesRange.to,
+  );
+  const terminalOptions = useMemo(
+    () =>
+      terminalOptionsFromRows(
+        aggregateTerminalRows(rangeSalesResp?.data ?? [], 4),
+      ),
+    [rangeSalesResp],
+  );
+  // Si la caja elegida ya no aparece en el rango cargado, el filtro cae a
+  // "todas" (sin dejar lista y corte vacíos por un filtro invisible). Con la
+  // lista aún sin cargar se respeta la elección para no refetchear dos veces.
+  const effectiveSalesTerminal =
+    salesTerminal !== ALL_TERMINALS &&
+    terminalOptions.length > 0 &&
+    !terminalOptions.some((o) => o.key === salesTerminal)
+      ? ALL_TERMINALS
+      : salesTerminal;
+
   // Cambio de sucursal efectiva (entrar/salir/cambiar en modo staff): el
   // carrito se vacía (precios/stock/moneda de otra sucursal) y el día de
   // ventas se recalcula en la zona horaria nueva. Los queries se refrescan
@@ -328,6 +361,7 @@ export function PosScreen({
     saleAttemptRef.current = null;
     const today = todayLocal(branch.timezone);
     setSalesRange({ from: today, to: today });
+    setSalesTerminal(ALL_TERMINALS);
     // Cerrar TODO modal operativo abierto: un modal que sobrevive al cambio
     // (p.ej. el timeout de inactividad disparó con el alta a medias) operaría
     // la sucursal EQUIVOCADA — e incluso por encima del gate de rollout.
@@ -1052,6 +1086,8 @@ export function PosScreen({
               currencySymbol={currencySymbol}
               range={salesRange}
               onRangeChange={setSalesRange}
+              terminalFilter={effectiveSalesTerminal}
+              onTerminalFilterChange={setSalesTerminal}
               onOpenCorte={() => setCorteOpen(true)}
               onOpenMovements={() => setMovementsOpen(true)}
               onSelectSale={(id) => setSelectedSaleId(id)}
@@ -1126,13 +1162,17 @@ export function PosScreen({
         onConfirm={handlePaymentConfirm}
       />
 
-      {/* Modal de corte del dia (un solo día: el "Hasta" del panel) */}
+      {/* Modal de corte: mismo rango De/Hasta y misma caja que el panel */}
       <CorteModal
         isOpen={corteOpen}
         onClose={() => setCorteOpen(false)}
         branchId={branchId}
         branchName={branch.name}
-        date={salesRange.to}
+        branchTz={branchTz}
+        range={salesRange}
+        terminalFilter={effectiveSalesTerminal}
+        onTerminalFilterChange={setSalesTerminal}
+        terminalOptions={terminalOptions}
         currencySymbol={currencySymbol}
         onSelectSale={(id) => setSelectedSaleId(id)}
         invoicingEnabled={effectiveInvoicingEnabled}

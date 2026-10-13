@@ -255,7 +255,15 @@ export interface CustomerPeriodStats {
 }
 
 export interface DailySalesSummary {
+  /** Día del corte; con rango, el "Desde" (compatibilidad con clientes viejos). */
   date: string;
+  /** Rango efectivo (días locales de la sucursal) y filtro de caja aplicado.
+   *  AUSENTES en APIs anteriores: el corte usa su ausencia para avisar que el
+   *  servidor ignoró rango y caja y mostró solo un día. */
+  fromDate?: string;
+  toDate?: string;
+  posLicenseId?: string | null;
+  capturedVia?: 'terminal' | 'usuario' | null;
   totalSales: number;
   totalAmount: number;
   totalCash: number;

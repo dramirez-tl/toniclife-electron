@@ -1,10 +1,13 @@
-// CorteModal - Resumen del corte del dia (ventas + desglose por metodo de pago).
+// CorteModal - Resumen del corte (ventas + desglose por metodo de pago).
 // Portado de toniclife-next CorteDiaModal con dos acciones:
 //   - Imprimir corte en la impresora termica configurada (ESC/POS).
 //   - Descargar como CSV (Blob URL + anchor click).
+// El corte respeta el MISMO rango De/Hasta y el MISMO filtro de caja que el
+// panel "Ventas recientes" (estado compartido en PosScreen): un solo día =
+// "Corte del día"; varios días = "Corte de ventas".
 
-import { useState } from 'react';
-import { X, ClipboardList, Printer, Download } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { X, ClipboardList, Printer, Download, Monitor } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
@@ -16,6 +19,13 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   Table,
   TableBody,
   TableCell,
@@ -25,22 +35,36 @@ import {
 } from '@/components/ui/table';
 import { usePosDailySummary, usePosSales } from '@/hooks/usePos';
 import { posApi } from '@/lib/posApi';
-import { formatTime } from '@/lib/date';
+import { formatTime, localDateOf } from '@/lib/date';
 import { isCfdiCountry } from '@/lib/invoiceEligibility';
 import {
+  ALL_TERMINALS,
   saleTerminalName,
+  terminalFilterLabel,
+  terminalFilterParams,
   terminalRowsFromSummary,
+  type TerminalOption,
   type TerminalRow,
 } from '@/lib/terminalRows';
 import type { Sale } from '@/types/pos';
 import { GlobalDayCard } from './GlobalDayCard';
+import type { SalesRange } from './RecentSales';
 
 interface CorteModalProps {
   isOpen: boolean;
   onClose: () => void;
   branchId: string;
   branchName: string;
-  date: string;
+  /** Zona horaria de la sucursal: horas y día local de cada venta. */
+  branchTz?: string;
+  /** Rango De/Hasta del panel de ventas (días locales, máx. 31). */
+  range: SalesRange;
+  /** Filtro de caja compartido con el panel (ALL_TERMINALS | SIN_TERMINAL_KEY
+   *  | posLicenseId); cambiarlo aquí también cambia el panel. */
+  terminalFilter: string;
+  onTerminalFilterChange: (filter: string) => void;
+  /** Cajas que aparecen en el rango (etiqueta por clave). */
+  terminalOptions: TerminalOption[];
   currencySymbol: string;
   /** Click en una fila de venta — abre el detalle de la venta. */
   onSelectSale?: (saleId: string) => void;
@@ -57,23 +81,45 @@ export function CorteModal({
   onClose,
   branchId,
   branchName,
-  date,
+  branchTz,
+  range,
+  terminalFilter,
+  onTerminalFilterChange,
+  terminalOptions,
   currencySymbol,
   onSelectSale,
   invoicingEnabled = false,
   branchCountryCode,
 }: CorteModalProps) {
+  const filterParams = terminalFilterParams(terminalFilter);
+  const filtered = terminalFilter !== ALL_TERMINALS;
+
   const { data: summary, isLoading: loadingSummary } = usePosDailySummary(
     branchId,
-    date,
+    { from: range.from, to: range.to, ...filterParams },
     isOpen,
   );
-  // El corte es de UN día: rango date..date (misma query que el panel
-  // lateral cuando muestra ese día).
+
+  // Guardia de compatibilidad: el API viejo (producción) solo entiende
+  // `date` y responde SIN fromDate. En ese caso sus cifras son del día
+  // "Hasta" y de TODAS las cajas: se avisa y toda la vista (título, tabla,
+  // ticket, CSV) se degrada a ese día sin filtro, para no mezclar números
+  // filtrados con un resumen que no lo está.
+  const legacyApi = !!summary && summary.fromDate == null;
+  const from = legacyApi ? range.to : range.from;
+  const to = range.to;
+  const effectiveFilter = legacyApi ? ALL_TERMINALS : terminalFilter;
+  const effectiveFiltered = effectiveFilter !== ALL_TERMINALS;
+  const singleDay = from === to;
+  // El aviso solo cuando lo pedido difiere de lo que el servidor devolvió.
+  const showLegacyNotice =
+    legacyApi && (range.from !== range.to || filtered);
+
   const { data: salesResp, isLoading: loadingSales } = usePosSales(
     isOpen ? branchId : undefined,
-    date,
-    date,
+    from,
+    to,
+    legacyApi ? {} : filterParams,
   );
 
   const [printing, setPrinting] = useState(false);
@@ -84,6 +130,14 @@ export function CorteModal({
 
   const busy = printing || exporting;
   const hasData = !!summary && !loadingSummary;
+
+  const title = singleDay ? 'Corte del día' : 'Corte de ventas';
+  const cajaLabel = effectiveFiltered
+    ? terminalFilterLabel(effectiveFilter, terminalOptions)
+    : undefined;
+  const subtitle =
+    `${branchName} · ${singleDay ? from : `del ${from} al ${to}`}` +
+    (cajaLabel ? ` · ${cajaLabel}` : '');
 
   const paymentRows: Array<{ label: string; value: number }> = summary
     ? [
@@ -101,20 +155,33 @@ export function CorteModal({
     : [];
 
   // Desglose por terminal (licencia POS). Solo se muestra e imprime cuando la
-  // sucursal cobró con más de una terminal ese día: ahí el supervisor
-  // necesita separar el corte por caja.
+  // sucursal cobró con más de una terminal en el rango y NO se filtró por
+  // caja: ahí el supervisor necesita separar el corte por caja.
   const terminalRows: TerminalRow[] = terminalRowsFromSummary(
     summary?.byTerminal,
   );
-  const multiTerminal = terminalRows.length > 1;
+  const multiTerminal = !effectiveFiltered && terminalRows.length > 1;
   const saleTerminal = (s: Sale): string => saleTerminalName(s);
+
+  // Día local de cada venta (solo con varios días: columna "Fecha" y
+  // agrupación en el ticket). Calculado una vez por lote, no por render.
+  const saleDays = useMemo(() => {
+    const m = new Map<string, string>();
+    if (!singleDay) {
+      for (const s of sales) m.set(s.id, localDateOf(s.createdAt, branchTz));
+    }
+    return m;
+  }, [sales, singleDay, branchTz]);
+  const saleDay = (s: Sale): string | undefined => saleDays.get(s.id);
 
   async function handlePrint() {
     if (!summary) return;
     setPrinting(true);
     const r = await window.toniclife.printer.printCorte({
       branchName,
-      date,
+      date: from,
+      ...(singleDay ? {} : { dateTo: to }),
+      ...(cajaLabel ? { terminalLabel: cajaLabel } : {}),
       currencySymbol,
       totalSales: Number(summary.totalSales),
       totalAmount: Number(summary.totalAmount),
@@ -126,17 +193,20 @@ export function CorteModal({
         label: p.label,
         amount: Number(p.value),
       })),
-      terminals: terminalRows.map((t) => ({
-        label: t.label,
-        salesCount: t.salesCount,
-        amount: t.amount,
-      })),
+      terminals: multiTerminal
+        ? terminalRows.map((t) => ({
+            label: t.label,
+            salesCount: t.salesCount,
+            amount: t.amount,
+          }))
+        : [],
       sales: sales.map((s) => ({
         saleNumber: s.saleNumber,
         createdAt: s.createdAt,
         customerName: s.customerName,
         total: Number(s.total),
         terminal: multiTerminal ? saleTerminal(s) : undefined,
+        day: saleDay(s),
       })),
     });
     setPrinting(false);
@@ -153,7 +223,10 @@ export function CorteModal({
     try {
       const csv = buildCorteCsv({
         branchName,
-        date,
+        from,
+        to,
+        terminalLabel: cajaLabel,
+        branchTz,
         summary,
         paymentRows,
         terminalRows: multiTerminal ? terminalRows : [],
@@ -166,13 +239,13 @@ export function CorteModal({
       });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      const safeDate = date.replaceAll('-', '');
-      const safeBranch = branchName
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '');
       a.href = url;
-      a.download = `corte-${safeBranch}-${safeDate}.csv`;
+      a.download = corteCsvFilename({
+        branchName,
+        from,
+        to,
+        terminalLabel: cajaLabel,
+      });
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -212,10 +285,10 @@ export function CorteModal({
             <ClipboardList className="size-5 text-primary" />
             <div>
               <DialogTitle className="text-lg font-bold text-foreground">
-                Corte del dia
+                {title}
               </DialogTitle>
               <DialogDescription className="text-xs">
-                {branchName} · {date}
+                {subtitle}
               </DialogDescription>
             </div>
           </div>
@@ -233,13 +306,51 @@ export function CorteModal({
 
         {/* Body */}
         <div className="px-6 py-5 space-y-5">
+          {/* Selector de caja: mismo estado que el panel de ventas */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-muted-foreground shrink-0">
+              Caja:
+            </span>
+            <Select
+              value={terminalFilter}
+              onValueChange={onTerminalFilterChange}
+              disabled={busy}
+            >
+              <SelectTrigger
+                size="sm"
+                className="w-full max-w-xs text-xs"
+                title="Corte de todas las cajas o de una en específico"
+              >
+                <Monitor className="size-3.5 text-muted-foreground" />
+                <SelectValue placeholder="Todas las cajas" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_TERMINALS}>Todas las cajas</SelectItem>
+                {terminalOptions.map((o) => (
+                  <SelectItem key={o.key} value={o.key}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {showLegacyNotice && (
+            <p className="rounded-md bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+              El corte por rango y por caja requiere la versión nueva del
+              servidor; se muestra solo el día {to}.
+            </p>
+          )}
+
           {loadingSummary ? (
             <div className="text-sm text-muted-foreground py-6 text-center">
               Cargando resumen...
             </div>
           ) : !summary ? (
             <div className="text-sm text-muted-foreground py-6 text-center">
-              No hay datos para esta fecha.
+              {singleDay
+                ? 'No hay datos para esta fecha.'
+                : 'No hay datos para este rango.'}
             </div>
           ) : (
             <>
@@ -302,7 +413,7 @@ export function CorteModal({
                 )}
               </div>
 
-              {/* Desglose por terminal: solo con varias cajas en el dia */}
+              {/* Desglose por terminal: solo con varias cajas y sin filtro */}
               {multiTerminal && (
                 <div>
                   <h3 className="text-sm font-semibold text-foreground mb-2">
@@ -333,13 +444,13 @@ export function CorteModal({
                 </div>
               )}
 
-              {/* Factura global (público en general) del día: solo en
-                  sucursales que emiten CFDI */}
-              {isOpen && isCfdiCountry(branchCountryCode) && (
+              {/* Factura global (público en general) del día: solo con un
+                  día y en sucursales que emiten CFDI */}
+              {isOpen && singleDay && isCfdiCountry(branchCountryCode) && (
                 <GlobalDayCard
                   branchId={branchId}
                   branchName={branchName}
-                  day={date}
+                  day={to}
                   currencySymbol={currencySymbol}
                   invoicingEnabled={invoicingEnabled}
                 />
@@ -348,12 +459,12 @@ export function CorteModal({
               {/* Tabla de ventas */}
               <div>
                 <h3 className="text-sm font-semibold text-foreground mb-2">
-                  Ventas del dia ({sales.length})
+                  Ventas ({sales.length})
                 </h3>
                 {(salesResp?.total ?? 0) > sales.length && (
                   <p className="mb-2 rounded-md bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800">
-                    Mostrando {sales.length} de {salesResp?.total} ventas del
-                    dia — el resumen de totales SI incluye todas.
+                    Mostrando {sales.length} de {salesResp?.total} ventas — el
+                    resumen de totales SI incluye todas.
                   </p>
                 )}
                 {loadingSales ? (
@@ -370,6 +481,11 @@ export function CorteModal({
                           <TableHead className="text-left px-3 py-1.5 font-medium text-muted-foreground">
                             Folio
                           </TableHead>
+                          {!singleDay && (
+                            <TableHead className="text-left px-3 py-1.5 font-medium text-muted-foreground">
+                              Fecha
+                            </TableHead>
+                          )}
                           <TableHead className="text-left px-3 py-1.5 font-medium text-muted-foreground">
                             Hora
                           </TableHead>
@@ -403,8 +519,13 @@ export function CorteModal({
                             <TableCell className="px-3 py-1.5 font-mono text-xs">
                               {s.saleNumber}
                             </TableCell>
+                            {!singleDay && (
+                              <TableCell className="px-3 py-1.5 text-muted-foreground tabular-nums">
+                                {saleDay(s)}
+                              </TableCell>
+                            )}
                             <TableCell className="px-3 py-1.5 text-muted-foreground">
-                              {formatTime(s.createdAt)}
+                              {formatTime(s.createdAt, branchTz)}
                             </TableCell>
                             <TableCell className="px-3 py-1.5 text-muted-foreground truncate max-w-[10rem]">
                               {s.customerName ?? 'Publico'}
@@ -464,7 +585,12 @@ export function CorteModal({
 
 interface CsvInput {
   branchName: string;
-  date: string;
+  /** Rango (días locales); un solo día = from === to. */
+  from: string;
+  to: string;
+  /** Caja filtrada; undefined = todas las cajas. */
+  terminalLabel?: string;
+  branchTz?: string;
   summary: {
     totalSales: number;
     totalAmount: number;
@@ -490,13 +616,39 @@ function csvCell(v: string | number): string {
   return s;
 }
 
-function buildCorteCsv(input: CsvInput): string {
+/** Slug para nombres de archivo: minúsculas, sin acentos, guiones. */
+function fileSlug(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+/** corte-{sucursal}-{desde}[-{hasta}][-{caja}].csv (fechas sin guiones). */
+export function corteCsvFilename(input: {
+  branchName: string;
+  from: string;
+  to: string;
+  terminalLabel?: string;
+}): string {
+  const parts = ['corte', fileSlug(input.branchName), input.from.replaceAll('-', '')];
+  if (input.to !== input.from) parts.push(input.to.replaceAll('-', ''));
+  if (input.terminalLabel) parts.push(fileSlug(input.terminalLabel));
+  return `${parts.join('-')}.csv`;
+}
+
+export function buildCorteCsv(input: CsvInput): string {
   const { summary, paymentRows, sales } = input;
+  const singleDay = input.from === input.to;
   const lines: string[] = [];
 
-  lines.push('Corte del dia');
+  lines.push(singleDay ? 'Corte del dia' : 'Corte de ventas');
   lines.push(`Sucursal,${csvCell(input.branchName)}`);
-  lines.push(`Fecha,${csvCell(input.date)}`);
+  lines.push(`Desde,${csvCell(input.from)}`);
+  lines.push(`Hasta,${csvCell(input.to)}`);
+  lines.push(`Caja,${csvCell(input.terminalLabel ?? 'Todas las cajas')}`);
   lines.push('');
 
   lines.push('RESUMEN');
@@ -536,15 +688,23 @@ function buildCorteCsv(input: CsvInput): string {
   }
 
   const withTerminal = !!input.saleTerminal;
-  lines.push('VENTAS DEL DIA');
+  lines.push(singleDay ? 'VENTAS DEL DIA' : 'VENTAS');
   lines.push(
-    withTerminal ? 'Folio,Hora,Cliente,Terminal,Total' : 'Folio,Hora,Cliente,Total',
+    [
+      'Folio',
+      ...(singleDay ? [] : ['Fecha']),
+      'Hora',
+      'Cliente',
+      ...(withTerminal ? ['Terminal'] : []),
+      'Total',
+    ].join(','),
   );
   for (const s of sales) {
     lines.push(
       [
         csvCell(s.saleNumber),
-        csvCell(formatTime(s.createdAt)),
+        ...(singleDay ? [] : [csvCell(localDateOf(s.createdAt, input.branchTz))]),
+        csvCell(formatTime(s.createdAt, input.branchTz)),
         csvCell(s.customerName ?? 'Publico'),
         ...(withTerminal ? [csvCell(input.saleTerminal!(s))] : []),
         Number(s.total).toFixed(2),

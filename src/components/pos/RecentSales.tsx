@@ -49,9 +49,10 @@ import {
 import { canInvoiceSale, isCfdiCountry } from '@/lib/invoiceEligibility';
 import {
   aggregateTerminalRows,
+  ALL_TERMINALS,
   saleTerminalKey,
-  SIN_TERMINAL,
   SIN_TERMINAL_KEY,
+  terminalOptionsFromRows,
 } from '@/lib/terminalRows';
 import { PosSaleStatus, type Sale } from '@/types/pos';
 import { GlobalDayCard } from './GlobalDayCard';
@@ -71,6 +72,10 @@ interface RecentSalesProps {
   currencySymbol: string;
   range: SalesRange;
   onRangeChange: (range: SalesRange) => void;
+  /** Filtro de caja (ALL_TERMINALS | SIN_TERMINAL_KEY | posLicenseId). Lo
+   *  posee PosScreen: el corte muestra el MISMO filtro que el panel. */
+  terminalFilter: string;
+  onTerminalFilterChange: (filter: string) => void;
   onOpenCorte: () => void;
   onOpenMovements: () => void;
   onSelectSale: (saleId: string) => void;
@@ -84,8 +89,6 @@ interface RecentSalesProps {
    *  sucursal se marcan con su etiqueta (sucursales con varias cajas). */
   currentLicenseId?: string;
 }
-
-const ALL_TERMINALS = '__all__';
 
 function statusBadge(status: PosSaleStatus) {
   switch (status) {
@@ -155,6 +158,8 @@ export function RecentSales({
   currencySymbol,
   range,
   onRangeChange,
+  terminalFilter,
+  onTerminalFilterChange,
   onOpenCorte,
   onOpenMovements,
   onSelectSale,
@@ -187,23 +192,20 @@ export function RecentSales({
   }
 
   // Filtro por terminal ("caja"): la lista de cajas sale de las ventas
-  // cargadas del rango (no hay catálogo de licencias en el POS).
-  const [terminal, setTerminal] = useState<string>(ALL_TERMINALS);
+  // cargadas del rango (no hay catálogo de licencias en el POS). El valor
+  // viene de PosScreen (ya con el fallback a "todas" si la caja elegida no
+  // aparece en el rango), así el corte y el panel muestran la misma caja.
   const allSales: Sale[] = salesResp?.data ?? [];
   const terminalRows = useMemo(
     () => aggregateTerminalRows(allSales, 4),
     [allSales],
   );
-  const multiTerminal = terminalRows.length >= 2;
-  const terminalKeys = new Set(
-    terminalRows.map((t) => t.id ?? SIN_TERMINAL_KEY),
+  const terminalOptions = useMemo(
+    () => terminalOptionsFromRows(terminalRows),
+    [terminalRows],
   );
-  // Si la caja elegida ya no aparece en el rango nuevo, el filtro cae a
-  // "todas" (sin dejar la lista vacía por un filtro invisible).
-  const effectiveTerminal =
-    terminal !== ALL_TERMINALS && !terminalKeys.has(terminal)
-      ? ALL_TERMINALS
-      : terminal;
+  const multiTerminal = terminalRows.length >= 2;
+  const effectiveTerminal = terminalFilter;
 
   // Buscador local: por nombre de cliente, número de distribuidor o folio.
   // Filtra sobre las ventas ya cargadas (máx. 5000 por rango).
@@ -340,7 +342,10 @@ export function RecentSales({
 
         {/* Filtro por caja: solo tiene sentido con varias terminales */}
         {multiTerminal && (
-          <Select value={effectiveTerminal} onValueChange={setTerminal}>
+          <Select
+            value={effectiveTerminal}
+            onValueChange={onTerminalFilterChange}
+          >
             <SelectTrigger
               size="sm"
               className="w-full text-xs"
@@ -351,9 +356,9 @@ export function RecentSales({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={ALL_TERMINALS}>Todas las cajas</SelectItem>
-              {terminalRows.map((t) => (
-                <SelectItem key={t.id ?? SIN_TERMINAL_KEY} value={t.id ?? SIN_TERMINAL_KEY}>
-                  {t.id ? t.label : SIN_TERMINAL}
+              {terminalOptions.map((o) => (
+                <SelectItem key={o.key} value={o.key}>
+                  {o.label}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -578,10 +583,14 @@ export function RecentSales({
           className="w-full"
           onClick={onOpenCorte}
           data-tour="pos-corte"
-          title={`Corte del día ${range.to}`}
+          title={
+            singleDay
+              ? `Corte del día ${range.to}`
+              : `Corte de ventas del ${range.from} al ${range.to}`
+          }
         >
           <ClipboardList />
-          Corte del dia
+          {singleDay ? 'Corte del día' : 'Corte de ventas'}
         </Button>
       </div>
     </div>

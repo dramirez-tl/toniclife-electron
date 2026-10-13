@@ -184,7 +184,12 @@ export type PrinterOpResult = { ok: true } | { ok: false; error: string };
  *  desde la config persistida). */
 export interface CorteReceiptPayload {
   branchName: string;
+  /** Día del corte o, con rango, el "Desde" (YYYY-MM-DD). */
   date: string;
+  /** "Hasta" del rango; ausente o igual a `date` = corte de un solo día. */
+  dateTo?: string;
+  /** Caja filtrada ("Caja: …" en el ticket); ausente = todas las cajas. */
+  terminalLabel?: string;
   currencySymbol: string;
   cashier?: string;
   totalSales: number;
@@ -203,6 +208,9 @@ export interface CorteReceiptPayload {
     total: number;
     /** Etiqueta de la terminal que cobró (columna solo con varias terminales). */
     terminal?: string;
+    /** Día local de la sucursal (YYYY-MM-DD): el ticket agrupa por día cuando
+     *  el corte abarca varios. */
+    day?: string;
   }>;
 }
 

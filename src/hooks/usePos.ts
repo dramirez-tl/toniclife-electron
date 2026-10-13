@@ -26,12 +26,40 @@ export const posKeys = {
     [...posKeys.all, 'sponsor-by-number', num] as const,
   activeSession: (branchId: string) =>
     [...posKeys.all, 'active-session', branchId] as const,
-  sales: (branchId: string, from: string, to: string, posLicenseId = '') =>
-    [...posKeys.all, 'sales', branchId, from, to, posLicenseId] as const,
+  sales: (
+    branchId: string,
+    from: string,
+    to: string,
+    posLicenseId = '',
+    capturedVia = '',
+  ) =>
+    [
+      ...posKeys.all,
+      'sales',
+      branchId,
+      from,
+      to,
+      posLicenseId,
+      capturedVia,
+    ] as const,
   globalDays: (branchId: string, from: string, to: string) =>
     [...posKeys.all, 'global-days', branchId, from, to] as const,
-  dailySummary: (branchId: string, date: string) =>
-    [...posKeys.all, 'daily-summary', branchId, date] as const,
+  dailySummary: (
+    branchId: string,
+    from: string,
+    to: string,
+    posLicenseId = '',
+    capturedVia = '',
+  ) =>
+    [
+      ...posKeys.all,
+      'daily-summary',
+      branchId,
+      from,
+      to,
+      posLicenseId,
+      capturedVia,
+    ] as const,
   balance: (sessionId: string) => [...posKeys.all, 'balance', sessionId] as const,
   movements: (sessionId: string) =>
     [...posKeys.all, 'movements', sessionId] as const,
@@ -118,27 +146,39 @@ export const usePosActiveSession = (branchId: string | undefined) =>
   });
 
 /** Ventas de la sucursal en un rango de días locales (from..to, YYYY-MM-DD;
- *  un solo día = from === to). opts.posLicenseId filtra por terminal en el
- *  API. */
+ *  un solo día = from === to). opts.posLicenseId filtra por terminal y
+ *  opts.capturedVia por canal ('usuario' = sin terminal), ambos en el API. */
 export const usePosSales = (
   branchId: string | undefined,
   from: string,
   to: string,
-  opts?: { posLicenseId?: string; limit?: number },
+  opts?: {
+    posLicenseId?: string;
+    capturedVia?: 'terminal' | 'usuario';
+    limit?: number;
+  },
 ) => {
   // 5000 = tope del API. Con 100, sucursales de alto volumen como Zacatelco
   // (140 ventas el 17-ago) dejaban de VER sus ventas de la mañana en
   // corte/recientes/CSV; con rangos de hasta 31 días hace falta el tope.
   const limit = opts?.limit ?? 5000;
   const posLicenseId = opts?.posLicenseId;
+  const capturedVia = opts?.capturedVia;
   return useQuery({
-    queryKey: posKeys.sales(branchId ?? '', from, to, posLicenseId ?? ''),
+    queryKey: posKeys.sales(
+      branchId ?? '',
+      from,
+      to,
+      posLicenseId ?? '',
+      capturedVia ?? '',
+    ),
     queryFn: () =>
       posApi.getSales({
         branchId,
         fromDate: from,
         toDate: to,
         ...(posLicenseId ? { posLicenseId } : {}),
+        ...(capturedVia ? { capturedVia } : {}),
         limit,
       }),
     enabled: !!branchId && !!from && !!to,
@@ -171,16 +211,28 @@ export const usePosSale = (saleId: string | undefined, enabled = true) =>
     staleTime: 10 * 1000,
   });
 
-/** Resumen del corte del dia para la sucursal. */
+/** Resumen del corte de la sucursal para un rango de días locales (un solo
+ *  día = from === to), con filtro opcional por caja. */
 export const usePosDailySummary = (
   branchId: string | undefined,
-  date: string,
+  params: {
+    from: string;
+    to: string;
+    posLicenseId?: string;
+    capturedVia?: 'terminal' | 'usuario';
+  },
   enabled = true,
 ) =>
   useQuery({
-    queryKey: posKeys.dailySummary(branchId ?? '', date),
-    queryFn: () => posApi.getDailySummary(branchId!, date),
-    enabled: !!branchId && enabled,
+    queryKey: posKeys.dailySummary(
+      branchId ?? '',
+      params.from,
+      params.to,
+      params.posLicenseId ?? '',
+      params.capturedVia ?? '',
+    ),
+    queryFn: () => posApi.getDailySummary(branchId!, params),
+    enabled: !!branchId && !!params.from && !!params.to && enabled,
     staleTime: 15 * 1000,
   });
 

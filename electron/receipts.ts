@@ -61,6 +61,10 @@ export interface CorteSaleRow {
   total: number;
   /** Etiqueta de la terminal que cobró (se imprime solo con varias terminales). */
   terminal?: string;
+  /** Día local de la sucursal (YYYY-MM-DD), calculado en el renderer (el main
+   *  no conoce la zona horaria de la sucursal). Con rango de varios días la
+   *  lista se agrupa por día. */
+  day?: string;
 }
 
 export interface CortePaymentRow {
@@ -77,7 +81,11 @@ export interface CorteTerminalRow {
 
 export interface CorteReceiptInput {
   branchName: string;
-  date: string; // YYYY-MM-DD
+  date: string; // YYYY-MM-DD (día del corte o "Desde" del rango)
+  /** "Hasta" del rango; ausente o igual a `date` = corte de un solo día. */
+  dateTo?: string;
+  /** Caja filtrada: se imprime "Caja: …"; ausente = todas las cajas. */
+  terminalLabel?: string;
   paperWidth: 58 | 80;
   /** Matriz de punto: logo en texto, sin gráficos. */
   textLogo?: boolean;
@@ -300,11 +308,15 @@ export function buildCorteReceiptBytes(input: CorteReceiptInput): Buffer {
   // Logo encabezado.
   printHeaderLogo(p, input.paperWidth, input.textLogo);
 
-  // Titulo.
+  // Titulo. Con rango de varios días el corte deja de ser "del día".
+  const multiDay = !!input.dateTo && input.dateTo !== input.date;
   p.align('center');
-  p.size(2, 2).line('CORTE DEL DIA').size(1, 1);
+  p.size(2, 2).line(multiDay ? 'CORTE DE VENTAS' : 'CORTE DEL DIA').size(1, 1);
   p.line(input.branchName);
-  p.line(input.date);
+  p.line(multiDay ? `Del ${input.date} al ${input.dateTo}` : input.date);
+  if (input.terminalLabel) {
+    p.line(`Caja: ${input.terminalLabel}`.slice(0, cols));
+  }
   p.line(sep);
 
   // --- RESUMEN ---
@@ -349,8 +361,14 @@ export function buildCorteReceiptBytes(input: CorteReceiptInput): Buffer {
     p.line(sep);
   }
 
-  // --- VENTAS DEL DIA ---
-  p.bold(true).line(`VENTAS DEL DIA (${input.sales.length})`).bold(false);
+  // --- VENTAS (del día o del rango) ---
+  p.bold(true)
+    .line(
+      multiDay
+        ? `VENTAS (${input.sales.length})`
+        : `VENTAS DEL DIA (${input.sales.length})`,
+    )
+    .bold(false);
   if (input.sales.length === 0) {
     p.line('(sin ventas)');
   } else {
@@ -367,7 +385,14 @@ export function buildCorteReceiptBytes(input: CorteReceiptInput): Buffer {
         padRight('Hora', wHora) +
         padRight('Total', wTotal),
     );
+    // Con varios días, un renglón de encabezado por día (en vez de una
+    // columna más: las 3 columnas ya ocupan todo el ancho de 58 mm).
+    let lastDay: string | undefined;
     for (const s of input.sales) {
+      if (multiDay && s.day && s.day !== lastDay) {
+        lastDay = s.day;
+        p.bold(true).line(padRight(`-- ${s.day}`, cols)).bold(false);
+      }
       // Con varias terminales, el folio lleva la terminal entre corchetes
       // para que el supervisor separe las ventas por caja.
       const folio =

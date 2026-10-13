@@ -335,12 +335,26 @@ class PosApi {
     return data;
   }
 
+  /** Resumen del corte de un rango de días LOCALES (from..to) con filtro
+   *  opcional por caja. `date=to` viaja por compatibilidad: el API viejo (solo
+   *  `date`) ignora el resto y responde ese único día sin `fromDate`. */
   async getDailySummary(
     branchId: string,
-    date?: string,
+    params: {
+      from: string;
+      to: string;
+      posLicenseId?: string;
+      capturedVia?: 'terminal' | 'usuario';
+    },
   ): Promise<DailySalesSummary> {
     const { data } = await api.get(`/pos/sales/summary/${branchId}`, {
-      params: date ? { date } : undefined,
+      params: {
+        date: params.to,
+        fromDate: params.from,
+        toDate: params.to,
+        ...(params.posLicenseId ? { posLicenseId: params.posLicenseId } : {}),
+        ...(params.capturedVia ? { capturedVia: params.capturedVia } : {}),
+      },
     });
     return data;
   }
