@@ -11,13 +11,13 @@ import { X, ClipboardList, Printer, Download, Monitor } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
 import {
   Select,
   SelectContent,
@@ -263,14 +263,18 @@ export function CorteModal({
   }
 
   return (
-    <Dialog
+    // Panel lateral (80 % del ancho): el corte de un rango con varias cajas
+    // necesita más espacio que un modal centrado — KPIs en una fila,
+    // desgloses lado a lado y la tabla de ventas completa.
+    <Sheet
       open={isOpen}
       onOpenChange={(open) => {
         if (!open && !busy) onClose();
       }}
     >
-      <DialogContent
-        className="max-w-2xl max-h-[92vh] overflow-y-auto gap-0 p-0 rounded-2xl"
+      <SheetContent
+        side="right"
+        className="w-[80vw] sm:max-w-[80vw] gap-0 p-0"
         showCloseButton={false}
         onInteractOutside={(e) => {
           if (busy) e.preventDefault();
@@ -279,62 +283,63 @@ export function CorteModal({
           if (busy) e.preventDefault();
         }}
       >
-        {/* Header */}
-        <DialogHeader className="flex-row items-center justify-between space-y-0 px-6 py-4 border-b text-left">
-          <div className="flex items-center gap-2">
-            <ClipboardList className="size-5 text-primary" />
-            <div>
-              <DialogTitle className="text-lg font-bold text-foreground">
+        {/* Header: título + rango a la izquierda, selector de caja a la derecha */}
+        <SheetHeader className="flex-row items-center justify-between gap-4 space-y-0 px-6 py-4 border-b text-left">
+          <div className="flex min-w-0 items-center gap-2">
+            <ClipboardList className="size-5 shrink-0 text-primary" />
+            <div className="min-w-0">
+              <SheetTitle className="text-lg font-bold text-foreground">
                 {title}
-              </DialogTitle>
-              <DialogDescription className="text-xs">
+              </SheetTitle>
+              <SheetDescription className="text-xs truncate">
                 {subtitle}
-              </DialogDescription>
+              </SheetDescription>
             </div>
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-8"
-            onClick={() => !busy && onClose()}
-            disabled={busy}
-            aria-label="Cerrar"
-          >
-            <X className="size-4 text-muted-foreground" />
-          </Button>
-        </DialogHeader>
-
-        {/* Body */}
-        <div className="px-6 py-5 space-y-5">
-          {/* Selector de caja: mismo estado que el panel de ventas */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-muted-foreground shrink-0">
-              Caja:
-            </span>
-            <Select
-              value={terminalFilter}
-              onValueChange={onTerminalFilterChange}
-              disabled={busy}
-            >
-              <SelectTrigger
-                size="sm"
-                className="w-full max-w-xs text-xs"
-                title="Corte de todas las cajas o de una en específico"
+          <div className="flex items-center gap-3 shrink-0">
+            {/* Selector de caja: mismo estado que el panel de ventas */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-muted-foreground">
+                Caja:
+              </span>
+              <Select
+                value={terminalFilter}
+                onValueChange={onTerminalFilterChange}
+                disabled={busy}
               >
-                <Monitor className="size-3.5 text-muted-foreground" />
-                <SelectValue placeholder="Todas las cajas" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL_TERMINALS}>Todas las cajas</SelectItem>
-                {terminalOptions.map((o) => (
-                  <SelectItem key={o.key} value={o.key}>
-                    {o.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+                <SelectTrigger
+                  size="sm"
+                  className="w-56 text-xs"
+                  title="Corte de todas las cajas o de una en específico"
+                >
+                  <Monitor className="size-3.5 text-muted-foreground" />
+                  <SelectValue placeholder="Todas las cajas" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_TERMINALS}>Todas las cajas</SelectItem>
+                  {terminalOptions.map((o) => (
+                    <SelectItem key={o.key} value={o.key}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8"
+              onClick={() => !busy && onClose()}
+              disabled={busy}
+              aria-label="Cerrar"
+            >
+              <X className="size-4 text-muted-foreground" />
+            </Button>
           </div>
+        </SheetHeader>
 
+        {/* Body (scroll propio; header y footer fijos) */}
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
           {showLegacyNotice && (
             <p className="rounded-md bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
               El corte por rango y por caja requiere la versión nueva del
@@ -355,7 +360,7 @@ export function CorteModal({
           ) : (
             <>
               {/* Tarjetas de resumen */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 <StatCard
                   label="Ventas"
                   value={String(summary.totalSales)}
@@ -375,6 +380,8 @@ export function CorteModal({
                 />
               </div>
 
+              {/* Desgloses lado a lado (pagos · cajas · factura global) */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
               {/* Desglose por metodo de pago */}
               <div>
                 <h3 className="text-sm font-semibold text-foreground mb-2">
@@ -455,6 +462,7 @@ export function CorteModal({
                   invoicingEnabled={invoicingEnabled}
                 />
               )}
+              </div>
 
               {/* Tabla de ventas */}
               <div>
@@ -527,11 +535,16 @@ export function CorteModal({
                             <TableCell className="px-3 py-1.5 text-muted-foreground">
                               {formatTime(s.createdAt, branchTz)}
                             </TableCell>
-                            <TableCell className="px-3 py-1.5 text-muted-foreground truncate max-w-[10rem]">
+                            <TableCell className="px-3 py-1.5 text-muted-foreground truncate max-w-[22rem]">
                               {s.customerName ?? 'Publico'}
+                              {s.customerNumber ? (
+                                <span className="ml-1 text-xs text-muted-foreground/80">
+                                  #{s.customerNumber}
+                                </span>
+                              ) : null}
                             </TableCell>
                             {multiTerminal && (
-                              <TableCell className="px-3 py-1.5 text-xs text-muted-foreground truncate max-w-[8rem]">
+                              <TableCell className="px-3 py-1.5 text-xs text-muted-foreground truncate max-w-[12rem]">
                                 {saleTerminal(s)}
                               </TableCell>
                             )}
@@ -550,7 +563,7 @@ export function CorteModal({
         </div>
 
         {/* Footer */}
-        <DialogFooter className="flex-row items-center justify-between gap-2 px-6 py-4 border-t bg-muted/30 rounded-b-2xl">
+        <SheetFooter className="mt-0 flex-row items-center justify-between gap-2 px-6 py-4 border-t bg-muted/30">
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
@@ -573,9 +586,9 @@ export function CorteModal({
           <Button variant="outline" onClick={onClose} disabled={printing}>
             Cerrar
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   );
 }
 
