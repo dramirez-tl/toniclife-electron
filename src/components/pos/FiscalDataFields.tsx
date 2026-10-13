@@ -111,7 +111,7 @@ export function FiscalDataFields({
           <SelectTrigger className="w-full">
             <SelectValue placeholder="Selecciona..." />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent position="popper">
             {(catalogs?.regimes ?? []).map((r) => (
               <SelectItem key={r.Value} value={r.Value}>
                 {r.Value} — {r.Name}
@@ -129,7 +129,7 @@ export function FiscalDataFields({
           <SelectTrigger className="w-full">
             <SelectValue placeholder="Selecciona..." />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent position="popper">
             {(catalogs?.cfdiUses ?? []).map((u) => (
               <SelectItem key={u.Value} value={u.Value}>
                 {u.Value} — {u.Name}
