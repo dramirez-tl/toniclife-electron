@@ -53,7 +53,16 @@ const DEFAULT_TAX_RATE = 0; // El API manda el rate correcto por pais.
 // Redondeo a 2 decimales (dinero). Con sales tax US (impuesto añadido) el total
 // sale con >2 decimales (ej. 48 * 0.0852 = 52.0896); sin redondear, el monto del
 // pago se rechazaba en el API ("payments.0.amount must be a number ...").
-const round2 = (n: number): number => Math.round((n + Number.EPSILON) * 100) / 100;
+// MITAD HACIA ARRIBA pese al float (7.175 se guarda como 7.17499999…):
+// se aplana el ruido binario a 6 decimales antes de redondear. MISMA función
+// que el API (pos/lib/money.lib.ts): el pago se arma con este total y el API
+// lo valida al centavo contra el suyo (Santa Fe Springs, 13-oct-2026).
+const round2 = (n: number): number => {
+  if (!Number.isFinite(n)) return 0;
+  const sign = n < 0 ? -1 : 1;
+  const cents = Math.round(Number((Math.abs(n) * 100).toFixed(6)));
+  return (sign * cents) / 100;
+};
 
 const initialCart: PosCart = {
   items: [],
