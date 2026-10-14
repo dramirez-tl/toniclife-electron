@@ -241,6 +241,7 @@ export const usePosCartStore = create<PosCartStore>()(
               points: product.points ?? 0,
               businessVolume: product.businessVolume ?? 0,
               productType: product.productType,
+              event: product.event,
               maxQuantity: maxQty,
               components: product.components,
             });

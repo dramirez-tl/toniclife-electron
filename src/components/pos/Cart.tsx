@@ -13,6 +13,7 @@ import {
   Tag,
   Package,
   Loader2,
+  Ticket,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -20,6 +21,7 @@ import { Input } from '@/components/ui/input';
 import { usePosCartStore } from '@/stores/pos-cart.store';
 import { posApi } from '@/lib/posApi';
 import { formatIncludes, isKitLikeType } from '@/lib/kitComponents';
+import { eventLine } from '@/lib/eventInfo';
 import { CustomerSelector } from './CustomerSelector';
 import { PosPointsBar } from './PosPointsBar';
 
@@ -196,6 +198,17 @@ export function Cart({
                       <div className="text-[11px] text-muted-foreground font-mono">
                         {item.productSku}
                       </div>
+                      {item.event && (
+                        <p
+                          className="mt-0.5 flex items-center gap-1 text-[11px] text-[#3E667D]"
+                          title={`Boleto del evento ${item.event.name}: al cobrar se emiten ${item.quantity * item.event.ticketsPerUnit} boleto(s) y se envían al correo del cliente`}
+                        >
+                          <Ticket className="size-3 shrink-0" />
+                          <span className="truncate">
+                            {eventLine(item.event)} · {item.quantity * item.event.ticketsPerUnit} boleto(s)
+                          </span>
+                        </p>
+                      )}
                     </div>
                     <Button
                       type="button"

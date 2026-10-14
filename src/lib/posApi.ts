@@ -17,6 +17,8 @@ import type {
   ProcessPaymentInput,
   PaymentResult,
   QuickProduct,
+  PosEventInfo,
+  SaleEventTicket,
   PosCustomer,
   CustomerPeriodStats,
   CreateCashMovementInput,
@@ -94,6 +96,21 @@ export function isAssembledKit(p: {
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+/** `event` del catálogo (clave que es boleto de un evento); ausente en APIs viejas. */
+function mapEventInfo(e: any): PosEventInfo | undefined {
+  if (!e || typeof e !== 'object' || !e.id || !e.name) return undefined;
+  return {
+    id: String(e.id),
+    code: String(e.code ?? ''),
+    name: String(e.name),
+    eventDate: String(e.eventDate ?? ''),
+    startTime: e.startTime ?? null,
+    status: String(e.status ?? 'active'),
+    label: e.label ?? null,
+    ticketsPerUnit: Number(e.ticketsPerUnit) > 0 ? Number(e.ticketsPerUnit) : 1,
+  };
+}
+
 function mapApiProduct(p: any): QuickProduct {
   // `stock` viene del API con branchId: para un producto normal o un kit
   // PREARMADO es la pieza propia en la sucursal; para un kit/paquete que se
@@ -126,6 +143,7 @@ function mapApiProduct(p: any): QuickProduct {
     productType: p.productType,
     kitPosition: p.kitPosition,
     isEnrollmentKit: p.isEnrollmentKit === true,
+    event: mapEventInfo(p.event),
   };
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
@@ -363,6 +381,14 @@ class PosApi {
   async getSaleById(id: string): Promise<Sale> {
     const { data } = await api.get(`/pos/sales/${id}`);
     return data;
+  }
+
+  /** Boletos de evento emitidos por la venta (el API los emite al cobrar). */
+  async getSaleTickets(saleId: string): Promise<SaleEventTicket[]> {
+    const { data } = await api.get<SaleEventTicket[]>(
+      `/pos/sales/${saleId}/tickets`,
+    );
+    return Array.isArray(data) ? data : [];
   }
 
   async cancelSale(saleId: string, input: CancelSaleInput): Promise<Sale> {

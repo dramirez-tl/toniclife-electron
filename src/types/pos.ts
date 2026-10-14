@@ -386,6 +386,8 @@ export interface PosCartItem {
   productType?: string;
   /** Tope de cantidad: para promos = derechos disponibles (default 1). */
   maxQuantity?: number;
+  /** Evento del que la clave es boleto (se emiten al cobrar). */
+  event?: PosEventInfo;
   /** Productos que incluye (BoM) — para mostrar/imprimir "qué incluye".
    *  undefined = aún no se consultó (PosScreen lo completa en segundo plano
    *  para kit/pack/promocional); [] = se consultó y no tiene contenido. */
@@ -439,6 +441,34 @@ export interface PosCouponValidation {
 // QUICK PRODUCT
 // ============================================================================
 
+/** Evento del que la clave es boleto (GET /products con branchId → `event`). */
+export interface PosEventInfo {
+  id: string;
+  code: string;
+  name: string;
+  /** YYYY-MM-DD (fecha de negocio, sin zona horaria). */
+  eventDate: string;
+  startTime?: string | null;
+  /** draft | active | closed | cancelled */
+  status: string;
+  /** Titular / Invitado (se imprime en el boleto). */
+  label?: string | null;
+  /** Boletos que emite cada unidad vendida. */
+  ticketsPerUnit: number;
+}
+
+/** Boleto emitido por una venta (GET /pos/sales/:id/tickets). */
+export interface SaleEventTicket {
+  id: string;
+  eventName: string;
+  ticketNumber: string;
+  label: string | null;
+  attendeeName?: string | null;
+  attendeeEmail: string | null;
+  status?: string;
+  emailStatus: string;
+}
+
 export interface QuickProduct {
   id: string;
   sku: string;
@@ -468,6 +498,8 @@ export interface QuickProduct {
    * Dispara el flujo de enrolamiento de distribuidor en POS.
    */
   isEnrollmentKit?: boolean;
+  /** Evento del que la clave es boleto: la tarjeta y el carrito lo marcan. */
+  event?: PosEventInfo;
   /**
    * Solo kit/pack: TRUE = se ARMA al vender (descuenta componentes; su `stock`
    * es cuántos se pueden armar en la sucursal, 0 si falta cualquier

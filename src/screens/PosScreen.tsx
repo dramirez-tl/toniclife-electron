@@ -651,6 +651,43 @@ export function PosScreen({
           : '';
       toast.success(`Venta ${result.saleNumber} cobrada${changeMsg}`);
 
+      // Boletos de evento: el API los emite al cobrar (claves ligadas a un
+      // evento). Se avisa al cajero cuántos salieron y a qué correo se mandan,
+      // o que falta el correo (entonces se envían después desde el admin).
+      if (cart.items.some((it) => it.event)) {
+        void posApi
+          .getSaleTickets(saleId)
+          .then((tickets) => {
+            const issued = tickets.filter((t) => t.status !== 'cancelled');
+            if (issued.length === 0) {
+              toast.warning(
+                'La venta lleva una clave de evento pero no se emitió ningún boleto. Revísalo en el admin: Eventos › Boletos.',
+                { duration: 8000 },
+              );
+              return;
+            }
+            const emails = Array.from(
+              new Set(
+                issued
+                  .map((t) => t.attendeeEmail)
+                  .filter((e): e is string => !!e),
+              ),
+            );
+            const numbers = issued.map((t) => t.ticketNumber).join(', ');
+            toast.success(
+              emails.length > 0
+                ? `${issued.length} boleto(s) de evento emitido(s): ${numbers}. Se envían a ${emails.join(', ')}.`
+                : `${issued.length} boleto(s) de evento emitido(s): ${numbers}. El cliente no tiene correo: se envían después desde el admin (Eventos › Boletos).`,
+              { duration: 10000 },
+            );
+          })
+          .catch(() => {
+            toast.info(
+              'Boletos del evento: consúltalos en el admin (Eventos › Boletos).',
+            );
+          });
+      }
+
       // Ticket de venta + cajón (fire-and-forget: si la impresora falla, la
       // venta YA quedó cobrada; solo se avisa). Snapshot del carrito ANTES de
       // limpiarlo. El cajón solo abre si hubo efectivo.

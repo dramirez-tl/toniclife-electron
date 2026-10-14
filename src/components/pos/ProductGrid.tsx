@@ -3,7 +3,8 @@
 // precio publico, sin price tiers — eso llega en 4c con el selector de cliente).
 
 import { useMemo, useState } from 'react';
-import { Search, ScanBarcode, PackageX, Plus, ListPlus, Info } from 'lucide-react';
+import { Search, ScanBarcode, PackageX, Plus, ListPlus, Info, Ticket } from 'lucide-react';
+import { eventLine } from '@/lib/eventInfo';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -423,6 +424,15 @@ export function ProductGrid({
                         )}
                       </div>
                     )}
+                    {product.event && (
+                      <span
+                        className="absolute top-2 left-2 inline-flex items-center gap-1 rounded-full bg-[#3E667D] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white shadow"
+                        title={`Boleto del evento ${product.event.name}: al cobrar se emiten los boletos`}
+                      >
+                        <Ticket className="size-3" />
+                        Boleto
+                      </span>
+                    )}
                     {inCart > 0 && !out && (
                       <span className="absolute top-2 right-2 bg-primary text-primary-foreground text-xs font-bold rounded-full size-6 flex items-center justify-center shadow">
                         {inCart}
@@ -444,6 +454,15 @@ export function ProductGrid({
                     <div className="text-[11px] text-muted-foreground font-mono mt-0.5">
                       {product.sku}
                     </div>
+                    {product.event && (
+                      <div
+                        className="mt-0.5 flex items-center gap-1 text-[11px] text-[#3E667D] truncate"
+                        title={eventLine(product.event)}
+                      >
+                        <Ticket className="size-3 shrink-0" />
+                        <span className="truncate">{eventLine(product.event)}</span>
+                      </div>
+                    )}
                     <div className="mt-1.5 flex items-baseline justify-between">
                       <span className="text-base font-bold text-primary">
                         {posApi.formatCurrency(product.basePrice, currencySymbol)}
