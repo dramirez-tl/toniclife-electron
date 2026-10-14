@@ -3,7 +3,16 @@
 
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { X, Ban, Receipt, Printer, FileText, Mail, Send } from 'lucide-react';
+import {
+  X,
+  Ban,
+  Receipt,
+  Printer,
+  FileText,
+  Mail,
+  Send,
+  Ticket,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -33,6 +42,7 @@ import { posApi } from '@/lib/posApi';
 import { getApiErrorMessage } from '@/lib/apiError';
 import { formatDateTime } from '@/lib/date';
 import { canInvoiceSale } from '@/lib/invoiceEligibility';
+import type { SaleEventTicket } from '@/types/pos';
 import {
   INVOICE_STATUS_LABELS,
   firstRecipient,
@@ -96,6 +106,11 @@ export function SaleDetailModal({
   const [showResend, setShowResend] = useState(false);
   const [resendEmail, setResendEmail] = useState('');
   const [sendingEmail, setSendingEmail] = useState(false);
+  // Boletos de evento de la venta (vacío si no es venta de evento o el API es
+  // anterior); se pueden (re)enviar a otro correo si el del cliente rebotó.
+  const [tickets, setTickets] = useState<SaleEventTicket[]>([]);
+  const [ticketsEmail, setTicketsEmail] = useState('');
+  const [sendingTickets, setSendingTickets] = useState(false);
 
   useEffect(() => {
     if (!isOpen) {
@@ -106,7 +121,34 @@ export function SaleDetailModal({
     }
   }, [isOpen]);
 
-  const busy = cancelSale.isPending || reprinting || openingPdf || sendingEmail;
+  useEffect(() => {
+    if (!isOpen || !sale?.id) {
+      setTickets([]);
+      return;
+    }
+    let cancelled = false;
+    posApi
+      .getSaleTickets(sale.id)
+      .then((list) => {
+        if (cancelled) return;
+        setTickets(list);
+        const known = list.find((t) => t.emailedTo || t.attendeeEmail);
+        setTicketsEmail(known?.emailedTo || known?.attendeeEmail || '');
+      })
+      .catch(() => {
+        if (!cancelled) setTickets([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, sale?.id]);
+
+  const busy =
+    cancelSale.isPending ||
+    reprinting ||
+    openingPdf ||
+    sendingEmail ||
+    sendingTickets;
   const fmt = (n: number) => posApi.formatCurrency(n, currencySymbol);
   // Cancelar ventas (regla 19-ago-2026): SOLO Operaciones y administracion
   // central — el server lo exige con @Roles; aqui ademas se oculta la opcion
@@ -282,6 +324,33 @@ export function SaleDetailModal({
       );
     } finally {
       setSendingEmail(false);
+    }
+  }
+
+  async function handleSendTickets() {
+    if (!sale) return;
+    const email = ticketsEmail.trim();
+    if (!looksLikeEmail(email)) {
+      toast.error('Captura un correo válido para los boletos');
+      return;
+    }
+    setSendingTickets(true);
+    try {
+      const r = await posApi.sendSaleTicketsEmail(sale.id, email);
+      toast.success(`${r.tickets} boleto(s) enviado(s) a ${r.sentTo}`);
+      setTickets((prev) =>
+        prev.map((t) =>
+          t.status === 'cancelled'
+            ? t
+            : { ...t, emailedTo: r.sentTo, emailStatus: 'sent' },
+        ),
+      );
+    } catch (err) {
+      toast.error(
+        getApiErrorMessage(err, 'No se pudieron enviar los boletos'),
+      );
+    } finally {
+      setSendingTickets(false);
     }
   }
 
@@ -614,6 +683,59 @@ export function SaleDetailModal({
                       </p>
                     </div>
                   )}
+                </div>
+              )}
+              {/* Boletos de evento: estado de envío y reenvío a otro correo */}
+              {tickets.length > 0 && (
+                <div className="space-y-1.5 rounded-md border border-[#a7c1e2] bg-[#C8DDF2]/20 p-2">
+                  <p className="flex items-center gap-1 text-xs font-medium text-[#2f5165]">
+                    <Ticket className="size-3.5" />
+                    Boletos de evento ({tickets.length})
+                  </p>
+                  <ul className="space-y-0.5 text-[11px] text-muted-foreground">
+                    {tickets.map((t) => (
+                      <li key={t.id} className="flex flex-wrap gap-x-2">
+                        <span className="font-mono text-foreground">
+                          {t.ticketNumber}
+                        </span>
+                        {t.label ? <span>· {t.label}</span> : null}
+                        {t.status === 'cancelled' ? (
+                          <span className="text-destructive">· cancelado</span>
+                        ) : t.emailStatus === 'sent' &&
+                          (t.emailedTo || t.attendeeEmail) ? (
+                          <span>· enviado a {t.emailedTo || t.attendeeEmail}</span>
+                        ) : (
+                          <span className="text-amber-700">· sin enviar</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                  <Label className="text-xs">Enviar los boletos a</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="email"
+                      value={ticketsEmail}
+                      onChange={(e) => setTicketsEmail(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') void handleSendTickets();
+                      }}
+                      placeholder="correo@ejemplo.com"
+                      className="h-8 text-xs bg-card"
+                      disabled={sendingTickets}
+                    />
+                    <Button
+                      size="sm"
+                      onClick={handleSendTickets}
+                      disabled={sendingTickets || !ticketsEmail.trim()}
+                    >
+                      <Send />
+                      {sendingTickets ? 'Enviando…' : 'Enviar'}
+                    </Button>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Si el correo rebotó o el cliente quiere recibirlos en otro,
+                    cámbialo aquí y vuelve a enviar.
+                  </p>
                 </div>
               )}
               {sale.globalInvoiceId && (

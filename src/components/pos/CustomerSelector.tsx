@@ -58,6 +58,7 @@ export function CustomerSelector() {
       customer.rfc,
       customer.priceTypeId,
       customer.customerNumber,
+      customer.email,
     );
     setOpen(false);
     setQuery('');

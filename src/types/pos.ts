@@ -245,6 +245,10 @@ export interface CreateSaleInput {
    * vez de duplicarla.
    */
   clientRequestId?: string;
+  /** Boletos de evento: asistente/correo al que se mandan (si no, el cliente). */
+  attendeeName?: string;
+  attendeeEmail?: string;
+  attendeePhone?: string;
 }
 
 export interface CancelSaleInput {
@@ -402,6 +406,10 @@ export interface PosCart {
   customerName?: string;
   customerNumber?: string;
   customerRfc?: string;
+  /** Correo del cliente asignado (para proponerlo en los boletos de evento). */
+  customerEmail?: string;
+  /** Correo capturado en caja para los boletos de evento (vacío = el del cliente). */
+  attendeeEmail?: string;
   priceTypeId?: string;
   isPublicPrice?: boolean;
   subtotal: number;
@@ -457,6 +465,13 @@ export interface PosEventInfo {
   ticketsPerUnit: number;
 }
 
+/** POST /pos/sales/:id/tickets/email */
+export interface TicketEmailResult {
+  sentTo: string;
+  tickets: number;
+  emailedAt: string;
+}
+
 /** Boleto emitido por una venta (GET /pos/sales/:id/tickets). */
 export interface SaleEventTicket {
   id: string;
@@ -467,6 +482,8 @@ export interface SaleEventTicket {
   attendeeEmail: string | null;
   status?: string;
   emailStatus: string;
+  /** Último correo al que se envió (puede diferir del asistente tras un reenvío). */
+  emailedTo?: string | null;
 }
 
 export interface QuickProduct {

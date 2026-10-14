@@ -25,8 +25,11 @@ interface PosCartStore {
     customerRfc?: string,
     priceTypeId?: string,
     customerNumber?: string,
+    customerEmail?: string,
   ) => void;
   setPublicPrice: (isPublic: boolean) => void;
+  /** Correo capturado en caja para los boletos de evento (vacío = el del cliente). */
+  setAttendeeEmail: (email?: string) => void;
   setDiscount: (
     discountPercent?: number,
     discountAmount?: number,
@@ -322,6 +325,7 @@ export const usePosCartStore = create<PosCartStore>()(
         customerRfc,
         priceTypeId,
         customerNumber,
+        customerEmail,
       ) => {
         set((state) => {
           // Las promociones son derechos del distribuidor seleccionado. Al
@@ -338,11 +342,20 @@ export const usePosCartStore = create<PosCartStore>()(
               customerName,
               customerNumber,
               customerRfc,
+              customerEmail,
+              // Al cambiar de cliente, el correo de los boletos vuelve al suyo.
+              attendeeEmail: undefined,
               priceTypeId,
               isPublicPrice: false,
             }),
           };
         });
+      },
+
+      setAttendeeEmail: (email) => {
+        set((state) => ({
+          cart: { ...state.cart, attendeeEmail: email || undefined },
+        }));
       },
 
       setPublicPrice: (isPublic) => {
@@ -362,6 +375,8 @@ export const usePosCartStore = create<PosCartStore>()(
                     customerName: undefined,
                     customerNumber: undefined,
                     customerRfc: undefined,
+                    customerEmail: undefined,
+                    attendeeEmail: undefined,
                     priceTypeId: undefined,
                   }
                 : {}),

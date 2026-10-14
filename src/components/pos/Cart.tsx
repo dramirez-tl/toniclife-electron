@@ -55,6 +55,7 @@ export function Cart({
   const clearCart = usePosCartStore((s) => s.clearCart);
   const setCoupon = usePosCartStore((s) => s.setCoupon);
   const clearCoupon = usePosCartStore((s) => s.clearCoupon);
+  const setAttendeeEmail = usePosCartStore((s) => s.setAttendeeEmail);
 
   const [showCoupon, setShowCoupon] = useState(false);
   const [couponInput, setCouponInput] = useState('');
@@ -158,6 +159,29 @@ export function Cart({
           cartPoints={cart.totalPoints}
           branchId={branchId}
         />
+      )}
+
+      {/* Boletos de evento: a qué correo se mandan (por defecto el del cliente) */}
+      {cart.items.some((i) => i.event) && (
+        <div className="px-4 py-2 border-b bg-[#C8DDF2]/20 space-y-1">
+          <label className="flex items-center gap-1 text-[11px] font-medium text-[#2f5165]">
+            <Ticket className="size-3" />
+            Correo para los boletos
+          </label>
+          <Input
+            type="email"
+            value={cart.attendeeEmail ?? cart.customerEmail ?? ''}
+            onChange={(e) => setAttendeeEmail(e.target.value)}
+            placeholder="correo@ejemplo.com"
+            className="h-8 text-xs bg-card"
+            aria-label="Correo al que se envían los boletos del evento"
+          />
+          <p className="text-[10px] text-muted-foreground">
+            {cart.customerEmail
+              ? 'Por defecto el del cliente; cámbialo si quiere recibirlos en otro.'
+              : 'Sin correo los boletos se emiten pero no se envían (se pueden mandar después desde la venta).'}
+          </p>
+        </div>
       )}
 
       {/* Items */}

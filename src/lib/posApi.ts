@@ -21,6 +21,7 @@ import type {
   SaleEventTicket,
   GlobalDayProcess,
   GlobalEmitAccepted,
+  TicketEmailResult,
   PosCustomer,
   CustomerPeriodStats,
   CreateCashMovementInput,
@@ -391,6 +392,19 @@ class PosApi {
       `/pos/sales/${saleId}/tickets`,
     );
     return Array.isArray(data) ? data : [];
+  }
+
+  /** (Re)envía por correo los boletos de la venta; sin `to` usa el del
+   *  asistente/cliente. */
+  async sendSaleTicketsEmail(
+    saleId: string,
+    to?: string,
+  ): Promise<TicketEmailResult> {
+    const { data } = await api.post<TicketEmailResult>(
+      `/pos/sales/${saleId}/tickets/email`,
+      to ? { to } : {},
+    );
+    return data;
   }
 
   async cancelSale(saleId: string, input: CancelSaleInput): Promise<Sale> {

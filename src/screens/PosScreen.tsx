@@ -615,6 +615,10 @@ export function PosScreen({
           requiresInvoice: !!invoice,
           notes: cart.notes,
           clientRequestId: attempt.clientRequestId,
+          // Boletos de evento: correo capturado en caja o, si no, el del
+          // cliente asignado (el API cae al del cliente si va vacío).
+          attendeeEmail:
+            (cart.attendeeEmail ?? cart.customerEmail)?.trim() || undefined,
         };
         let sale: Sale;
         try {
