@@ -19,6 +19,8 @@ import type {
   QuickProduct,
   PosEventInfo,
   SaleEventTicket,
+  GlobalDayProcess,
+  GlobalEmitAccepted,
   PosCustomer,
   CustomerPeriodStats,
   CreateCashMovementInput,
@@ -783,18 +785,37 @@ class PosApi {
     return data;
   }
 
-  /** Timbra la global del día que el cajero confirmó en la vista previa
-   *  (previewHash). Espera hasta 60 s: el PAC puede tardar. */
+  /** Pide la global del día que el cajero confirmó en la vista previa
+   *  (previewHash). Con `background: true` el API nuevo deja la factura
+   *  pendiente, responde al instante (`accepted`) y timbra en segundo plano
+   *  (ver getGlobalStatus); un API viejo ignora la bandera y timbra en la
+   *  misma petición (devuelve el detalle). Espera hasta 60 s por ese caso. */
   async createGlobalInvoice(
     date: string,
     previewHash: string,
     branchId?: string,
-  ): Promise<InvoiceDetail> {
+  ): Promise<InvoiceDetail | GlobalEmitAccepted> {
     const { data } = await api.post(
       '/pos/billing/global',
-      { date, previewHash, ...(branchId ? { branchId } : {}) },
+      {
+        date,
+        previewHash,
+        background: true,
+        ...(branchId ? { branchId } : {}),
+      },
       { timeout: SALE_WRITE_TIMEOUT_MS },
     );
+    return data;
+  }
+
+  /** Estado de la emisión en segundo plano de la global de un día. */
+  async getGlobalStatus(
+    date: string,
+    branchId?: string,
+  ): Promise<GlobalDayProcess> {
+    const { data } = await api.get('/pos/billing/global/status', {
+      params: { date, ...(branchId ? { branchId } : {}) },
+    });
     return data;
   }
 

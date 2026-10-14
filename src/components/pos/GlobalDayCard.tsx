@@ -7,7 +7,14 @@
 // cerrado: cancelar o reexpedir es de Contabilidad desde el admin.
 
 import { useState } from 'react';
-import { BookCheck, CheckCircle2, Clock, Info, TriangleAlert } from 'lucide-react';
+import {
+  BookCheck,
+  CheckCircle2,
+  Clock,
+  Info,
+  Loader2,
+  TriangleAlert,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useGlobalDays } from '@/hooks/usePos';
 import { posApi } from '@/lib/posApi';
@@ -38,10 +45,13 @@ export function GlobalDayCard({
   invoicingEnabled,
   compact = false,
 }: GlobalDayCardProps) {
+  // Sondea cada 5 s mientras la global del día se timbra en segundo plano.
   const { data, isLoading, isError, refetch } = useGlobalDays(
     branchId,
     day,
     day,
+    true,
+    true,
   );
   const [modalOpen, setModalOpen] = useState(false);
   const row: GlobalDayStatusRow | undefined = data?.find(
@@ -161,6 +171,42 @@ function DayStatus({
         </div>
       );
     case 'blocked':
+      // Emisión en segundo plano: en curso (se actualiza sola) o el último
+      // intento quedó en error (se reintenta desde aquí: reutiliza la fila).
+      if (row.blockReason === 'attempt_in_progress') {
+        if (row.providerStatus === 'error') {
+          return (
+            <div className="space-y-1.5">
+              <p className={`${textSize} flex items-start gap-1 text-destructive`}>
+                <TriangleAlert className="size-3.5 shrink-0 mt-0.5" />
+                <span>
+                  El último intento de timbrar la global quedó en error.
+                  Revisa la vista previa y reintenta.
+                </span>
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full"
+                onClick={onEmit}
+                disabled={!invoicingEnabled}
+              >
+                <BookCheck />
+                Reintentar factura global
+              </Button>
+            </div>
+          );
+        }
+        return (
+          <p className={`${textSize} flex items-start gap-1 text-primary`}>
+            <Loader2 className="size-3.5 shrink-0 mt-0.5 animate-spin" />
+            <span>
+              Generando la factura global en segundo plano… puedes seguir
+              cobrando; esta tarjeta se actualiza sola.
+            </span>
+          </p>
+        );
+      }
       return (
         <p className={`${textSize} flex items-start gap-1 text-amber-700`}>
           <TriangleAlert className="size-3.5 shrink-0 mt-0.5" />

@@ -192,12 +192,25 @@ export const useGlobalDays = (
   from: string,
   to: string,
   enabled = true,
+  /** true = mientras algún día se esté timbrando en segundo plano, consulta cada 5 s. */
+  pollInProgress = false,
 ) =>
   useQuery({
     queryKey: posKeys.globalDays(branchId ?? '', from, to),
     queryFn: () => posApi.getGlobalDays(from, to, branchId),
     enabled: !!branchId && !!from && !!to && enabled,
     staleTime: 30 * 1000,
+    refetchInterval: pollInProgress
+      ? (query) =>
+          query.state.data?.some(
+            (d) =>
+              d.status === 'blocked' &&
+              d.blockReason === 'attempt_in_progress' &&
+              d.providerStatus !== 'error',
+          )
+            ? 5000
+            : false
+      : false,
     // 403/404 (terminal sin facturación, API viejo) no se reintentan.
     retry: false,
   });

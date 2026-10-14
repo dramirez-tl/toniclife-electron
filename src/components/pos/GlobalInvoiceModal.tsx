@@ -9,7 +9,7 @@
 //    vista previa y se pide confirmar de nuevo. El POS no cancela ni
 //    reexpide globales: eso es de Contabilidad en el admin.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   X,
@@ -17,6 +17,7 @@ import {
   BookCheck,
   CheckCircle2,
   Info,
+  Loader2,
   RefreshCw,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -49,8 +50,17 @@ interface GlobalInvoiceModalProps {
   date: string;
   currencySymbol: string;
   /** Tras timbrar con éxito (la tarjeta del día se refresca aquí). */
-  onStamped?: (invoice: InvoiceDetail) => void;
+  onStamped?: () => void;
 }
+
+/** Lo que se muestra al terminar (del detalle o del estado sondeado). */
+interface StampResult {
+  folioDisplay: string | null;
+  satUuid: string | null;
+  total: number;
+}
+
+const STATUS_POLL_MS = 3000;
 
 export function GlobalInvoiceModal({
   isOpen,
@@ -66,10 +76,14 @@ export function GlobalInvoiceModal({
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [stamping, setStamping] = useState(false);
+  // El API aceptó la emisión y timbra en segundo plano: se sondea el estado.
+  const [processing, setProcessing] = useState(false);
   const [stampError, setStampError] = useState('');
   // Aviso de que la vista previa cambió y hay que confirmar otra vez.
   const [staleNotice, setStaleNotice] = useState(false);
-  const [result, setResult] = useState<InvoiceDetail | null>(null);
+  const [result, setResult] = useState<StampResult | null>(null);
+  const onStampedRef = useRef(onStamped);
+  onStampedRef.current = onStamped;
 
   const fmt = (n: number) => posApi.formatCurrency(n, currencySymbol);
   // `busy` deshabilita los botones de acción; el diálogo solo se BLOQUEA
@@ -99,10 +113,64 @@ export function GlobalInvoiceModal({
     if (!isOpen) return;
     setPreview(null);
     setResult(null);
+    setProcessing(false);
     setStampError('');
     setStaleNotice(false);
     void loadPreview();
   }, [isOpen, loadPreview]);
+
+  const finishStamped = useCallback(
+    (r: StampResult) => {
+      setResult(r);
+      toast.success(`Factura global del ${date} timbrada`);
+      // Se invalida TODO lo del POS (como InvoiceSaleModal): la tarjeta del
+      // día, la lista (badge "Global") y el detalle cacheado de cada venta
+      // ('sale', id), que si no, seguiría ofreciendo "Facturar" a un ticket
+      // que ya quedó dentro de la global.
+      void qc.invalidateQueries({ queryKey: posKeys.all });
+      onStampedRef.current?.();
+    },
+    [date, qc],
+  );
+
+  // Sondeo mientras el API timbra en segundo plano. Si el cajero cierra la
+  // ventana el timbrado sigue en el servidor; la tarjeta del día lo refleja.
+  useEffect(() => {
+    if (!isOpen || !processing) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const st = await posApi.getGlobalStatus(date, branchId);
+        if (cancelled) return;
+        if (st.state === 'emitted') {
+          setProcessing(false);
+          finishStamped({
+            folioDisplay: st.folioDisplay,
+            satUuid: st.satUuid,
+            total: Number(st.total),
+          });
+        } else if (st.state === 'error') {
+          setProcessing(false);
+          setStampError(
+            st.error ||
+              'El PAC rechazó la factura global. Revisa la vista previa y reintenta.',
+          );
+          void qc.invalidateQueries({ queryKey: posKeys.all });
+        } else if (st.state === 'none' || st.state === 'cancelled') {
+          setProcessing(false);
+          setStampError('La emisión no quedó registrada; vuelve a intentarlo.');
+        }
+      } catch {
+        // Sin red o API ocupado: se vuelve a preguntar en el siguiente sondeo.
+      }
+    };
+    void tick();
+    const id = window.setInterval(() => void tick(), STATUS_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [isOpen, processing, date, branchId, qc, finishStamped]);
 
   async function handleStamp() {
     if (!preview || !preview.canStamp || busy) return;
@@ -110,19 +178,23 @@ export function GlobalInvoiceModal({
     setStampError('');
     setStaleNotice(false);
     try {
-      const inv = await posApi.createGlobalInvoice(
+      const res = await posApi.createGlobalInvoice(
         date,
         preview.previewHash,
         branchId,
       );
-      setResult(inv);
-      toast.success(`Factura global del ${date} timbrada`);
-      // Se invalida TODO lo del POS (como InvoiceSaleModal): la tarjeta del
-      // día, la lista (badge "Global") y el detalle cacheado de cada venta
-      // ('sale', id), que si no, seguiría ofreciendo "Facturar" a un ticket
-      // que ya quedó dentro de la global.
-      void qc.invalidateQueries({ queryKey: posKeys.all });
-      onStamped?.(inv);
+      if ('accepted' in res && res.accepted === true) {
+        // API nuevo: la factura quedó pendiente y se timbra en el servidor.
+        setProcessing(true);
+        return;
+      }
+      // API viejo: timbró en la misma petición.
+      const inv = res as InvoiceDetail;
+      finishStamped({
+        folioDisplay: inv.folioDisplay,
+        satUuid: inv.satUuid,
+        total: Number(inv.total),
+      });
     } catch (err) {
       const e = err as { response?: { status?: number; data?: BillingErrorBody } };
       const code = e.response?.data?.code;
@@ -204,6 +276,18 @@ export function GlobalInvoiceModal({
                 </p>
               </AlertDescription>
             </Alert>
+          ) : processing ? (
+            <div className="rounded-lg border bg-muted/30 px-4 py-6 text-center space-y-2">
+              <Loader2 className="mx-auto size-6 animate-spin text-primary" />
+              <p className="text-sm font-medium text-foreground">
+                Generando y timbrando la factura global…
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Esto corre en el servidor y puede tardar unos minutos. Puedes
+                cerrar esta ventana y seguir cobrando: la tarjeta del día
+                mostrará el resultado.
+              </p>
+            </div>
           ) : loading && !preview ? (
             <div className="text-sm text-muted-foreground py-6 text-center">
               Cargando vista previa...
@@ -362,7 +446,7 @@ export function GlobalInvoiceModal({
 
         {/* Footer */}
         <DialogFooter className="flex-row items-center justify-between gap-2 px-6 py-4 border-t bg-muted/30 rounded-b-2xl">
-          {!result ? (
+          {!result && !processing ? (
             <Button
               variant="outline"
               size="sm"
@@ -377,9 +461,9 @@ export function GlobalInvoiceModal({
           )}
           <div className="flex items-center gap-2">
             <Button variant="outline" onClick={onClose} disabled={stamping}>
-              {result ? 'Cerrar' : 'Cancelar'}
+              {result || processing ? 'Cerrar' : 'Cancelar'}
             </Button>
-            {!result && (
+            {!result && !processing && (
               <Button
                 onClick={handleStamp}
                 disabled={!preview || !preview.canStamp || busy}

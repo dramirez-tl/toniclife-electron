@@ -741,7 +741,7 @@ export const GLOBAL_BLOCK_REASON_LABELS: Record<string, string> = {
   terminals_off:
     'Alguna terminal de la sucursal tiene la facturación apagada; todas deben estar encendidas.',
   attempt_in_progress:
-    'Hay un intento de timbrado en curso; espera a que termine.',
+    'La factura global se está generando en segundo plano; en cuanto el PAC la timbre aparecerá aquí.',
   stale_error:
     'El último intento quedó en error; Contabilidad debe revisarlo desde el admin.',
   uncovered_tickets:
@@ -757,6 +757,29 @@ export const GLOBAL_EXCLUDED_REASON_LABELS: Record<string, string> = {
 };
 
 export type GlobalConceptMode = 'ticket' | 'product';
+
+/** Respuesta de POST /pos/billing/global con background=true (API >= 14-oct-2026). */
+export interface GlobalEmitAccepted {
+  accepted: true;
+  invoiceId: string;
+  localDate: string;
+  providerStatus: string;
+}
+
+export type GlobalProcessState = 'none' | 'processing' | 'emitted' | 'error' | 'cancelled';
+
+/** GET /pos/billing/global/status: estado de la emisión en segundo plano. */
+export interface GlobalDayProcess {
+  state: GlobalProcessState;
+  localDate: string;
+  invoiceId: string | null;
+  providerStatus: string | null;
+  folioDisplay: string | null;
+  satUuid: string | null;
+  total: number;
+  error: string | null;
+  updatedAt: string | null;
+}
 
 export interface GlobalDayStatusRow {
   localDate: string;
