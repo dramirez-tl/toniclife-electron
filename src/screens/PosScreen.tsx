@@ -133,6 +133,12 @@ const CART_MAX_WIDTH = 760;
 const CART_DEFAULT_WIDTH = 384; // = w-96
 
 /** Simbolo de moneda — MXN/USD usan '$'; el resto cae al propio codigo. */
+/** Correo con forma de correo, o undefined: nunca mandar al API algo que bloquee el cobro. */
+function validEmailOrUndefined(value?: string | null): string | undefined {
+  const v = (value ?? '').trim();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? v : undefined;
+}
+
 function currencySymbolFor(code?: string): string {
   if (!code) return '$';
   if (code === 'MXN' || code === 'USD') return '$';
@@ -616,9 +622,12 @@ export function PosScreen({
           notes: cart.notes,
           clientRequestId: attempt.clientRequestId,
           // Boletos de evento: correo capturado en caja o, si no, el del
-          // cliente asignado (el API cae al del cliente si va vacío).
-          attendeeEmail:
-            (cart.attendeeEmail ?? cart.customerEmail)?.trim() || undefined,
+          // cliente asignado (el API cae al del cliente si va vacío). Solo se
+          // manda si tiene forma de correo: el 14-oct un correo mal capturado
+          // en la ficha bloqueó el cobro en todas las sucursales.
+          attendeeEmail: validEmailOrUndefined(
+            cart.attendeeEmail ?? cart.customerEmail,
+          ),
         };
         let sale: Sale;
         try {
@@ -1204,10 +1213,15 @@ export function PosScreen({
             branchId={branch.id}
             onCheckout={() => {
               if (cart.items.length === 0) return;
-              // Venta en $0 por promo O por cupón que cubre el total: no hay
-              // nada que cobrar → se completa directo, sin modal de pago.
+              // Venta en $0 por promo, por boletos de evento (el de invitado se
+              // regala en $0) O por cupón que cubre el total: no hay nada que
+              // cobrar → se completa directo, sin modal de pago. Mismo criterio
+              // que el API (processPayment).
               const hasPromo = cart.items.some(
-                (it) => it.productType === 'promotional',
+                (it) =>
+                  it.productType === 'promotional' ||
+                  it.productType === 'event' ||
+                  !!it.event,
               );
               const couponCoversTotal =
                 !!cart.couponCode && (cart.couponDiscount ?? 0) > 0;
