@@ -39,6 +39,47 @@ export function localDateOf(when: string | Date, timeZone?: string): string {
   return ymdFormatter(timeZone).format(d);
 }
 
+/**
+ * ¿`value` es una fecha YYYY-MM-DD real (existe en el calendario) con el año
+ * dentro de [minYear, maxYear]? Un <input type="date"> manda años a medias
+ * mientras se teclean ("0002", "0020", "0202"…): esos NO son fechas válidas
+ * para el negocio y no deben aplicarse (15-oct-2026: el rango de "Ventas
+ * recientes" quedó en el año 0026 y el POS no dejaba salir).
+ */
+export function isSaneIsoDate(
+  value: string,
+  minYear: number,
+  maxYear: number,
+): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value ?? '');
+  if (!m) return false;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  if (y < minYear || y > maxYear || mo < 1 || mo > 12 || d < 1) return false;
+  const t = new Date(Date.UTC(y, mo - 1, d));
+  return t.getUTCFullYear() === y && t.getUTCMonth() === mo - 1 && t.getUTCDate() === d;
+}
+
+/**
+ * Año de 2 dígitos tecleado ("0026-10-15") → año completo. `future` = 20xx
+ * (fechas de operación); `past` = 20xx salvo que pase de `maxYear`, entonces
+ * 19xx (fechas de nacimiento: "0088" → 1988). null si no es YYYY-MM-DD o el
+ * año ya trae 3-4 dígitos significativos (no se adivina).
+ */
+export function normalizeTwoDigitYear(
+  value: string,
+  mode: 'future' | 'past',
+  maxYear: number,
+): string | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value ?? '');
+  if (!m) return null;
+  const y = Number(m[1]);
+  if (y >= 100) return null;
+  const full = mode === 'past' && 2000 + y > maxYear ? 1900 + y : 2000 + y;
+  return `${full}-${m[2]}-${m[3]}`;
+}
+
 /** Suma `days` días a una fecha YYYY-MM-DD (aritmética en UTC: sin DST). */
 export function addDaysIso(date: string, days: number): string {
   const [y, m, d] = date.split('-').map(Number);

@@ -14,6 +14,8 @@ const SHOW_CASH_MOVEMENTS = false; // "Movimientos de caja" — ocultado may-202
 
 /** Máximo de días (inclusive) que se listan de una vez. */
 export const SALES_RANGE_MAX_DAYS = 31;
+/** Primer año que se puede consultar en el rango (v2 opera desde 2026). */
+const RANGE_MIN_YEAR = 2020;
 
 import { useMemo, useState } from 'react';
 import {
@@ -31,6 +33,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { DateInput } from '@/components/ui/date-input';
 import {
   Select,
   SelectContent,
@@ -44,7 +47,9 @@ import {
   addDaysIso,
   daysBetweenIso,
   formatTime,
+  isSaneIsoDate,
   localDateOf,
+  todayLocal,
 } from '@/lib/date';
 import {
   INVOICE_INELIGIBLE_LABELS,
@@ -181,8 +186,12 @@ export function RecentSales({
 
   const singleDay = range.from === range.to;
 
+  // Años válidos del rango: desde 2020 hasta el año siguiente al de la
+  // sucursal. DateInput ya filtra lo tecleado a medias; esto es la red.
+  const rangeMaxYear = Number(todayLocal(branchTz).slice(0, 4)) + 1;
+
   function changeRange(changed: 'from' | 'to', value: string) {
-    if (!value) return;
+    if (!isSaneIsoDate(value, RANGE_MIN_YEAR, rangeMaxYear)) return;
     const { range: fixed, clamped } = clampSalesRange(
       { ...range, [changed]: value },
       changed,
@@ -334,11 +343,12 @@ export function RecentSales({
             <span className="mb-0.5 block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
               De
             </span>
-            <Input
-              type="date"
+            <DateInput
               value={range.from}
               max={range.to}
-              onChange={(e) => changeRange('from', e.target.value)}
+              minYear={RANGE_MIN_YEAR}
+              maxYear={rangeMaxYear}
+              onCommit={(v) => changeRange('from', v)}
               className="w-full px-2 py-1.5 text-xs bg-background text-foreground"
             />
           </label>
@@ -346,11 +356,12 @@ export function RecentSales({
             <span className="mb-0.5 block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
               Hasta
             </span>
-            <Input
-              type="date"
+            <DateInput
               value={range.to}
               min={range.from}
-              onChange={(e) => changeRange('to', e.target.value)}
+              minYear={RANGE_MIN_YEAR}
+              maxYear={rangeMaxYear}
+              onCommit={(v) => changeRange('to', v)}
               className="w-full px-2 py-1.5 text-xs bg-background text-foreground"
             />
           </label>

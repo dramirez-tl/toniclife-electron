@@ -24,6 +24,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { DateInput } from '@/components/ui/date-input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -672,11 +673,14 @@ export function RegisterDistributorModal({
               </Field>
               {isDistribuidor && (
                 <Field label="Fecha de nacimiento *">
-                  <Input
-                    type="date"
+                  {/* Año a prueba de tecleo: "88" → 1988; a medias no se aplica. */}
+                  <DateInput
                     value={form.birthDate}
                     max={todayIso}
-                    onChange={(e) => set('birthDate', e.target.value)}
+                    minYear={1900}
+                    maxYear={Number(todayIso.slice(0, 4))}
+                    twoDigitYear="past"
+                    onCommit={(v) => set('birthDate', v)}
                   />
                 </Field>
               )}
