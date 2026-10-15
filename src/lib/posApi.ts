@@ -788,6 +788,52 @@ class PosApi {
     return data ?? [];
   }
 
+  /** PDF o XML de la factura global del día (GET /pos/billing/global/:id/pdf|xml,
+   *  misma sucursal de la terminal; modo staff manda branchId). Bytes crudos:
+   *  el renderer los pasa al main por IPC (invoice:openPdf) para guardarlos y
+   *  abrirlos. Antes el POS no tenía forma de descargar la global (solo el admin). */
+  async getGlobalInvoiceFile(
+    invoiceId: string,
+    ext: 'pdf' | 'xml',
+    branchId?: string,
+    folio?: string | null,
+  ): Promise<{ bytes: ArrayBuffer; filename: string }> {
+    let res;
+    try {
+      res = await api.get<ArrayBuffer>(
+        `/pos/billing/global/${invoiceId}/${ext}`,
+        {
+          params: branchId ? { branchId } : undefined,
+          responseType: 'arraybuffer',
+          timeout: SALE_WRITE_TIMEOUT_MS,
+        },
+      );
+    } catch (err) {
+      // Igual que getInvoicePdf: el cuerpo de un 4xx/5xx llega como bytes y
+      // se decodifica para que el toast muestre el mensaje del API.
+      const e = err as { response?: { data?: unknown } };
+      const d = e?.response?.data;
+      if (e?.response && (d instanceof ArrayBuffer || ArrayBuffer.isView(d))) {
+        try {
+          e.response.data = JSON.parse(
+            new TextDecoder('utf-8').decode(d as ArrayBuffer | ArrayBufferView),
+          );
+        } catch {
+          e.response.data = undefined;
+        }
+      }
+      throw err;
+    }
+    const disposition = String(res.headers?.['content-disposition'] ?? '');
+    const m = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition);
+    const fromHeader = m?.[1] ? decodeURIComponent(m[1].trim()) : '';
+    return {
+      bytes: res.data,
+      filename:
+        fromHeader || `factura-global-${folio ?? invoiceId}.${ext}`,
+    };
+  }
+
   /** Vista previa (solo lectura) de la global de un día local. */
   async getGlobalPreview(
     date: string,

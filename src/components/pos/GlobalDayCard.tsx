@@ -7,15 +7,19 @@
 // cerrado: cancelar o reexpedir es de Contabilidad desde el admin.
 
 import { useState } from 'react';
+import { toast } from 'sonner';
 import {
   BookCheck,
   CheckCircle2,
   Clock,
+  FileCode2,
+  FileText,
   Info,
   Loader2,
   TriangleAlert,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { getApiErrorMessage } from '@/lib/apiError';
 import { useGlobalDays } from '@/hooks/usePos';
 import { posApi } from '@/lib/posApi';
 import {
@@ -54,10 +58,42 @@ export function GlobalDayCard({
     true,
   );
   const [modalOpen, setModalOpen] = useState(false);
+  const [downloading, setDownloading] = useState<'pdf' | 'xml' | null>(null);
   const row: GlobalDayStatusRow | undefined = data?.find(
     (d) => d.localDate === day,
   );
   const fmt = (n: number) => posApi.formatCurrency(n, currencySymbol);
+
+  // Descarga el PDF/XML de la global emitida y lo abre con el visor del SO
+  // (mismo camino que la factura de una venta: bytes por el API → IPC).
+  async function handleOpenFile(ext: 'pdf' | 'xml') {
+    if (!row?.invoiceId) return;
+    setDownloading(ext);
+    try {
+      const { bytes, filename } = await posApi.getGlobalInvoiceFile(
+        row.invoiceId,
+        ext,
+        branchId,
+        row.providerFolio,
+      );
+      const r = await window.toniclife.invoice.openPdf(
+        filename,
+        new Uint8Array(bytes),
+      );
+      if (!r.ok) {
+        toast.error('No se pudo abrir el archivo', { description: r.error });
+      }
+    } catch (err) {
+      toast.error(
+        getApiErrorMessage(
+          err,
+          `No se pudo descargar el ${ext.toUpperCase()} de la factura global`,
+        ),
+      );
+    } finally {
+      setDownloading(null);
+    }
+  }
 
   const pad = compact ? 'px-3 py-2' : 'px-3 py-2.5';
   const textSize = compact ? 'text-[11px]' : 'text-xs';
@@ -86,6 +122,8 @@ export function GlobalDayCard({
           fmt={fmt}
           invoicingEnabled={invoicingEnabled}
           onEmit={() => setModalOpen(true)}
+          onOpenFile={(ext) => void handleOpenFile(ext)}
+          downloading={downloading}
         />
       )}
 
@@ -108,12 +146,16 @@ function DayStatus({
   fmt,
   invoicingEnabled,
   onEmit,
+  onOpenFile,
+  downloading,
 }: {
   row: GlobalDayStatusRow;
   textSize: string;
   fmt: (n: number) => string;
   invoicingEnabled: boolean;
   onEmit: () => void;
+  onOpenFile: (ext: 'pdf' | 'xml') => void;
+  downloading: 'pdf' | 'xml' | null;
 }) {
   const muted = `${textSize} text-muted-foreground`;
   switch (row.status) {
@@ -131,6 +173,42 @@ function DayStatus({
             {row.ticketCount} {row.ticketCount === 1 ? 'ticket' : 'tickets'} ·{' '}
             {fmt(Number(row.total))}
           </p>
+          {row.invoiceId && (
+            <div className="flex gap-1 pt-1">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-[11px]"
+                disabled={downloading !== null}
+                onClick={() => onOpenFile('pdf')}
+                title="Descargar y abrir el PDF de la factura global"
+              >
+                {downloading === 'pdf' ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <FileText className="size-3.5" />
+                )}
+                PDF
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-[11px]"
+                disabled={downloading !== null}
+                onClick={() => onOpenFile('xml')}
+                title="Descargar el XML de la factura global"
+              >
+                {downloading === 'xml' ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <FileCode2 className="size-3.5" />
+                )}
+                XML
+              </Button>
+            </div>
+          )}
           {row.uncoveredCount > 0 && (
             <p className={`${textSize} text-amber-700`}>
               {GLOBAL_BLOCK_REASON_LABELS.uncovered_tickets} (
