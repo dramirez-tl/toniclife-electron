@@ -14,6 +14,9 @@ import {
   Package,
   Loader2,
   Ticket,
+  Truck,
+  History,
+  Pencil,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -32,6 +35,13 @@ interface CartProps {
   onCheckout?: () => void;
   /** Sucursal efectiva (umbrales de promos vigentes en la barra de puntos). */
   branchId?: string;
+  /** Entrega a domicilio confirmada para esta venta (null = mostrador). */
+  delivery?: { recipientName: string; recipientPhone?: string; addressText: string } | null;
+  /** Abre el diálogo de entrega a domicilio (confirmar datos y domicilio). */
+  onDelivery?: () => void;
+  onDeliveryClear?: () => void;
+  /** Compras anteriores del distribuidor asignado. */
+  onShowPurchases?: () => void;
 }
 
 // Tope de cantidad del item (espejo del store): maxQuantity explícito o 1
@@ -48,6 +58,10 @@ export function Cart({
   isProcessing,
   onCheckout,
   branchId,
+  delivery,
+  onDelivery,
+  onDeliveryClear,
+  onShowPurchases,
 }: CartProps) {
   const cart = usePosCartStore((s) => s.cart);
   const updateItemQuantity = usePosCartStore((s) => s.updateItemQuantity);
@@ -159,6 +173,80 @@ export function Cart({
           cartPoints={cart.totalPoints}
           branchId={branchId}
         />
+      )}
+
+      {/* Con cliente asignado: sus compras anteriores y entrega a domicilio
+          (Call Center confirma destinatario, teléfono y domicilio; Almacén
+          surte y envía desde el admin). */}
+      {cart.customerId && (onShowPurchases || onDelivery) && (
+        <div className="px-4 py-2 border-b space-y-1.5">
+          <div className="flex items-center gap-2">
+            {onShowPurchases && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={onShowPurchases}
+                className="h-7 gap-1 text-xs"
+                title="Compras anteriores del distribuidor"
+              >
+                <History className="size-3.5" />
+                Compras
+              </Button>
+            )}
+            {onDelivery && !delivery && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={onDelivery}
+                className="h-7 gap-1 text-xs"
+                title="Enviar esta venta al domicilio del distribuidor"
+              >
+                <Truck className="size-3.5" />
+                Entrega a domicilio
+              </Button>
+            )}
+          </div>
+          {delivery && (
+            <div className="flex items-start gap-2 rounded-md border border-violet-200 bg-violet-50 px-2 py-1.5 text-[11px] text-violet-900">
+              <Truck className="mt-0.5 size-3.5 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold">
+                  Entrega a domicilio · recibe {delivery.recipientName}
+                  {delivery.recipientPhone ? ` · ${delivery.recipientPhone}` : ''}
+                </p>
+                <p className="truncate" title={delivery.addressText}>
+                  {delivery.addressText}
+                </p>
+              </div>
+              {onDelivery && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={onDelivery}
+                  className="size-6 shrink-0"
+                  title="Cambiar destinatario o domicilio"
+                >
+                  <Pencil className="size-3.5" />
+                </Button>
+              )}
+              {onDeliveryClear && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={onDeliveryClear}
+                  className="size-6 shrink-0 text-muted-foreground hover:text-destructive"
+                  title="Quitar la entrega (venta de mostrador)"
+                >
+                  <X className="size-3.5" />
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
       )}
 
       {/* Boletos de evento: a qué correo se mandan (por defecto el del cliente) */}

@@ -17,6 +17,7 @@ import {
   BadgePercent,
   ShieldCheck,
   Fingerprint,
+  Truck,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { LogoMark } from '@/components/LogoMark';
@@ -36,6 +37,11 @@ import { AvailablePromotions } from '@/components/pos/AvailablePromotions';
 import { Cart } from '@/components/pos/Cart';
 import { ResizeHandle } from '@/components/pos/ResizeHandle';
 import { TransfersModal } from '@/components/pos/TransfersModal';
+import { DeliveryDialog } from '@/components/pos/DeliveryDialog';
+import { DeliveriesSheet } from '@/components/pos/DeliveriesSheet';
+import { CustomerPurchasesSheet } from '@/components/pos/CustomerPurchasesSheet';
+import { draftToInput } from '@/lib/deliveries';
+import type { DeliveryDraft } from '@/types/deliveries';
 import { CurrentPromotionsModal } from '@/components/pos/CurrentPromotionsModal';
 import { PaymentModal } from '@/components/pos/PaymentModal';
 import { RecentSales, type SalesRange } from '@/components/pos/RecentSales';
@@ -313,6 +319,20 @@ export function PosScreen({
     fingerprint: string;
   } | null>(null);
 
+  // ENTREGA A DOMICILIO (mig 161): borrador confirmado por Call Center para la
+  // venta en curso. Va ligado al cliente: si cambia el cliente deja de aplicar
+  // (activeDelivery) y se descarta al cobrar. Las hojas de "Compras" y
+  // "Entregas" solo consultan.
+  const [delivery, setDelivery] = useState<DeliveryDraft | null>(null);
+  const [deliveryOpen, setDeliveryOpen] = useState(false);
+  // Cada apertura remonta el diálogo (key) para que arranque con el borrador
+  // vigente y la ficha fresca del cliente.
+  const [deliveryOpenSeq, setDeliveryOpenSeq] = useState(0);
+  const [purchasesOpen, setPurchasesOpen] = useState(false);
+  const [deliveriesOpen, setDeliveriesOpen] = useState(false);
+  const activeDelivery =
+    delivery && delivery.customerId === cart.customerId ? delivery : null;
+
   // MODO STAFF (call center / corporativo con SU cuenta): si hay sesión staff
   // con sucursal elegida, TODO el POS opera con esa sucursal (catálogo,
   // precios, stock, caja, folios, ticket) — un solo punto de re-scope. La
@@ -585,6 +605,15 @@ export function PosScreen({
         // re-validación puede cambiar el descuento sin cambiar el código.
         couponDiscount: cart.couponDiscount ?? null,
         total: cart.total,
+        // Cambiar destinatario/domicilio también es otra venta.
+        delivery: activeDelivery
+          ? [
+              activeDelivery.recipientName,
+              activeDelivery.recipientPhone ?? null,
+              activeDelivery.addressText,
+              activeDelivery.notes ?? null,
+            ]
+          : null,
       });
       if (
         !saleAttemptRef.current ||
@@ -628,6 +657,9 @@ export function PosScreen({
           attendeeEmail: validEmailOrUndefined(
             cart.attendeeEmail ?? cart.customerEmail,
           ),
+          // Entrega a domicilio confirmada (solo si sigue siendo del cliente
+          // asignado). El API la liga a la venta en la misma transacción.
+          delivery: activeDelivery ? draftToInput(activeDelivery) : undefined,
         };
         let sale: Sale;
         try {
@@ -655,8 +687,15 @@ export function PosScreen({
       });
 
       // Cobro exitoso: liberar el intento para que la próxima venta genere
-      // su propia clave.
+      // su propia clave. La entrega a domicilio ya viajó con la venta.
       saleAttemptRef.current = null;
+      if (activeDelivery) {
+        setDelivery(null);
+        toast.info(
+          `Pedido a domicilio registrado para ${activeDelivery.recipientName}: Almacén lo surte y envía.`,
+          { duration: 6000 },
+        );
+      }
 
       const changeMsg =
         result.changeGiven > 0
@@ -1017,6 +1056,16 @@ export function PosScreen({
                 </span>
               )}
             </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setDeliveriesOpen(true)}
+              className="text-white/80 hover:text-white hover:bg-white/10"
+              title="Entregas a domicilio (estatus de los pedidos)"
+              data-tour="pos-deliveries"
+            >
+              <Truck />
+            </Button>
           </>
         )}
         {onRefresh && (
@@ -1119,6 +1168,16 @@ export function PosScreen({
             <Button
               variant="ghost"
               size="sm"
+              onClick={() => setDeliveriesOpen(true)}
+              className="h-7 px-2 text-xs text-white/90 hover:bg-white/10 hover:text-white"
+              title="Estatus de los pedidos a domicilio que capturaste"
+            >
+              <Truck className="size-3.5" />
+              Mis entregas
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => {
                 staffLogout();
                 toast.info('Saliste del modo staff.');
@@ -1211,6 +1270,17 @@ export function PosScreen({
             currencyCode={currencyCode}
             isProcessing={isProcessing}
             branchId={branch.id}
+            delivery={activeDelivery}
+            onDelivery={() => {
+              if (!cart.customerId) {
+                toast.error('Asigna primero al distribuidor en la venta.');
+                return;
+              }
+              setDeliveryOpenSeq((n) => n + 1);
+              setDeliveryOpen(true);
+            }}
+            onDeliveryClear={() => setDelivery(null)}
+            onShowPurchases={() => setPurchasesOpen(true)}
             onCheckout={() => {
               if (cart.items.length === 0) return;
               // Venta en $0 por promo, por boletos de evento (el de invitado se
@@ -1281,6 +1351,47 @@ export function PosScreen({
         isOpen={transfersOpen}
         onClose={() => setTransfersOpen(false)}
         branchId={branchId}
+      />
+
+      {/* Entrega a domicilio de la venta en curso (Call Center confirma datos) */}
+      <DeliveryDialog
+        key={deliveryOpenSeq}
+        isOpen={deliveryOpen}
+        onClose={() => setDeliveryOpen(false)}
+        customerId={cart.customerId}
+        customerName={cart.customerName}
+        customerNumber={cart.customerNumber}
+        branchCountryCode={branch.country?.code}
+        initial={activeDelivery}
+        onConfirm={(draft) => {
+          setDelivery(draft);
+          setDeliveryOpen(false);
+          toast.success(`Entrega a domicilio confirmada para ${draft.recipientName}`);
+        }}
+      />
+
+      {/* Compras anteriores del distribuidor asignado */}
+      <CustomerPurchasesSheet
+        isOpen={purchasesOpen}
+        onClose={() => setPurchasesOpen(false)}
+        customerId={cart.customerId}
+        customerName={cart.customerName}
+        customerNumber={cart.customerNumber}
+        currencySymbol={currencySymbol}
+        branchTz={branchTz}
+        onSelectSale={(id) => setSelectedSaleId(id)}
+      />
+
+      {/* Estatus de entregas a domicilio ("Mis entregas" en modo staff) */}
+      <DeliveriesSheet
+        key={`deliveries-${staffActive ? 'staff' : 'terminal'}`}
+        isOpen={deliveriesOpen}
+        onClose={() => setDeliveriesOpen(false)}
+        branchId={branchId}
+        branchName={branch.name}
+        branchTz={branchTz}
+        staffMode={staffActive}
+        onSelectSale={(id) => setSelectedSaleId(id)}
       />
 
       {/* Promociones vigentes del país de la sucursal (solo informativo) */}

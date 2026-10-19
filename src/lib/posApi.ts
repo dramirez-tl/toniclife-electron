@@ -5,6 +5,12 @@
 import axios from 'axios';
 import { api } from './api';
 import type {
+  CustomerAddress,
+  CustomerAddressInput,
+  CustomerContact,
+  PosDeliveryList,
+} from '@/types/deliveries';
+import type {
   CashRegister,
   KitComponent,
   Session,
@@ -371,10 +377,13 @@ class PosApi {
   async getSales(params: {
     branchId?: string;
     sessionId?: string;
+    /** Compras de un distribuidor (cualquier sucursal). */
+    customerId?: string;
     fromDate?: string;
     toDate?: string;
     posLicenseId?: string;
     capturedVia?: 'terminal' | 'usuario';
+    page?: number;
     limit?: number;
   }): Promise<{ data: Sale[]; total: number }> {
     const { data } = await api.get('/pos/sales', { params });
@@ -383,6 +392,76 @@ class PosApi {
 
   async getSaleById(id: string): Promise<Sale> {
     const { data } = await api.get(`/pos/sales/${id}`);
+    return data;
+  }
+
+  // --------------------------------------------------------------------------
+  // ENTREGAS A DOMICILIO (mig 161) + domicilios del cliente
+  // --------------------------------------------------------------------------
+
+  /** Entregas que surte la sucursal o las capturadas por el usuario (mine). */
+  async getDeliveries(params: {
+    branchId?: string;
+    status?: string;
+    mine?: boolean;
+    fromDate?: string;
+    toDate?: string;
+    search?: string;
+    limit?: number;
+  }): Promise<PosDeliveryList> {
+    const { data } = await api.get<PosDeliveryList>('/pos/deliveries', {
+      params: {
+        ...params,
+        ...(params.mine ? { mine: '1' } : { mine: undefined }),
+      },
+    });
+    return data;
+  }
+
+  /** Contacto del cliente para confirmar la entrega (nombre, teléfono, país). */
+  async getCustomerContact(customerId: string): Promise<CustomerContact> {
+    const { data } = await api.get(`/customers/${customerId}`);
+    return {
+      id: data.id,
+      fullName: composeFullName(
+        data.fullName,
+        data.firstName ?? '',
+        data.lastName ?? '',
+        data.lastNameMother ?? data.mothersLastName ?? undefined,
+      ),
+      phone: data.phone ?? null,
+      email: data.email ?? null,
+      countryId: data.countryId ?? data.country?.id ?? null,
+    };
+  }
+
+  async getCustomerAddresses(customerId: string): Promise<CustomerAddress[]> {
+    const { data } = await api.get<CustomerAddress[]>(
+      `/customers/${customerId}/addresses`,
+    );
+    return Array.isArray(data) ? data.filter((a) => a.isActive !== false) : [];
+  }
+
+  async createCustomerAddress(
+    customerId: string,
+    input: CustomerAddressInput,
+  ): Promise<CustomerAddress> {
+    const { data } = await api.post<CustomerAddress>(
+      `/customers/${customerId}/addresses`,
+      input,
+    );
+    return data;
+  }
+
+  async updateCustomerAddress(
+    customerId: string,
+    addressId: string,
+    input: CustomerAddressInput,
+  ): Promise<CustomerAddress> {
+    const { data } = await api.patch<CustomerAddress>(
+      `/customers/${customerId}/addresses/${addressId}`,
+      input,
+    );
     return data;
   }
 

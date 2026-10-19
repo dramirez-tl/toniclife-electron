@@ -249,6 +249,10 @@ export interface CreateSaleInput {
   attendeeName?: string;
   attendeeEmail?: string;
   attendeePhone?: string;
+  /** Entrega a domicilio (mig 161): destinatario y domicilio confirmados por
+   *  Call Center; el API la liga a la venta en la misma transacción y Almacén
+   *  la surte desde el admin. Ausente = venta de mostrador. */
+  delivery?: import('./deliveries').CreateSaleDeliveryInput;
 }
 
 export interface CancelSaleInput {
