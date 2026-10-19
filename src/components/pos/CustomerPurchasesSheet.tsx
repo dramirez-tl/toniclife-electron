@@ -68,8 +68,8 @@ export function CustomerPurchasesSheet({
 
   return (
     <Sheet open={isOpen} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent side="right" className="flex w-full flex-col sm:max-w-2xl">
-        <SheetHeader>
+      <SheetContent side="right" className="flex w-full flex-col gap-3 sm:max-w-2xl">
+        <SheetHeader className="px-6 pb-1 pt-6">
           <SheetTitle className="flex items-center gap-2">
             <History className="size-5" />
             Compras de {customerName ?? 'distribuidor'}
@@ -85,7 +85,7 @@ export function CustomerPurchasesSheet({
           </SheetDescription>
         </SheetHeader>
 
-        <div className="min-h-0 flex-1 overflow-auto">
+        <div className="min-h-0 flex-1 overflow-auto px-6 pb-4">
           {salesQuery.isLoading ? (
             <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
               <Loader2 className="size-4 animate-spin" /> Cargando compras…
@@ -144,7 +144,7 @@ export function CustomerPurchasesSheet({
           )}
         </div>
         {salesQuery.data && salesQuery.data.total > sales.length && (
-          <p className="pt-2 text-[11px] text-muted-foreground">
+          <p className="px-6 pb-4 text-[11px] text-muted-foreground">
             Mostrando las {sales.length} más recientes de {salesQuery.data.total}.
           </p>
         )}

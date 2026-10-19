@@ -346,6 +346,22 @@ export function PosScreen({
   const staffActive = !!staffUser && !!staffBranch;
   const branch = staffActive ? staffBranch! : session.branch;
 
+  // Tipo de venta en MODO STAFF: "Entrega a domicilio" (Call Center) vs
+  // mostrador. Solo vive con la sesión staff; fuera de ella no existe.
+  const [deliveryMode, setDeliveryMode] = useState(false);
+  const deliveryModeActive = staffActive && deliveryMode;
+  // Al asignar un distribuidor con el modo entrega activo se abre solo el
+  // diálogo del domicilio (el paso que no era intuitivo).
+  const prevDeliveryCustomerRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const prev = prevDeliveryCustomerRef.current;
+    prevDeliveryCustomerRef.current = cart.customerId;
+    if (!deliveryModeActive || !cart.customerId || cart.customerId === prev) return;
+    if (delivery && delivery.customerId === cart.customerId) return;
+    setDeliveryOpenSeq((n) => n + 1);
+    setDeliveryOpen(true);
+  }, [cart.customerId, deliveryModeActive, delivery]);
+
   // Si Sistemas apaga el checador de esta terminal, el siguiente latido (≤60 s)
   // lo refleja: además de ocultar el botón, cerramos el modal si quedó abierto
   // (el server ya rechazaría el checado con 403).
@@ -1059,16 +1075,6 @@ export function PosScreen({
                 </span>
               )}
             </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setDeliveriesOpen(true)}
-              className="text-white/80 hover:text-white hover:bg-white/10"
-              title="Entregas a domicilio (estatus de los pedidos)"
-              data-tour="pos-deliveries"
-            >
-              <Truck />
-            </Button>
           </>
         )}
         {onRefresh && (
@@ -1191,6 +1197,8 @@ export function PosScreen({
               size="sm"
               onClick={() => {
                 staffLogout();
+                setDeliveryMode(false);
+                setDelivery(null);
                 toast.info('Saliste del modo staff.');
               }}
               className="h-7 px-2 text-xs text-white/90 hover:bg-white/10 hover:text-white"
@@ -1281,6 +1289,17 @@ export function PosScreen({
             currencyCode={currencyCode}
             isProcessing={isProcessing}
             branchId={branch.id}
+            staffMode={staffActive}
+            deliveryMode={deliveryModeActive}
+            onDeliveryModeChange={(on) => {
+              setDeliveryMode(on);
+              // Regresar a mostrador descarta el domicilio confirmado.
+              if (!on) setDelivery(null);
+              if (on && cart.customerId && !activeDelivery) {
+                setDeliveryOpenSeq((n) => n + 1);
+                setDeliveryOpen(true);
+              }
+            }}
             delivery={activeDelivery}
             onDelivery={() => {
               if (!cart.customerId) {
@@ -1294,6 +1313,19 @@ export function PosScreen({
             onShowPurchases={() => setPurchasesOpen(true)}
             onCheckout={() => {
               if (cart.items.length === 0) return;
+              // Entrega a domicilio sin domicilio confirmado: no se cobra.
+              if (deliveryModeActive && !activeDelivery) {
+                if (!cart.customerId) {
+                  toast.error(
+                    'Asigna al distribuidor y confirma su domicilio de entrega antes de cobrar.',
+                  );
+                } else {
+                  setDeliveryOpenSeq((n) => n + 1);
+                  setDeliveryOpen(true);
+                  toast.info('Confirma el domicilio de entrega para poder cobrar.');
+                }
+                return;
+              }
               // Venta en $0 por promo, por boletos de evento (el de invitado se
               // regala en $0) O por cupón que cubre el total: no hay nada que
               // cobrar → se completa directo, sin modal de pago. Mismo criterio
@@ -1552,6 +1584,8 @@ export function PosScreen({
         terminalBranchId={session.branch.id}
         onEntered={(b) => {
           setStaffLoginOpen(false);
+          setDeliveryMode(false);
+          setDelivery(null);
           toast.success(
             `Modo staff activo — operando sucursal ${b.code} — ${b.name}`,
           );

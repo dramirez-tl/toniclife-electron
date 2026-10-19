@@ -75,8 +75,8 @@ export function DeliveriesSheet({
 
   return (
     <Sheet open={isOpen} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent side="right" className="flex w-full flex-col sm:max-w-3xl">
-        <SheetHeader>
+      <SheetContent side="right" className="flex w-full flex-col gap-3 sm:max-w-3xl">
+        <SheetHeader className="px-6 pb-1 pt-6">
           <SheetTitle className="flex items-center gap-2">
             <Truck className="size-5" />
             Entregas a domicilio
@@ -88,7 +88,7 @@ export function DeliveriesSheet({
           </SheetDescription>
         </SheetHeader>
 
-        <div className="flex flex-wrap items-center gap-2 pb-2">
+        <div className="flex flex-wrap items-center gap-2 px-6 pb-1">
           {staffMode && (
             <div className="inline-flex rounded-md border p-0.5">
               <button
@@ -136,7 +136,7 @@ export function DeliveriesSheet({
           </Button>
         </div>
 
-        <div className="min-h-0 flex-1 space-y-2 overflow-auto pr-1">
+        <div className="min-h-0 flex-1 space-y-2 overflow-auto px-6 pb-6">
           {query.isLoading ? (
             <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
               <Loader2 className="size-4 animate-spin" /> Cargando entregas…

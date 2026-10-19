@@ -17,6 +17,7 @@ import {
   Truck,
   History,
   Pencil,
+  Store,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -35,7 +36,13 @@ interface CartProps {
   onCheckout?: () => void;
   /** Sucursal efectiva (umbrales de promos vigentes en la barra de puntos). */
   branchId?: string;
-  /** Entrega a domicilio confirmada para esta venta (null = mostrador). */
+  /** MODO STAFF (Call Center): habilita el selector Mostrador / Entrega a
+   *  domicilio y el botón Compras. En terminal normal no se muestra nada. */
+  staffMode?: boolean;
+  /** Tipo de venta elegido: true = entrega a domicilio. */
+  deliveryMode?: boolean;
+  onDeliveryModeChange?: (deliveryMode: boolean) => void;
+  /** Entrega a domicilio confirmada para esta venta (null = sin confirmar). */
   delivery?: { recipientName: string; recipientPhone?: string; addressText: string } | null;
   /** Abre el diálogo de entrega a domicilio (confirmar datos y domicilio). */
   onDelivery?: () => void;
@@ -58,6 +65,9 @@ export function Cart({
   isProcessing,
   onCheckout,
   branchId,
+  staffMode,
+  deliveryMode,
+  onDeliveryModeChange,
   delivery,
   onDelivery,
   onDeliveryClear,
@@ -163,6 +173,41 @@ export function Cart({
         )}
       </div>
 
+      {/* MODO STAFF: tipo de venta. "Entrega a domicilio" = Call Center
+          confirma destinatario y domicilio y Almacén surte al cobrar. */}
+      {staffMode && (
+        <div className="px-4 py-2 border-b">
+          <div className="grid grid-cols-2 gap-1 rounded-md bg-muted p-0.5 text-xs">
+            <button
+              type="button"
+              onClick={() => onDeliveryModeChange?.(false)}
+              className={`flex items-center justify-center gap-1 rounded px-2 py-1.5 font-medium transition-colors ${
+                !deliveryMode ? 'bg-background shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <Store className="size-3.5" />
+              Mostrador
+            </button>
+            <button
+              type="button"
+              onClick={() => onDeliveryModeChange?.(true)}
+              className={`flex items-center justify-center gap-1 rounded px-2 py-1.5 font-medium transition-colors ${
+                deliveryMode ? 'bg-violet-600 text-white shadow' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <Truck className="size-3.5" />
+              Entrega a domicilio
+            </button>
+          </div>
+          {deliveryMode && !cart.customerId && (
+            <p className="mt-1.5 text-[11px] leading-snug text-violet-800">
+              1) Asigna al distribuidor · 2) confirma su domicilio · 3) agrega productos y cobra.
+              Almacén recibe el pedido al cobrar.
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Selector de cliente / precio publico */}
       <CustomerSelector />
 
@@ -175,10 +220,10 @@ export function Cart({
         />
       )}
 
-      {/* Con cliente asignado: sus compras anteriores y entrega a domicilio
-          (Call Center confirma destinatario, teléfono y domicilio; Almacén
-          surte y envía desde el admin). */}
-      {cart.customerId && (onShowPurchases || onDelivery) && (
+      {/* MODO STAFF con distribuidor asignado: sus compras anteriores y, en
+          entrega a domicilio, el domicilio confirmado (o el botón para
+          confirmarlo). Almacén surte y envía desde el admin. */}
+      {staffMode && cart.customerId && (
         <div className="px-4 py-2 border-b space-y-1.5">
           <div className="flex items-center gap-2">
             {onShowPurchases && (
@@ -194,21 +239,20 @@ export function Cart({
                 Compras
               </Button>
             )}
-            {onDelivery && !delivery && (
+            {deliveryMode && onDelivery && !delivery && (
               <Button
                 type="button"
-                variant="outline"
                 size="sm"
                 onClick={onDelivery}
-                className="h-7 gap-1 text-xs"
-                title="Enviar esta venta al domicilio del distribuidor"
+                className="h-7 flex-1 gap-1 bg-violet-600 text-xs hover:bg-violet-700"
+                title="Confirmar quién recibe, teléfono y domicilio"
               >
                 <Truck className="size-3.5" />
-                Entrega a domicilio
+                Confirmar domicilio de entrega
               </Button>
             )}
           </div>
-          {delivery && (
+          {deliveryMode && delivery && (
             <div className="flex items-start gap-2 rounded-md border border-violet-200 bg-violet-50 px-2 py-1.5 text-[11px] text-violet-900">
               <Truck className="mt-0.5 size-3.5 shrink-0" />
               <div className="min-w-0 flex-1">
@@ -538,7 +582,7 @@ export function Cart({
         >
           {isProcessing
             ? 'Procesando...'
-            : `Cobrar ${cart.items.length > 0 ? fmt(cart.total) : ''}`}
+            : `${deliveryMode ? 'Cobrar y enviar a domicilio' : 'Cobrar'} ${cart.items.length > 0 ? fmt(cart.total) : ''}`}
           {!isProcessing && (
             <span className="text-xs font-normal opacity-80 ml-1">
               {currencyCode}
