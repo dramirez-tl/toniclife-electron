@@ -40,6 +40,7 @@ import { TransfersModal } from '@/components/pos/TransfersModal';
 import { DeliveryDialog } from '@/components/pos/DeliveryDialog';
 import { DeliveriesSheet } from '@/components/pos/DeliveriesSheet';
 import { CustomerPurchasesSheet } from '@/components/pos/CustomerPurchasesSheet';
+import { StaffAvatar, StaffPhotoDialog } from '@/components/pos/StaffAvatar';
 import { draftToInput } from '@/lib/deliveries';
 import type { DeliveryDraft } from '@/types/deliveries';
 import { CurrentPromotionsModal } from '@/components/pos/CurrentPromotionsModal';
@@ -330,6 +331,8 @@ export function PosScreen({
   const [deliveryOpenSeq, setDeliveryOpenSeq] = useState(0);
   const [purchasesOpen, setPurchasesOpen] = useState(false);
   const [deliveriesOpen, setDeliveriesOpen] = useState(false);
+  // Visor (solo ver) de la foto de quien opera en modo staff.
+  const [staffPhotoOpen, setStaffPhotoOpen] = useState(false);
   const activeDelivery =
     delivery && delivery.customerId === cart.customerId ? delivery : null;
 
@@ -1139,11 +1142,19 @@ export function PosScreen({
       {staffActive && staffUser && (
         <div className="flex h-10 shrink-0 items-center gap-3 bg-violet-700 px-5 text-white">
           <ShieldCheck className="size-4 shrink-0" />
+          {/* Foto de quien opera (expediente de RRHH); clic = verla en grande */}
+          <StaffAvatar
+            photoUrl={staffUser.avatarUrl}
+            name={staffUser.fullName}
+            size={28}
+            onClick={() => setStaffPhotoOpen(true)}
+            title="Ver foto"
+          />
           <span className="text-xs font-semibold">
             Modo staff — {staffUser.fullName}
           </span>
           <span className="hidden text-[11px] text-white/70 sm:inline">
-            {staffUser.email}
+            {[staffUser.departmentName, staffUser.email].filter(Boolean).join(' · ')}
           </span>
           <div className="ml-auto flex items-center gap-2">
             <span className="text-[11px] text-white/80">Sucursal:</span>
@@ -1352,6 +1363,18 @@ export function PosScreen({
         onClose={() => setTransfersOpen(false)}
         branchId={branchId}
       />
+
+      {/* Foto en grande de quien opera en modo staff (solo ver) */}
+      {staffUser && (
+        <StaffPhotoDialog
+          isOpen={staffPhotoOpen}
+          onClose={() => setStaffPhotoOpen(false)}
+          name={staffUser.fullName}
+          subtitle={staffUser.departmentName ?? undefined}
+          photoUrl={staffUser.photoUrl}
+          avatarUrl={staffUser.avatarUrl}
+        />
+      )}
 
       {/* Entrega a domicilio de la venta en curso (Call Center confirma datos) */}
       <DeliveryDialog

@@ -20,6 +20,10 @@ interface LoginResponse {
     /** El API de auth regresa los CODIGOS de rol aqui (ej. ['operaciones']);
      *  `role` no existe en la respuesta real — se conserva por compatibilidad. */
     roles?: string[];
+    /** Foto del expediente de RRHH (miniatura y original), firmadas. */
+    avatarUrl?: string | null;
+    photoUrl?: string | null;
+    departmentName?: string | null;
   };
 }
 
@@ -101,6 +105,9 @@ export async function staffAuthenticate(
       `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() ??
       u.email,
     roleCode,
+    avatarUrl: u.avatarUrl ?? null,
+    photoUrl: u.photoUrl ?? null,
+    departmentName: u.departmentName ?? null,
   };
   return {
     user,

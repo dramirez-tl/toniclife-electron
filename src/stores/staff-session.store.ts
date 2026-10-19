@@ -29,6 +29,12 @@ export interface StaffUser {
   email: string;
   fullName: string;
   roleCode?: string;
+  /** Miniatura de la foto del expediente de RRHH (URL firmada por el API). */
+  avatarUrl?: string | null;
+  /** Foto original (alta resolución) para verla en grande. */
+  photoUrl?: string | null;
+  /** Departamento/área (users.department_id). */
+  departmentName?: string | null;
 }
 
 /** Cierre automático por inactividad (ventas en curso incluidas — la persona
