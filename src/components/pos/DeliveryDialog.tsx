@@ -60,7 +60,9 @@ interface DeliveryDialogProps {
   branchCountryCode?: string;
   /** Borrador previo (editar destinatario/domicilio ya confirmados). */
   initial: DeliveryDraft | null;
-  onConfirm: (draft: DeliveryDraft) => void;
+  /** Folio cuando se agrega la entrega a una venta YA cobrada. */
+  saleNumber?: string;
+  onConfirm: (draft: DeliveryDraft) => void | Promise<void>;
 }
 
 function initialForm(initial: DeliveryDraft | null): FormValues {
@@ -84,6 +86,7 @@ export function DeliveryDialog({
   customerNumber,
   branchCountryCode,
   initial,
+  saleNumber,
   onConfirm,
 }: DeliveryDialogProps) {
   const queryClient = useQueryClient();
@@ -281,9 +284,10 @@ export function DeliveryDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Truck className="size-5" />
-            Entrega a domicilio
+            Entrega a domicilio{saleNumber ? ` · venta ${saleNumber}` : ''}
           </DialogTitle>
           <DialogDescription>
+            {saleNumber ? 'La venta ya está cobrada. ' : ''}
             Confirma por teléfono con {customerName ?? 'el distribuidor'}
             {customerNumber ? ` (#${customerNumber})` : ''} quién recibe, el teléfono y el
             domicilio. Almacén surte y envía el pedido desde la sucursal.

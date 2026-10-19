@@ -214,6 +214,9 @@ export interface Sale {
   payments: SalePayment[];
   createdAt: string;
   accumulatedPoints?: number;
+  /** Entrega a domicilio ligada (mig 161); null = mostrador. Ausente en APIs
+   *  anteriores. */
+  delivery?: import('./deliveries').SaleDeliverySummary | null;
 }
 
 export interface CreateSaleItemInput {

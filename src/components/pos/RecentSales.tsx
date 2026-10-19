@@ -525,6 +525,19 @@ export function RecentSales({
                               CC
                             </span>
                           )}
+                        {/* Entrega a domicilio ligada (Almacén la surte). */}
+                        {sale.delivery && (
+                          <span
+                            className={`shrink-0 rounded px-1 py-px font-sans text-[9px] font-bold ${
+                              sale.delivery.status === 'cancelled'
+                                ? 'bg-muted text-muted-foreground'
+                                : 'bg-fuchsia-100 text-fuchsia-700'
+                            }`}
+                            title={`Entrega a domicilio · ${sale.delivery.statusLabel} · ${sale.delivery.recipientName} · ${sale.delivery.addressText}`}
+                          >
+                            Domicilio
+                          </span>
+                        )}
                         {/* Cobrada en OTRA terminal de la sucursal: etiqueta de
                             esa caja (sucursales con varias terminales). */}
                         {sale.posLicenseId &&

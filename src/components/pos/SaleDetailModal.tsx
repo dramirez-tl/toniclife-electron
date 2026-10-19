@@ -12,6 +12,7 @@ import {
   Mail,
   Send,
   Ticket,
+  Truck,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -42,7 +43,7 @@ import { posApi } from '@/lib/posApi';
 import { getApiErrorMessage } from '@/lib/apiError';
 import { formatDateTime } from '@/lib/date';
 import { canInvoiceSale } from '@/lib/invoiceEligibility';
-import type { SaleEventTicket } from '@/types/pos';
+import type { Sale, SaleEventTicket } from '@/types/pos';
 import {
   INVOICE_STATUS_LABELS,
   firstRecipient,
@@ -67,6 +68,10 @@ interface SaleDetailModalProps {
   invoicingEnabled?: boolean;
   /** Abre "Facturar" para esta venta (cobrada, sin factura, del mes). */
   onInvoiceSale?: (saleId: string) => void;
+  /** MODO STAFF: permite agregar entrega a domicilio a una venta ya cobrada
+   *  (capturada sin ella). */
+  staffMode?: boolean;
+  onAddDelivery?: (sale: Sale) => void;
 }
 
 const PAYMENT_LABELS: Record<string, string> = {
@@ -94,6 +99,8 @@ export function SaleDetailModal({
   branchCountryCode,
   invoicingEnabled = false,
   onInvoiceSale,
+  staffMode = false,
+  onAddDelivery,
 }: SaleDetailModalProps) {
   const { data: sale, isLoading } = usePosSale(saleId ?? undefined, isOpen);
   const qc = useQueryClient();
@@ -475,6 +482,55 @@ export function SaleDetailModal({
                   </Badge>
                 )}
               </div>
+
+              {/* Entrega a domicilio ligada, o (modo staff) agregarla a una
+                  venta ya cobrada que se capturó sin ella. */}
+              {sale.delivery ? (
+                <div
+                  className={`flex items-start gap-2 rounded-lg border p-2.5 text-xs ${
+                    sale.delivery.status === 'cancelled'
+                      ? 'border-muted bg-muted/40 text-muted-foreground'
+                      : 'border-violet-200 bg-violet-50 text-violet-900'
+                  }`}
+                >
+                  <Truck className="mt-0.5 size-4 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold">
+                      Entrega a domicilio · {sale.delivery.statusLabel}
+                    </p>
+                    <p>
+                      Recibe {sale.delivery.recipientName}
+                      {sale.delivery.recipientPhone
+                        ? ` · ${sale.delivery.recipientPhone}`
+                        : ''}
+                    </p>
+                    <p className="text-muted-foreground">{sale.delivery.addressText}</p>
+                    {(sale.delivery.carrier || sale.delivery.trackingNumber) && (
+                      <p className="font-medium">
+                        {sale.delivery.carrier ?? 'Paquetería'}
+                        {sale.delivery.trackingNumber
+                          ? ` · guía ${sale.delivery.trackingNumber}`
+                          : ''}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ) : staffMode &&
+                onAddDelivery &&
+                sale.status === PosSaleStatus.COMPLETED ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onAddDelivery(sale)}
+                  disabled={busy}
+                  className="w-full gap-1.5 border-violet-300 text-violet-800 hover:bg-violet-50"
+                  title="Confirmar destinatario y domicilio; Almacén la surte"
+                >
+                  <Truck className="size-4" />
+                  Agregar entrega a domicilio a esta venta
+                </Button>
+              ) : null}
 
               {/* Items */}
               <div className="rounded-lg border overflow-hidden">

@@ -90,6 +90,19 @@ export interface CustomerContact {
   countryId: string | null;
 }
 
+/** Resumen de la entrega ligada a una venta (viene dentro de Sale.delivery). */
+export interface SaleDeliverySummary {
+  id: string;
+  status: PosDeliveryStatus;
+  statusLabel: string;
+  recipientName: string;
+  recipientPhone: string | null;
+  addressText: string;
+  carrier: string | null;
+  trackingNumber: string | null;
+  requestedAt: string;
+}
+
 /** Fila de GET /pos/deliveries (DeliveryDto del API, recortado a lo que usa el POS). */
 export interface PosDelivery {
   id: string;

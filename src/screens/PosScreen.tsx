@@ -20,6 +20,7 @@ import {
   Truck,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useQueryClient } from '@tanstack/react-query';
 import { LogoMark } from '@/components/LogoMark';
 import { LiveClock } from '@/components/LiveClock';
 import { ConnectionStatus } from '@/components/ConnectionStatus';
@@ -87,6 +88,7 @@ import {
 } from '@/stores/staff-session.store';
 import { staffLogout } from '@/lib/staffApi';
 import {
+  posKeys,
   useCreateSale,
   useProcessPayment,
   usePosActiveSession,
@@ -333,6 +335,16 @@ export function PosScreen({
   const [deliveriesOpen, setDeliveriesOpen] = useState(false);
   // Visor (solo ver) de la foto de quien opera en modo staff.
   const [staffPhotoOpen, setStaffPhotoOpen] = useState(false);
+  // Agregar entrega a una venta YA cobrada (capturada sin ella): el mismo
+  // diálogo, pero el borrador se manda al API de inmediato.
+  const [attachSale, setAttachSale] = useState<{
+    id: string;
+    saleNumber: string;
+    customerId?: string;
+    customerName?: string;
+    customerNumber?: string;
+  } | null>(null);
+  const queryClient = useQueryClient();
   const activeDelivery =
     delivery && delivery.customerId === cart.customerId ? delivery : null;
 
@@ -1412,13 +1424,36 @@ export function PosScreen({
       <DeliveryDialog
         key={deliveryOpenSeq}
         isOpen={deliveryOpen}
-        onClose={() => setDeliveryOpen(false)}
-        customerId={cart.customerId}
-        customerName={cart.customerName}
-        customerNumber={cart.customerNumber}
+        onClose={() => {
+          setDeliveryOpen(false);
+          setAttachSale(null);
+        }}
+        customerId={attachSale ? attachSale.customerId : cart.customerId}
+        customerName={attachSale ? attachSale.customerName : cart.customerName}
+        customerNumber={attachSale ? attachSale.customerNumber : cart.customerNumber}
         branchCountryCode={branch.country?.code}
-        initial={activeDelivery}
-        onConfirm={(draft) => {
+        initial={attachSale ? null : activeDelivery}
+        saleNumber={attachSale?.saleNumber}
+        onConfirm={async (draft) => {
+          if (attachSale) {
+            // Venta ya cobrada: la entrega se registra al momento y Almacén
+            // recibe el aviso.
+            try {
+              await posApi.addSaleDelivery(attachSale.id, draftToInput(draft));
+              toast.success(
+                `Entrega a domicilio agregada a la venta ${attachSale.saleNumber}: Almacén la surte y envía.`,
+                { duration: 6000 },
+              );
+              void queryClient.invalidateQueries({ queryKey: posKeys.all });
+              setAttachSale(null);
+              setDeliveryOpen(false);
+            } catch (err) {
+              toast.error(
+                getApiErrorMessage(err, 'No se pudo agregar la entrega a la venta'),
+              );
+            }
+            return;
+          }
           setDelivery(draft);
           setDeliveryOpen(false);
           toast.success(`Entrega a domicilio confirmada para ${draft.recipientName}`);
@@ -1537,6 +1572,24 @@ export function PosScreen({
         isOpen={!!selectedSaleId}
         onClose={() => setSelectedSaleId(null)}
         saleId={selectedSaleId}
+        staffMode={staffActive}
+        onAddDelivery={(sale) => {
+          if (!sale.customerId) {
+            toast.error(
+              'La venta no tiene distribuidor asignado; no se puede enviar a domicilio.',
+            );
+            return;
+          }
+          setAttachSale({
+            id: sale.id,
+            saleNumber: sale.saleNumber,
+            customerId: sale.customerId,
+            customerName: sale.customerName,
+            customerNumber: sale.customerNumber,
+          });
+          setDeliveryOpenSeq((n) => n + 1);
+          setDeliveryOpen(true);
+        }}
         currencySymbol={currencySymbol}
         branchTz={branchTz}
         branchName={branch.name}

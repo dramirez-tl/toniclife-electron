@@ -5,9 +5,11 @@
 import axios from 'axios';
 import { api } from './api';
 import type {
+  CreateSaleDeliveryInput,
   CustomerAddress,
   CustomerAddressInput,
   CustomerContact,
+  PosDelivery,
   PosDeliveryList,
 } from '@/types/deliveries';
 import type {
@@ -415,6 +417,19 @@ class PosApi {
         ...(params.mine ? { mine: '1' } : { mine: undefined }),
       },
     });
+    return data;
+  }
+
+  /** Agrega la entrega a domicilio a una venta YA cobrada (capturada sin ella).
+   *  Solo ventas completadas de los últimos 7 días sin entrega previa. */
+  async addSaleDelivery(
+    saleId: string,
+    input: CreateSaleDeliveryInput,
+  ): Promise<PosDelivery> {
+    const { data } = await api.post<PosDelivery>(
+      `/pos/deliveries/for-sale/${saleId}`,
+      input,
+    );
     return data;
   }
 
