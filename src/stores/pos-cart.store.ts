@@ -19,6 +19,9 @@ interface PosCartStore {
    *  resuelve PosScreen en segundo plano (el store se mantiene síncrono). */
   setItemComponents: (productId: string, components: KitComponent[]) => void;
   clearCart: () => void;
+  /** Sustituye el carrito completo (pestañas de pedidos: al cambiar de
+   *  pestaña entra el carrito estacionado de la otra). */
+  loadCart: (cart: PosCart) => void;
   setCustomer: (
     customerId?: string,
     customerName?: string,
@@ -317,6 +320,10 @@ export const usePosCartStore = create<PosCartStore>()(
 
       clearCart: () => {
         set({ cart: initialCart });
+      },
+
+      loadCart: (cart) => {
+        set({ cart: calculateCartTotals(cart) });
       },
 
       setCustomer: (

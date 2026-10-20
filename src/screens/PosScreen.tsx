@@ -37,7 +37,16 @@ import { ProductGrid } from '@/components/pos/ProductGrid';
 import { AvailablePromotions } from '@/components/pos/AvailablePromotions';
 import { Cart } from '@/components/pos/Cart';
 import { ResizeHandle } from '@/components/pos/ResizeHandle';
-import { TransfersModal } from '@/components/pos/TransfersModal';
+import {
+  TransfersModal,
+  TRANSFER_RECEIVE_ROLES,
+} from '@/components/pos/TransfersModal';
+import { OrderTabsBar } from '@/components/pos/OrderTabsBar';
+import {
+  usePosOrderTabs,
+  isSnapshotEmpty,
+  type OrderTabSnapshot,
+} from '@/stores/pos-order-tabs.store';
 import { DeliveryDialog } from '@/components/pos/DeliveryDialog';
 import { DeliveriesSheet } from '@/components/pos/DeliveriesSheet';
 import { CustomerPurchasesSheet } from '@/components/pos/CustomerPurchasesSheet';
@@ -306,6 +315,7 @@ export function PosScreen({
 
   const cart = usePosCartStore((s) => s.cart);
   const clearCart = usePosCartStore((s) => s.clearCart);
+  const loadCart = usePosCartStore((s) => s.loadCart);
   const setCustomer = usePosCartStore((s) => s.setCustomer);
   const addItem = usePosCartStore((s) => s.addItem);
   const createSale = useCreateSale();
@@ -383,6 +393,63 @@ export function PosScreen({
     setDeliveryOpen(true);
   }, [cart.customerId, deliveryModeActive, delivery]);
 
+  // PESTAÑAS DE PEDIDOS (modo staff): Call Center atiende varias llamadas a
+  // la vez. La pestaña activa vive en el store del carrito + delivery /
+  // deliveryMode / consolidated de arriba; las demás se estacionan como
+  // snapshot en usePosOrderTabs y se restauran al volver.
+  const orderTabs = usePosOrderTabs((s) => s.tabs);
+  const activeTabId = usePosOrderTabs((s) => s.activeId);
+  const snapshotCurrent = (): OrderTabSnapshot => ({
+    cart: usePosCartStore.getState().cart,
+    delivery,
+    deliveryMode,
+    consolidated,
+  });
+  const restoreSnapshot = (s: OrderTabSnapshot | null) => {
+    // El diálogo del domicilio no debe abrirse solo por cambiar de pestaña.
+    prevDeliveryCustomerRef.current = s?.cart.customerId;
+    if (s) loadCart(s.cart);
+    else clearCart();
+    setDelivery(s?.delivery ?? null);
+    setDeliveryMode(s?.deliveryMode ?? false);
+    setConsolidated(s?.consolidated ?? false);
+    saleAttemptRef.current = null;
+  };
+  const handleOpenTab = () => {
+    if (!usePosOrderTabs.getState().openTab(snapshotCurrent())) {
+      toast.info('Este pedido está vacío: úsalo para la nueva llamada.');
+      return;
+    }
+    restoreSnapshot(null);
+  };
+  const handleSwitchTab = (id: string) => {
+    const restore = usePosOrderTabs.getState().switchTab(id, snapshotCurrent());
+    if (restore !== undefined) restoreSnapshot(restore);
+  };
+  const handleCloseTab = (id: string) => {
+    const tab = orderTabs.find((t) => t.id === id);
+    if (!tab) return;
+    const snap = id === activeTabId ? snapshotCurrent() : tab.parked;
+    const units = snap?.cart.items.reduce((n, it) => n + it.quantity, 0) ?? 0;
+    if (
+      (units > 0 || snap?.delivery) &&
+      !window.confirm(
+        `Este pedido tiene ${units} pieza(s)${snap?.delivery ? ' y una entrega a domicilio confirmada' : ''}${
+          snap?.cart.customerName ? ` (${snap.cart.customerName})` : ''
+        }. ¿Cerrarlo y descartarlo?`,
+      )
+    ) {
+      return;
+    }
+    const restore = usePosOrderTabs.getState().closeTab(id);
+    if (restore !== undefined) restoreSnapshot(restore);
+  };
+  // Fuera del modo staff no hay pestañas: al salir (botón, inactividad o
+  // invalidación de la terminal) se descartan las estacionadas.
+  useEffect(() => {
+    if (!staffActive) usePosOrderTabs.getState().reset();
+  }, [staffActive]);
+
   // Si Sistemas apaga el checador de esta terminal, el siguiente latido (≤60 s)
   // lo refleja: además de ocultar el botón, cerramos el modal si quedó abierto
   // (el server ya rechazaría el checado con 403).
@@ -433,6 +500,11 @@ export function PosScreen({
     prevBranchIdRef.current = branchId;
     clearCart();
     saleAttemptRef.current = null;
+    // Las pestañas de pedidos y la entrega en curso eran de la otra sucursal.
+    usePosOrderTabs.getState().reset();
+    setDelivery(null);
+    setDeliveryMode(false);
+    setConsolidated(false);
     const today = todayLocal(branch.timezone);
     setSalesRange({ from: today, to: today });
     setSalesTerminal(ALL_TERMINALS);
@@ -1227,6 +1299,18 @@ export function PosScreen({
               variant="ghost"
               size="sm"
               onClick={() => {
+                const { tabs, activeId } = usePosOrderTabs.getState();
+                const parked = tabs.filter(
+                  (t) => t.id !== activeId && !isSnapshotEmpty(t.parked),
+                ).length;
+                if (
+                  parked > 0 &&
+                  !window.confirm(
+                    `Tienes ${parked} pedido(s) en otras pestañas; al salir del modo staff se descartan. ¿Continuar?`,
+                  )
+                ) {
+                  return;
+                }
                 staffLogout();
                 setDeliveryMode(false);
                 setConsolidated(false);
@@ -1315,7 +1399,25 @@ export function PosScreen({
           onResize={setCartWidth}
           onCommit={persistCartWidth}
         />
-        <aside className="shrink-0" style={{ width: cartWidth }} data-tour="pos-cart">
+        <aside
+          className="flex shrink-0 flex-col"
+          style={{ width: cartWidth }}
+          data-tour="pos-cart"
+        >
+          {/* Pestañas de pedidos: solo en modo staff (varias llamadas a la vez) */}
+          {staffActive && (
+            <OrderTabsBar
+              tabs={orderTabs}
+              activeId={activeTabId}
+              liveCart={cart}
+              liveDeliveryMode={deliveryModeActive}
+              disabled={isProcessing || paymentOpen}
+              onSelect={handleSwitchTab}
+              onOpen={handleOpenTab}
+              onClose={handleCloseTab}
+            />
+          )}
+          <div className="min-h-0 flex-1">
           <Cart
             currencySymbol={currencySymbol}
             currencyCode={currencyCode}
@@ -1390,6 +1492,7 @@ export function PosScreen({
               setPaymentOpen(true);
             }}
           />
+          </div>
         </aside>
       </div>
       )}
@@ -1439,6 +1542,10 @@ export function PosScreen({
         isOpen={transfersOpen}
         onClose={() => setTransfersOpen(false)}
         branchId={branchId}
+        canReceive={
+          staffActive &&
+          TRANSFER_RECEIVE_ROLES.includes(staffUser?.roleCode ?? '')
+        }
       />
 
       {/* Foto en grande de quien opera en modo staff (solo ver) */}
@@ -1734,6 +1841,7 @@ export function PosScreen({
           setDeliveryMode(false);
           setConsolidated(false);
           setDelivery(null);
+          usePosOrderTabs.getState().reset();
           toast.success(
             `Modo staff activo — operando sucursal ${b.code} — ${b.name}`,
           );

@@ -160,11 +160,18 @@ export function SaleDetailModal({
     sendingEmail ||
     sendingTickets;
   const fmt = (n: number) => posApi.formatCurrency(n, currencySymbol);
-  // Cancelar ventas (regla 19-ago-2026): SOLO Operaciones y administracion
-  // central — el server lo exige con @Roles; aqui ademas se oculta la opcion
-  // y se muestra a sucursales/call center/cedeas como solicitarla.
+  // Cancelar ventas: el server exige el permiso pos:manage (lo tienen
+  // super_admin, administración, Operaciones y CEDEAS desde el 14-oct-2026);
+  // aquí se oculta la opción a sucursales/call center y se les indica cómo
+  // solicitarla. Mismos roles que el admin; CEDEAS se sumó el 19-oct-2026.
   const staffUser = useStaffSession((s) => s.user);
-  const CANCEL_ROLES = ['super_admin', 'administrador', 'admin', 'operaciones'];
+  const CANCEL_ROLES = [
+    'super_admin',
+    'administrador',
+    'admin',
+    'operaciones',
+    'cedeas',
+  ];
   const roleAllowsCancel =
     !!staffUser && CANCEL_ROLES.includes(staffUser.roleCode ?? '');
   const saleCancellable =
@@ -827,9 +834,9 @@ export function SaleDetailModal({
                 <Alert className="text-xs">
                   <Ban />
                   <AlertDescription className="text-xs">
-                    La cancelación de ventas está a cargo del departamento de
-                    Operaciones. Si necesitas cancelar esta venta, solicítalo a
-                    Operaciones indicando el folio{' '}
+                    La cancelación de ventas está a cargo de Operaciones y de
+                    CEDEAS. Si necesitas cancelar esta venta, solicítalo
+                    indicando el folio{' '}
                     <span className="font-mono font-semibold">
                       {sale.saleNumber}
                     </span>{' '}
