@@ -778,6 +778,10 @@ export const GLOBAL_EXCLUDED_REASON_LABELS: Record<string, string> = {
   zero_total: 'Ticket en $0',
   credit_sale: 'Venta a crédito (PPD)',
   already_in_global: 'Ya está en otra global',
+  // Contabilidad (20-oct-2026): estos cobros no se globalizan.
+  cashback: 'Pagado con cashback (no se globaliza)',
+  promotion: 'Pagado con promoción (no se globaliza)',
+  usd: 'Pagado en dólares (no se globaliza)',
 };
 
 export type GlobalConceptMode = 'ticket' | 'product';
@@ -796,6 +800,8 @@ export type GlobalProcessState = 'none' | 'processing' | 'emitted' | 'error' | '
 export interface GlobalDayProcess {
   state: GlobalProcessState;
   localDate: string;
+  /** Mig 164: forma de pago de la global sondeada. */
+  paymentForm?: string | null;
   invoiceId: string | null;
   providerStatus: string | null;
   folioDisplay: string | null;
@@ -818,6 +824,9 @@ export interface GlobalDayStatusRow {
   lateEmission: boolean;
   uncoveredCount: number;
   uncoveredTotal: number;
+  /** Mig 164: globales vivas del día (una por forma de pago) y formas aún sin global. */
+  emittedForms?: GlobalDayForm[];
+  pendingForms?: GlobalPendingForm[];
 }
 
 export interface GlobalTax {
@@ -877,6 +886,41 @@ export interface GlobalExisting {
   providerStatus: string | null;
   folioDisplay: string;
   satUuid: string | null;
+  /** Mig 164: forma de pago de esa global. */
+  paymentForm?: string | null;
+  total?: number;
+  ticketCount?: number;
+}
+
+/**
+ * Una global por FORMA DE PAGO (Contabilidad, 20-oct-2026 / API mig 164): el
+ * grupo de tickets de esa forma y el previewHash que se confirma al emitirla.
+ */
+export interface GlobalPreviewGroup {
+  paymentForm: string;
+  included: GlobalPreviewIncluded[];
+  totals: GlobalPreviewTotals;
+  items: unknown[];
+  blockers: GlobalPreviewBlocker[];
+  existing: GlobalExisting[];
+  canStamp: boolean;
+  previewHash: string;
+}
+
+export interface GlobalDayForm {
+  paymentForm: string;
+  invoiceId: string;
+  providerStatus: string | null;
+  folioDisplay: string;
+  satUuid: string | null;
+  ticketCount: number;
+  total: number;
+}
+
+export interface GlobalPendingForm {
+  paymentForm: string;
+  ticketCount: number;
+  total: number;
 }
 
 export interface GlobalPreview {
@@ -901,8 +945,14 @@ export interface GlobalPreview {
   /** Conceptos como se enviarán al PAC (vacío si hay bloqueadores). */
   items: unknown[];
   existingGlobal: GlobalExisting | null;
+  /** Compatibilidad: true solo si el día tiene UNA forma de pago emitible. */
   canStamp: boolean;
+  /** Compatibilidad: hash del único grupo, o del conjunto si hay varios. */
   previewHash: string;
+  /** API con mig 164: un grupo por forma de pago (ausente en un API viejo). */
+  groups?: GlobalPreviewGroup[];
+  multiplePaymentForms?: boolean;
+  existingGlobals?: GlobalExisting[];
 }
 
 /** Resumen de una factura (InvoiceSummaryDto): campos que usa el POS. */

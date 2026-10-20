@@ -172,6 +172,9 @@ function DayStatus({
           <p className={muted}>
             {row.ticketCount} {row.ticketCount === 1 ? 'ticket' : 'tickets'} ·{' '}
             {fmt(Number(row.total))}
+            {row.emittedForms && row.emittedForms.length > 1
+              ? ` · ${row.emittedForms.length} globales (${row.emittedForms.map((f) => f.paymentForm).join(', ')})`
+              : ''}
           </p>
           {row.invoiceId && (
             <div className="flex gap-1 pt-1">
@@ -226,6 +229,17 @@ function DayStatus({
             {fmt(Number(row.total))}
             {row.lateEmission ? ' · emisión tardía' : ''}
           </p>
+          {/* Mig 164: una global por forma de pago; lo ya emitido y lo que falta. */}
+          {row.emittedForms && row.emittedForms.length > 0 && (
+            <p className={`${textSize} text-emerald-700`}>
+              Emitidas: {row.emittedForms.map((f) => `${f.paymentForm} (${f.folioDisplay})`).join(', ')}
+            </p>
+          )}
+          {row.pendingForms && row.pendingForms.length > 0 && (
+            <p className={muted}>
+              Por emitir: {row.pendingForms.map((f) => `forma ${f.paymentForm} · ${f.ticketCount} tickets · ${fmt(Number(f.total))}`).join(' · ')}
+            </p>
+          )}
           <Button
             size="sm"
             className="w-full"

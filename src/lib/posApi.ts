@@ -948,6 +948,8 @@ class PosApi {
     date: string,
     previewHash: string,
     branchId?: string,
+    /** Mig 164: forma de pago del grupo (una global por forma); hash = el del grupo. */
+    paymentForm?: string,
   ): Promise<InvoiceDetail | GlobalEmitAccepted> {
     const { data } = await api.post(
       '/pos/billing/global',
@@ -956,19 +958,25 @@ class PosApi {
         previewHash,
         background: true,
         ...(branchId ? { branchId } : {}),
+        ...(paymentForm ? { paymentForm } : {}),
       },
       { timeout: SALE_WRITE_TIMEOUT_MS },
     );
     return data;
   }
 
-  /** Estado de la emisión en segundo plano de la global de un día. */
+  /** Estado de la emisión en segundo plano de la global de un día (y forma de pago). */
   async getGlobalStatus(
     date: string,
     branchId?: string,
+    paymentForm?: string,
   ): Promise<GlobalDayProcess> {
     const { data } = await api.get('/pos/billing/global/status', {
-      params: { date, ...(branchId ? { branchId } : {}) },
+      params: {
+        date,
+        ...(branchId ? { branchId } : {}),
+        ...(paymentForm ? { paymentForm } : {}),
+      },
     });
     return data;
   }
