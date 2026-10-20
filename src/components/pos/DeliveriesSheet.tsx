@@ -2,10 +2,12 @@
 // (Call Center) arranca con "Mis entregas" (las que capturó la persona);
 // también se pueden ver todas las que surte la sucursal. Se refresca solo
 // cada minuto mientras está abierto. Clic en el folio abre la venta.
+// Las entregas que comparten clave de envío (pedido consolidado, mig 162)
+// se muestran como una sola tarjeta con todas sus ventas.
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Loader2, Truck, RefreshCw } from 'lucide-react';
+import { Loader2, Truck, RefreshCw, Package } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Sheet,
@@ -72,6 +74,18 @@ export function DeliveriesSheet({
     refetchInterval: isOpen ? 60_000 : false,
   });
   const rows = query.data?.data ?? [];
+  // Un envío consolidado = una tarjeta con todas sus ventas (mismo orden
+  // en que el API entrega la primera de ellas).
+  const groups = useMemo(() => {
+    const byKey = new Map<string, PosDelivery[]>();
+    for (const d of rows) {
+      const key = d.shipmentKey ?? d.id;
+      const list = byKey.get(key);
+      if (list) list.push(d);
+      else byKey.set(key, [d]);
+    }
+    return Array.from(byKey.values());
+  }, [rows]);
 
   return (
     <Sheet open={isOpen} onOpenChange={(o) => !o && onClose()}>
@@ -152,14 +166,23 @@ export function DeliveriesSheet({
                 : 'No hay entregas registradas.'}
             </p>
           ) : (
-            rows.map((d) => (
-              <DeliveryRow
-                key={d.id}
-                d={d}
-                branchTz={branchTz}
-                onSelectSale={onSelectSale}
-              />
-            ))
+            groups.map((members) =>
+              members.length > 1 || (members[0].shipmentSize ?? 1) > 1 ? (
+                <ShipmentRow
+                  key={members[0].shipmentKey ?? members[0].id}
+                  members={members}
+                  branchTz={branchTz}
+                  onSelectSale={onSelectSale}
+                />
+              ) : (
+                <DeliveryRow
+                  key={members[0].id}
+                  d={members[0]}
+                  branchTz={branchTz}
+                  onSelectSale={onSelectSale}
+                />
+              ),
+            )
           )}
         </div>
       </SheetContent>
@@ -232,6 +255,93 @@ function DeliveryRow({
       )}
       <p className="mt-1 text-[11px] text-muted-foreground">
         {lastStep} · capturó {d.requestedByName}
+      </p>
+    </div>
+  );
+}
+
+/** Tarjeta de un envío consolidado: un paquete, varias ventas. */
+function ShipmentRow({
+  members,
+  branchTz,
+  onSelectSale,
+}: {
+  members: PosDelivery[];
+  branchTz?: string;
+  onSelectSale: (saleId: string) => void;
+}) {
+  const head = members[0];
+  const total = head.shipmentSize ?? members.length;
+  const units = members.reduce((acc, m) => acc + (m.itemsUnits ?? 0), 0);
+  const lastStep =
+    head.status === 'delivered'
+      ? `Entregado ${formatDateTime(head.deliveredAt ?? head.requestedAt, branchTz)}`
+      : head.status === 'shipped'
+        ? `Enviado ${formatDateTime(head.shippedAt ?? head.requestedAt, branchTz)}`
+        : head.status === 'ready'
+          ? `Listo ${formatDateTime(head.readyAt ?? head.requestedAt, branchTz)}`
+          : head.status === 'cancelled'
+            ? `Cancelado${head.cancelReason ? `: ${head.cancelReason}` : ''}`
+            : `Capturado ${formatDateTime(head.requestedAt, branchTz)}`;
+  return (
+    <div className="rounded-lg border border-violet-200 bg-violet-50/40 p-3 text-xs">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="inline-flex items-center gap-1 rounded-full bg-violet-600 px-2 py-0.5 text-[11px] font-semibold text-white">
+          <Package className="size-3" />
+          Envío consolidado · {total} venta(s)
+        </span>
+        <span
+          className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${STATUS_CLASS[head.status] ?? ''}`}
+        >
+          {DELIVERY_STATUS_LABELS[head.status] ?? head.statusLabel}
+        </span>
+        <span className="ml-auto text-muted-foreground">
+          {units} pza(s)
+          {members.length < total ? ` (${members.length} de ${total} ventas en esta lista)` : ''}
+          {' '}· surte {head.fulfillBranchCode}
+        </span>
+      </div>
+      <p className="mt-1">
+        <span className="font-medium">recibe {head.recipientName}</span>
+        <span className="text-muted-foreground">
+          {head.recipientPhone ? ` · ${head.recipientPhone}` : ''}
+        </span>
+      </p>
+      <p className="text-muted-foreground">{head.addressText}</p>
+      <ul className="mt-1.5 space-y-0.5">
+        {members.map((m) => (
+          <li key={m.id} className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="font-mono font-semibold text-primary hover:underline"
+              onClick={() => onSelectSale(m.saleId)}
+            >
+              {m.saleNumber}
+            </button>
+            <span>
+              {m.customerNumber ? `#${m.customerNumber} ` : ''}
+              {m.customerName ?? m.recipientName}
+            </span>
+            <span className="text-muted-foreground">· {m.itemsUnits} pza(s)</span>
+            {m.saleStatus !== 'completed' && (
+              <span className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-medium text-red-700">
+                Venta {m.saleStatus === 'pending' ? 'sin cobrar' : m.saleStatus}
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+      {(head.carrier || head.trackingNumber) && (
+        <p className="mt-1 font-medium text-violet-800">
+          {head.carrier ?? 'Paquetería'}
+          {head.trackingNumber ? ` · guía ${head.trackingNumber}` : ''}
+        </p>
+      )}
+      {head.warehouseNotes && (
+        <p className="mt-1 text-muted-foreground">Almacén: {head.warehouseNotes}</p>
+      )}
+      <p className="mt-1 text-[11px] text-muted-foreground">
+        {lastStep} · capturó {head.requestedByName}
       </p>
     </div>
   );

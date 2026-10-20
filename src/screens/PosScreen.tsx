@@ -345,8 +345,12 @@ export function PosScreen({
     customerNumber?: string;
   } | null>(null);
   const queryClient = useQueryClient();
+  // El borrador aplica al cliente para el que se confirmó; en envío
+  // consolidado aplica a cualquier distribuidor (un paquete, varias ventas).
   const activeDelivery =
-    delivery && delivery.customerId === cart.customerId ? delivery : null;
+    delivery && (delivery.consolidated || delivery.customerId === cart.customerId)
+      ? delivery
+      : null;
 
   // MODO STAFF (call center / corporativo con SU cuenta): si hay sesión staff
   // con sucursal elegida, TODO el POS opera con esa sucursal (catálogo,
@@ -361,6 +365,8 @@ export function PosScreen({
   // Tipo de venta en MODO STAFF: "Entrega a domicilio" (Call Center) vs
   // mostrador. Solo vive con la sesión staff; fuera de ella no existe.
   const [deliveryMode, setDeliveryMode] = useState(false);
+  // Envío consolidado: varios distribuidores, un solo paquete (mig 162).
+  const [consolidated, setConsolidated] = useState(false);
   const deliveryModeActive = staffActive && deliveryMode;
   // Al asignar un distribuidor con el modo entrega activo se abre solo el
   // diálogo del domicilio (el paso que no era intuitivo).
@@ -370,6 +376,9 @@ export function PosScreen({
     prevDeliveryCustomerRef.current = cart.customerId;
     if (!deliveryModeActive || !cart.customerId || cart.customerId === prev) return;
     if (delivery && delivery.customerId === cart.customerId) return;
+    // Envío consolidado ya confirmado: el domicilio sirve para todos los
+    // distribuidores del paquete; no se vuelve a pedir.
+    if (delivery?.consolidated) return;
     setDeliveryOpenSeq((n) => n + 1);
     setDeliveryOpen(true);
   }, [cart.customerId, deliveryModeActive, delivery]);
@@ -721,11 +730,21 @@ export function PosScreen({
       // su propia clave. La entrega a domicilio ya viajó con la venta.
       saleAttemptRef.current = null;
       if (activeDelivery) {
-        setDelivery(null);
-        toast.info(
-          `Pedido a domicilio registrado para ${activeDelivery.recipientName}: Almacén lo surte y envía.`,
-          { duration: 6000 },
-        );
+        if (activeDelivery.consolidated) {
+          // El envío sigue abierto para el siguiente distribuidor.
+          const sales = [...(activeDelivery.shipmentSales ?? []), result.saleNumber];
+          setDelivery({ ...activeDelivery, shipmentSales: sales });
+          toast.info(
+            `Venta ${result.saleNumber} sumada al envío consolidado para ${activeDelivery.recipientName} (${sales.length} venta(s)). Asigna al siguiente distribuidor o cierra el envío.`,
+            { duration: 7000 },
+          );
+        } else {
+          setDelivery(null);
+          toast.info(
+            `Pedido a domicilio registrado para ${activeDelivery.recipientName}: Almacén lo surte y envía.`,
+            { duration: 6000 },
+          );
+        }
       }
 
       const changeMsg =
@@ -1210,6 +1229,7 @@ export function PosScreen({
               onClick={() => {
                 staffLogout();
                 setDeliveryMode(false);
+                setConsolidated(false);
                 setDelivery(null);
                 toast.info('Saliste del modo staff.');
               }}
@@ -1306,12 +1326,17 @@ export function PosScreen({
             onDeliveryModeChange={(on) => {
               setDeliveryMode(on);
               // Regresar a mostrador descarta el domicilio confirmado.
-              if (!on) setDelivery(null);
+              if (!on) {
+                setDelivery(null);
+                setConsolidated(false);
+              }
               if (on && cart.customerId && !activeDelivery) {
                 setDeliveryOpenSeq((n) => n + 1);
                 setDeliveryOpen(true);
               }
             }}
+            consolidated={consolidated}
+            onConsolidatedChange={setConsolidated}
             delivery={activeDelivery}
             onDelivery={() => {
               if (!cart.customerId) {
@@ -1321,7 +1346,15 @@ export function PosScreen({
               setDeliveryOpenSeq((n) => n + 1);
               setDeliveryOpen(true);
             }}
-            onDeliveryClear={() => setDelivery(null)}
+            onDeliveryClear={() => {
+              if (activeDelivery?.consolidated) {
+                toast.info(
+                  `Envío consolidado cerrado con ${activeDelivery.shipmentSales?.length ?? 0} venta(s).`,
+                );
+                setConsolidated(false);
+              }
+              setDelivery(null);
+            }}
             onShowPurchases={() => setPurchasesOpen(true)}
             onCheckout={() => {
               if (cart.items.length === 0) return;
@@ -1437,13 +1470,33 @@ export function PosScreen({
         onConfirm={async (draft) => {
           if (attachSale) {
             // Venta ya cobrada: la entrega se registra al momento y Almacén
-            // recibe el aviso.
+            // recibe el aviso. Con "varios distribuidores, un solo envío"
+            // marcado, esta venta abre el envío consolidado y el domicilio
+            // queda listo para las siguientes.
+            const openShipment = deliveryModeActive && consolidated;
+            const shipmentKey = openShipment ? crypto.randomUUID() : undefined;
             try {
-              await posApi.addSaleDelivery(attachSale.id, draftToInput(draft));
-              toast.success(
-                `Entrega a domicilio agregada a la venta ${attachSale.saleNumber}: Almacén la surte y envía.`,
-                { duration: 6000 },
-              );
+              await posApi.addSaleDelivery(attachSale.id, {
+                ...draftToInput(draft),
+                ...(shipmentKey ? { shipmentKey } : {}),
+              });
+              if (openShipment) {
+                setDelivery({
+                  ...draft,
+                  consolidated: true,
+                  shipmentKey,
+                  shipmentSales: [attachSale.saleNumber],
+                });
+                toast.success(
+                  `Envío consolidado abierto con la venta ${attachSale.saleNumber}: recibe ${draft.recipientName}. Asigna al siguiente distribuidor y cobra, o suma otra venta ya cobrada.`,
+                  { duration: 7000 },
+                );
+              } else {
+                toast.success(
+                  `Entrega a domicilio agregada a la venta ${attachSale.saleNumber}: Almacén la surte y envía.`,
+                  { duration: 6000 },
+                );
+              }
               void queryClient.invalidateQueries({ queryKey: posKeys.all });
               setAttachSale(null);
               setDeliveryOpen(false);
@@ -1452,6 +1505,21 @@ export function PosScreen({
                 getApiErrorMessage(err, 'No se pudo agregar la entrega a la venta'),
               );
             }
+            return;
+          }
+          if (consolidated || activeDelivery?.consolidated) {
+            // Un solo domicilio para varias ventas: la clave del envío la
+            // genera el POS y viaja en cada cobro.
+            setDelivery({
+              ...draft,
+              consolidated: true,
+              shipmentKey: activeDelivery?.shipmentKey ?? crypto.randomUUID(),
+              shipmentSales: activeDelivery?.shipmentSales ?? [],
+            });
+            setDeliveryOpen(false);
+            toast.success(
+              `Envío consolidado abierto: recibe ${draft.recipientName}. Cobra una venta por distribuidor.`,
+            );
             return;
           }
           setDelivery(draft);
@@ -1573,11 +1641,37 @@ export function PosScreen({
         onClose={() => setSelectedSaleId(null)}
         saleId={selectedSaleId}
         staffMode={staffActive}
+        attachLabel={
+          activeDelivery?.consolidated
+            ? `Sumar esta venta al envío consolidado (${activeDelivery.recipientName})`
+            : undefined
+        }
         onAddDelivery={(sale) => {
           if (!sale.customerId) {
             toast.error(
               'La venta no tiene distribuidor asignado; no se puede enviar a domicilio.',
             );
+            return;
+          }
+          // Con un envío consolidado abierto la venta se suma directo (mismo
+          // domicilio, misma clave), sin volver a confirmar datos.
+          if (activeDelivery?.consolidated) {
+            const shipment = activeDelivery;
+            void posApi
+              .addSaleDelivery(sale.id, draftToInput(shipment))
+              .then(() => {
+                const sales = [...(shipment.shipmentSales ?? []), sale.saleNumber];
+                setDelivery({ ...shipment, shipmentSales: sales });
+                void queryClient.invalidateQueries({ queryKey: posKeys.all });
+                toast.success(
+                  `Venta ${sale.saleNumber} sumada al envío consolidado (${sales.length} venta(s)).`,
+                );
+              })
+              .catch((err) => {
+                toast.error(
+                  getApiErrorMessage(err, 'No se pudo sumar la venta al envío'),
+                );
+              });
             return;
           }
           setAttachSale({
@@ -1638,6 +1732,7 @@ export function PosScreen({
         onEntered={(b) => {
           setStaffLoginOpen(false);
           setDeliveryMode(false);
+          setConsolidated(false);
           setDelivery(null);
           toast.success(
             `Modo staff activo — operando sucursal ${b.code} — ${b.name}`,

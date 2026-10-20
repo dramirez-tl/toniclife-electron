@@ -42,8 +42,17 @@ interface CartProps {
   /** Tipo de venta elegido: true = entrega a domicilio. */
   deliveryMode?: boolean;
   onDeliveryModeChange?: (deliveryMode: boolean) => void;
+  /** Envío consolidado: varios distribuidores, un solo paquete. */
+  consolidated?: boolean;
+  onConsolidatedChange?: (consolidated: boolean) => void;
   /** Entrega a domicilio confirmada para esta venta (null = sin confirmar). */
-  delivery?: { recipientName: string; recipientPhone?: string; addressText: string } | null;
+  delivery?: {
+    recipientName: string;
+    recipientPhone?: string;
+    addressText: string;
+    consolidated?: boolean;
+    shipmentSales?: string[];
+  } | null;
   /** Abre el diálogo de entrega a domicilio (confirmar datos y domicilio). */
   onDelivery?: () => void;
   onDeliveryClear?: () => void;
@@ -68,6 +77,8 @@ export function Cart({
   staffMode,
   deliveryMode,
   onDeliveryModeChange,
+  consolidated,
+  onConsolidatedChange,
   delivery,
   onDelivery,
   onDeliveryClear,
@@ -199,10 +210,28 @@ export function Cart({
               Entrega a domicilio
             </button>
           </div>
-          {deliveryMode && !cart.customerId && (
+          {deliveryMode && !cart.customerId && !delivery && (
             <p className="mt-1.5 text-[11px] leading-snug text-violet-800">
               1) Asigna al distribuidor · 2) confirma su domicilio · 3) agrega productos y cobra.
               Almacén recibe el pedido al cobrar.
+            </p>
+          )}
+          {deliveryMode && (
+            <label className="mt-1.5 flex cursor-pointer items-center gap-2 text-[11px] text-violet-900">
+              <input
+                type="checkbox"
+                className="size-3.5 accent-violet-600"
+                checked={!!consolidated}
+                disabled={!!delivery}
+                onChange={(e) => onConsolidatedChange?.(e.target.checked)}
+              />
+              Varios distribuidores, un solo envío (pedido consolidado)
+            </label>
+          )}
+          {deliveryMode && consolidated && !delivery && (
+            <p className="mt-1 text-[11px] leading-snug text-violet-800">
+              Asigna al titular del pedido y confirma el domicilio una vez; luego cobra una venta por
+              distribuidor (cada quien con sus puntos). Almacén lo surte como un solo paquete.
             </p>
           )}
         </div>
@@ -223,10 +252,10 @@ export function Cart({
       {/* MODO STAFF con distribuidor asignado: sus compras anteriores y, en
           entrega a domicilio, el domicilio confirmado (o el botón para
           confirmarlo). Almacén surte y envía desde el admin. */}
-      {staffMode && cart.customerId && (
+      {staffMode && (cart.customerId || (deliveryMode && delivery)) && (
         <div className="px-4 py-2 border-b space-y-1.5">
           <div className="flex items-center gap-2">
-            {onShowPurchases && (
+            {onShowPurchases && cart.customerId && (
               <Button
                 type="button"
                 variant="outline"
@@ -239,7 +268,7 @@ export function Cart({
                 Compras
               </Button>
             )}
-            {deliveryMode && onDelivery && !delivery && (
+            {deliveryMode && onDelivery && !delivery && cart.customerId && (
               <Button
                 type="button"
                 size="sm"
@@ -257,12 +286,20 @@ export function Cart({
               <Truck className="mt-0.5 size-3.5 shrink-0" />
               <div className="min-w-0 flex-1">
                 <p className="font-semibold">
-                  Entrega a domicilio · recibe {delivery.recipientName}
+                  {delivery.consolidated ? 'Envío consolidado' : 'Entrega a domicilio'} · recibe{' '}
+                  {delivery.recipientName}
                   {delivery.recipientPhone ? ` · ${delivery.recipientPhone}` : ''}
                 </p>
                 <p className="truncate" title={delivery.addressText}>
                   {delivery.addressText}
                 </p>
+                {delivery.consolidated && (
+                  <p className="mt-0.5 font-medium">
+                    {(delivery.shipmentSales?.length ?? 0) === 0
+                      ? 'Sin ventas aún: asigna al primer distribuidor y cobra.'
+                      : `${delivery.shipmentSales!.length} venta(s) en el paquete: ${delivery.shipmentSales!.join(', ')}. Asigna al siguiente o cierra el envío.`}
+                  </p>
+                )}
               </div>
               {onDelivery && (
                 <Button
@@ -279,13 +316,21 @@ export function Cart({
               {onDeliveryClear && (
                 <Button
                   type="button"
-                  variant="ghost"
-                  size="icon"
+                  variant={delivery.consolidated ? 'outline' : 'ghost'}
+                  size={delivery.consolidated ? 'sm' : 'icon'}
                   onClick={onDeliveryClear}
-                  className="size-6 shrink-0 text-muted-foreground hover:text-destructive"
-                  title="Quitar la entrega (venta de mostrador)"
+                  className={
+                    delivery.consolidated
+                      ? 'h-6 shrink-0 px-2 text-[11px]'
+                      : 'size-6 shrink-0 text-muted-foreground hover:text-destructive'
+                  }
+                  title={
+                    delivery.consolidated
+                      ? 'Cerrar el envío consolidado (las ventas ya cobradas quedan en él)'
+                      : 'Quitar la entrega (venta de mostrador)'
+                  }
                 >
-                  <X className="size-3.5" />
+                  {delivery.consolidated ? 'Cerrar envío' : <X className="size-3.5" />}
                 </Button>
               )}
             </div>
@@ -582,7 +627,7 @@ export function Cart({
         >
           {isProcessing
             ? 'Procesando...'
-            : `${deliveryMode ? 'Cobrar y enviar a domicilio' : 'Cobrar'} ${cart.items.length > 0 ? fmt(cart.total) : ''}`}
+            : `${deliveryMode ? (delivery?.consolidated ? 'Cobrar y sumar al envío' : 'Cobrar y enviar a domicilio') : 'Cobrar'} ${cart.items.length > 0 ? fmt(cart.total) : ''}`}
           {!isProcessing && (
             <span className="text-xs font-normal opacity-80 ml-1">
               {currencyCode}

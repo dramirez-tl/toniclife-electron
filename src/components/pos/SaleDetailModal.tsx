@@ -72,6 +72,8 @@ interface SaleDetailModalProps {
    *  (capturada sin ella). */
   staffMode?: boolean;
   onAddDelivery?: (sale: Sale) => void;
+  /** Texto del botón cuando hay un envío consolidado abierto. */
+  attachLabel?: string;
 }
 
 const PAYMENT_LABELS: Record<string, string> = {
@@ -101,6 +103,7 @@ export function SaleDetailModal({
   onInvoiceSale,
   staffMode = false,
   onAddDelivery,
+  attachLabel,
 }: SaleDetailModalProps) {
   const { data: sale, isLoading } = usePosSale(saleId ?? undefined, isOpen);
   const qc = useQueryClient();
@@ -528,7 +531,7 @@ export function SaleDetailModal({
                   title="Confirmar destinatario y domicilio; Almacén la surte"
                 >
                   <Truck className="size-4" />
-                  Agregar entrega a domicilio a esta venta
+                  {attachLabel ?? 'Agregar entrega a domicilio a esta venta'}
                 </Button>
               ) : null}
 

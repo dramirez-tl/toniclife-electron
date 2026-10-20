@@ -36,14 +36,22 @@ export interface CreateSaleDeliveryInput {
   reference?: string;
   notes?: string;
   fulfillBranchId?: string;
+  /** Envío consolidado (mig 162): clave que comparten las ventas de varios
+   *  distribuidores que viajan juntas a un mismo domicilio. */
+  shipmentKey?: string;
 }
 
 /** Borrador confirmado en el POS antes de cobrar (vive en PosScreen). */
 export interface DeliveryDraft extends CreateSaleDeliveryInput {
-  /** Cliente para el que se confirmó: si cambia el cliente, el borrador no aplica. */
+  /** Cliente para el que se confirmó: si cambia el cliente, el borrador no aplica
+   *  (salvo envío consolidado, que sirve para varios distribuidores). */
   customerId: string;
   /** Domicilio en una línea para mostrar en el carrito. */
   addressText: string;
+  /** Envío consolidado: varios distribuidores, un solo paquete. */
+  consolidated?: boolean;
+  /** Ventas ya cobradas ligadas a este envío consolidado (folios). */
+  shipmentSales?: string[];
 }
 
 /** Dirección guardada del cliente (AddressResponseDto del API). */
@@ -136,6 +144,9 @@ export interface PosDelivery {
   cancelReason: string | null;
   itemsCount: number;
   itemsUnits: number;
+  /** Clave del envío; varias entregas con la misma = envío consolidado. */
+  shipmentKey?: string;
+  shipmentSize?: number;
 }
 
 export interface PosDeliveryList {

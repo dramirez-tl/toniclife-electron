@@ -177,5 +177,6 @@ export function draftToInput(d: DeliveryDraft): CreateSaleDeliveryInput {
     reference: d.reference,
     notes: d.notes,
     fulfillBranchId: d.fulfillBranchId,
+    shipmentKey: d.shipmentKey,
   };
 }
