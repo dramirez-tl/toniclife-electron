@@ -22,13 +22,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
 import {
   Table,
   TableBody,
@@ -391,15 +390,19 @@ export function SaleDetailModal({
     }
   }
 
+  // Panel lateral (80 % del ancho): el detalle traía tablas más anchas que el
+  // Dialog de 512 px y se cortaba. z-[60] porque puede abrirse encima de las
+  // hojas de Entregas/Compras (z-50).
   return (
-    <Dialog
+    <Sheet
       open={isOpen}
       onOpenChange={(open) => {
         if (!open && !busy) onClose();
       }}
     >
-      <DialogContent
-        className="z-[60] max-w-lg max-h-[92vh] overflow-y-auto gap-0 p-0 rounded-2xl"
+      <SheetContent
+        side="right"
+        className="z-[60] flex w-[80vw] flex-col gap-0 p-0 sm:max-w-[80vw]"
         showCloseButton={false}
         onInteractOutside={(e) => {
           if (busy) e.preventDefault();
@@ -409,15 +412,15 @@ export function SaleDetailModal({
         }}
       >
         {/* Header */}
-        <DialogHeader className="flex-row items-center justify-between space-y-0 px-6 py-4 border-b text-left">
+        <SheetHeader className="flex-row items-center justify-between space-y-0 border-b px-6 py-4 text-left">
           <div className="flex items-center gap-2">
             <Receipt className="size-5 text-primary" />
             <div>
-              <DialogTitle className="text-lg font-bold text-foreground">
+              <SheetTitle className="text-lg font-bold text-foreground">
                 {sale ? `Venta ${sale.saleNumber}` : 'Detalle de venta'}
-              </DialogTitle>
+              </SheetTitle>
               {sale && (
-                <DialogDescription className="flex items-center gap-1.5 text-xs">
+                <SheetDescription className="flex items-center gap-1.5 text-xs">
                   <span>
                     {formatDateTime(sale.createdAt, branchTz)} · {sale.sellerName}
                   </span>
@@ -442,7 +445,7 @@ export function SaleDetailModal({
                         : 'Terminal de sucursal'}
                     </span>
                   ) : null}
-                </DialogDescription>
+                </SheetDescription>
               )}
             </div>
           </div>
@@ -456,9 +459,10 @@ export function SaleDetailModal({
           >
             <X className="size-4 text-muted-foreground" />
           </Button>
-        </DialogHeader>
+        </SheetHeader>
 
-        {/* Body */}
+        {/* Body (scroll propio; el pie queda fijo abajo) */}
+        <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="px-6 py-5 space-y-4">
           {isLoading || !sale ? (
             <div className="text-sm text-muted-foreground py-6 text-center">
@@ -873,9 +877,10 @@ export function SaleDetailModal({
             </>
           )}
         </div>
+        </div>
 
         {/* Footer */}
-        <DialogFooter className="flex-row items-center justify-between px-6 py-4 border-t bg-muted/30 rounded-b-2xl">
+        <div className="flex shrink-0 flex-row items-center justify-between border-t bg-muted/30 px-6 py-4">
           {canCancel && !showCancel ? (
             <Button
               variant="outline"
@@ -917,9 +922,9 @@ export function SaleDetailModal({
               Cerrar
             </Button>
           </div>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 }
 
