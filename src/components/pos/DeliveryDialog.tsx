@@ -280,7 +280,13 @@ export function DeliveryDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="flex max-h-[92vh] flex-col overflow-hidden sm:max-w-2xl">
+      {/* z-[70] (fondo y contenido): también se abre desde el detalle de venta,
+          que es un Sheet en z-[60]; con el z-50 normal quedaba detrás. El
+          combo de estado (SelectContent) ya va en z-[80]. */}
+      <DialogContent
+        className="z-[70] flex max-h-[92vh] flex-col overflow-hidden sm:max-w-2xl"
+        overlayClassName="z-[70]"
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Truck className="size-5" />

@@ -186,6 +186,7 @@ export function InvoiceSaleModal({
     >
       <DialogContent
         className="z-[70] max-w-xl max-h-[92vh] overflow-y-auto gap-0 p-0 rounded-2xl"
+        overlayClassName="z-[70]"
         showCloseButton={false}
         onInteractOutside={(e) => {
           if (stamping) e.preventDefault();
