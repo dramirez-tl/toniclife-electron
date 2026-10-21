@@ -70,12 +70,24 @@ const api = {
       openDrawer: boolean,
     ): Promise<PrinterOpResult> =>
       ipcRenderer.invoke('printer:printSale', sale, openDrawer),
+    /** Ticket digital: el mismo ticket en PDF (Documentos\Tonic Life\Tickets),
+     *  sin importar el modo de impresora; se abre con el visor del SO. */
+    saveSalePdf: (
+      sale: Omit<SaleReceiptInput, 'paperWidth'>,
+    ): Promise<{ ok: true; path: string } | { ok: false; error: string }> =>
+      ipcRenderer.invoke('printer:saveSalePdf', sale),
   },
   invoice: {
     /** Guarda el PDF de la factura en la carpeta temporal y lo abre con el
      *  visor del SO (desde ahí el cajero lo imprime o lo guarda). */
     openPdf: (filename: string, bytes: Uint8Array): Promise<PrinterOpResult> =>
       ipcRenderer.invoke('invoice:openPdf', { filename, bytes }),
+  },
+  shell: {
+    /** Abre un enlace en el navegador del SO; el main solo admite WhatsApp y
+     *  páginas de toniclife.com (boleto digital de un evento). */
+    openExternal: (url: string): Promise<PrinterOpResult> =>
+      ipcRenderer.invoke('shell:openExternal', url),
   },
 };
 

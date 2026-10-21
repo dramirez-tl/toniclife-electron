@@ -91,6 +91,30 @@ const MOVEMENT_STATUS_LABEL: Record<string, string> = {
   rejected: 'Rechazado',
 };
 
+/** Códigos de razón de entradas/salidas (mismo catálogo que el admin); un
+ *  traspaso trae el motivo libre que capturó quien lo envió y se muestra tal cual. */
+const MOVEMENT_REASON_LABEL: Record<string, string> = {
+  purchase: 'Compra a proveedor',
+  return_from_customer: 'Devolución de cliente',
+  transfer_in: 'Recepción de traspaso',
+  initial_stock: 'Stock inicial',
+  production: 'Producción',
+  found: 'Producto encontrado',
+  sale: 'Venta',
+  return_to_supplier: 'Devolución a proveedor',
+  transfer_out: 'Envío de traspaso',
+  loss: 'Pérdida',
+  expiration: 'Caducidad',
+  damage: 'Daño/Merma',
+  adjustment: 'Ajuste',
+  other: 'Otros',
+};
+
+function movementReasonLabel(reason?: string): string {
+  if (!reason) return '';
+  return MOVEMENT_REASON_LABEL[reason] ?? reason;
+}
+
 interface TransfersModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -260,6 +284,17 @@ export function TransfersModal({
                             <div className="mt-0.5 text-[11px] text-muted-foreground">
                               Enviado {formatDateTime(t.requestedAt)}
                               {t.requestedBy ? ` · ${t.requestedBy.name}` : ''}
+                            </div>
+                          )}
+                          {/* Motivo y notas que capturó quien lo envió ("Pedido Mochis octubre"). */}
+                          {(t.reason || t.notes) && (
+                            <div
+                              className="mt-1 text-xs text-foreground"
+                              title={[t.reason, t.notes].filter(Boolean).join(' · ')}
+                            >
+                              {t.reason && <span className="font-medium">{t.reason}</span>}
+                              {t.reason && t.notes ? ' · ' : ''}
+                              {t.notes && <span className="text-muted-foreground">{t.notes}</span>}
                             </div>
                           )}
                         </div>
@@ -475,8 +510,18 @@ export function TransfersModal({
                               {meta.label}
                             </span>
                           </TableCell>
-                          <TableCell className="max-w-[360px] truncate px-3 py-1.5">
-                            {m.reason || '—'}
+                          <TableCell
+                            className="max-w-[360px] px-3 py-1.5"
+                            title={[movementReasonLabel(m.reason), m.referenceNumber, m.notes]
+                              .filter(Boolean)
+                              .join(' · ')}
+                          >
+                            <div className="truncate">{movementReasonLabel(m.reason) || '—'}</div>
+                            {(m.referenceNumber || m.notes) && (
+                              <div className="truncate text-[11px] text-muted-foreground">
+                                {[m.referenceNumber, m.notes].filter(Boolean).join(' · ')}
+                              </div>
+                            )}
                           </TableCell>
                           <TableCell className="px-3 py-1.5 text-right tabular-nums">
                             {m.totalQuantity ?? '—'}

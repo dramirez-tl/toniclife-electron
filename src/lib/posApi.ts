@@ -15,6 +15,7 @@ import type {
 import type {
   CashRegister,
   KitComponent,
+  PosKitAvailability,
   Session,
   ActiveSession,
   OpenSessionInput,
@@ -145,6 +146,19 @@ function mapApiProduct(p: any): QuickProduct {
       typeof p.kitDeductsInventory === 'boolean'
         ? p.kitDeductsInventory
         : undefined,
+    // Componente que limita el kit en la sucursal (el que falta cuando stock=0):
+    // el POS lo muestra en el badge "Agotado" y en el aviso al cajero.
+    limitingComponent:
+      p.limitingComponent && typeof p.limitingComponent === 'object'
+        ? {
+            code: String(p.limitingComponent.code ?? ''),
+            name: String(p.limitingComponent.name ?? ''),
+            need: Number(p.limitingComponent.need ?? 0),
+            available: Number(p.limitingComponent.available ?? 0),
+          }
+        : p.limitingComponent === null
+          ? null
+          : undefined,
     isActive: p.isActive,
     taxRate: p.taxRate != null ? Number(p.taxRate) : undefined,
     isIncludedInPrice: p.taxIncludedInPrice,
@@ -719,6 +733,48 @@ class PosApi {
     }
   }
 
+  /**
+   * Desglose de un kit/paquete en la sucursal (GET /pos/kits/:id/availability):
+   * cada componente con lo que pide, lo que hay y lo que FALTA. La terminal se
+   * identifica por su licencia; en modo staff el API exige `branchId`. null si
+   * el API no tiene la ruta (404): el POS se queda con el componente limitante.
+   */
+  async getKitAvailability(
+    productId: string,
+    branchId?: string,
+  ): Promise<PosKitAvailability | null> {
+    try {
+      const { data } = await api.get(`/pos/kits/${productId}/availability`, {
+        params: branchId ? { branchId } : undefined,
+      });
+      /* eslint-disable @typescript-eslint/no-explicit-any */
+      const d = data as any;
+      if (!d || !Array.isArray(d.components)) return null;
+      return {
+        productId: String(d.productId ?? productId),
+        code: String(d.code ?? ''),
+        branchId: String(d.branchId ?? branchId ?? ''),
+        sellable: Number(d.sellable ?? 0),
+        stockMode: d.stockMode === 'prebuilt' ? 'prebuilt' : 'assemble_on_sale',
+        reason:
+          d.reason === 'recipe_empty' || d.reason === 'component_inactive'
+            ? d.reason
+            : null,
+        components: (d.components as any[]).map((c) => ({
+          code: String(c.code ?? ''),
+          name: String(c.name ?? c.code ?? 'Componente'),
+          perKit: Number(c.perKit ?? 0),
+          available: Number(c.available ?? 0),
+          missing: Number(c.missing ?? 0),
+        })),
+      };
+      /* eslint-enable @typescript-eslint/no-explicit-any */
+    } catch (err) {
+      if (axios.isAxiosError(err) && err.response?.status === 404) return null;
+      throw err;
+    }
+  }
+
   /** Estados/departamentos del país (endpoint público, catálogo tonic.states)
    *  para el domicilio estructurado del alta. */
   async getStates(
@@ -784,6 +840,8 @@ class PosApi {
         movementType: m.movementType,
         movementCategory: m.movementCategory,
         reason: m.reason,
+        referenceNumber: m.referenceNumber || undefined,
+        notes: m.notes || undefined,
         status: m.status,
         totalItems: m.totalItems != null ? Number(m.totalItems) : undefined,
         totalQuantity:

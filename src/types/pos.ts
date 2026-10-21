@@ -487,10 +487,14 @@ export interface SaleEventTicket {
   label: string | null;
   attendeeName?: string | null;
   attendeeEmail: string | null;
+  attendeePhone?: string | null;
   status?: string;
   emailStatus: string;
   /** Último correo al que se envió (puede diferir del asistente tras un reenvío). */
   emailedTo?: string | null;
+  /** Página pública del boleto (QR + datos): es el boleto digital que se manda por WhatsApp. */
+  publicUrl?: string | null;
+  token?: string | null;
 }
 
 export interface QuickProduct {
@@ -530,6 +534,38 @@ export interface QuickProduct {
    * componente). FALSE = prearmado (su `stock` es la pieza propia).
    */
   kitDeductsInventory?: boolean;
+  /**
+   * Solo kit/pack que se arma, con sucursal: el componente que limita cuántos
+   * se pueden armar (el que menos alcanza). Con stock 0 es "lo que falta".
+   */
+  limitingComponent?: KitLimitingComponent | null;
+}
+
+/** Componente que limita un kit en la sucursal (GET /products?branchId=). */
+export interface KitLimitingComponent {
+  code: string;
+  name: string;
+  /** Piezas que pide UN kit. */
+  need: number;
+  /** Piezas disponibles en la sucursal. */
+  available: number;
+}
+
+/** GET /pos/kits/:id/availability — desglose por componente en la sucursal. */
+export interface PosKitAvailability {
+  productId: string;
+  code: string;
+  branchId: string;
+  sellable: number;
+  stockMode: 'assemble_on_sale' | 'prebuilt';
+  reason: 'recipe_empty' | 'component_inactive' | null;
+  components: Array<{
+    code: string;
+    name: string;
+    perKit: number;
+    available: number;
+    missing: number;
+  }>;
 }
 
 // ============================================================================
@@ -1091,7 +1127,11 @@ export interface BranchInventoryMovement {
   movementNumber: string;
   movementType: string;
   movementCategory?: string;
+  /** Código de razón (purchase, other…) en entradas/salidas; texto libre (motivo) en traspasos. */
   reason?: string;
+  /** No. de referencia capturado al crear el movimiento ("Pedido Mochis octubre"). */
+  referenceNumber?: string;
+  notes?: string;
   status: string;
   totalItems?: number;
   totalQuantity?: number;

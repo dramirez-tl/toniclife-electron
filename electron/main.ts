@@ -26,6 +26,7 @@ import {
   testPrint,
   printCorte,
   printSale,
+  saveSalePdf,
   openCashDrawer,
   listOsPrinters,
   type PrinterConfig,
@@ -217,6 +218,42 @@ ipcMain.handle('window:close', () => {
 // configuracion de la impresora (printer.json).
 ipcMain.handle('app:getUserDataPath', () => app.getPath('userData'));
 
+// ----- Abrir un enlace en el navegador del SO -----
+//
+// La ventana del POS no navega ni abre ventanas (hardening de arriba); lo
+// único que sale al navegador es una lista corta de destinos: WhatsApp (mandar
+// el boleto digital de un evento al cliente, CEDEAS 21-oct-2026) y las páginas
+// públicas de Tonic Life (el boleto mismo). Cualquier otra URL se rechaza.
+const EXTERNAL_URL_HOSTS = ['wa.me', 'api.whatsapp.com', 'web.whatsapp.com'];
+function isAllowedExternalUrl(raw: string): boolean {
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== 'https:') return false;
+    const host = u.hostname.toLowerCase();
+    return (
+      EXTERNAL_URL_HOSTS.includes(host) ||
+      host === 'toniclife.com' ||
+      host.endsWith('.toniclife.com')
+    );
+  } catch {
+    return false;
+  }
+}
+ipcMain.handle(
+  'shell:openExternal',
+  async (_evt, url: string): Promise<{ ok: true } | { ok: false; error: string }> => {
+    if (typeof url !== 'string' || !isAllowedExternalUrl(url)) {
+      return { ok: false, error: 'Enlace no permitido desde el POS' };
+    }
+    try {
+      await shell.openExternal(url);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+);
+
 // ----- Factura CFDI (PDF) -----
 
 // El renderer descarga el PDF por el API (Bearer de la terminal) y lo manda
@@ -315,6 +352,18 @@ ipcMain.handle(
     try {
       await printSale(sale, !!openDrawer);
       return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+);
+// Ticket digital (PDF) de una venta, sin importar el modo de impresora.
+ipcMain.handle(
+  'printer:saveSalePdf',
+  async (_evt, sale: Omit<SaleReceiptInput, 'paperWidth'>) => {
+    try {
+      const path = await saveSalePdf(sale);
+      return { ok: true, path };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }

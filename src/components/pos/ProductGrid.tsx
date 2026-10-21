@@ -12,9 +12,10 @@ import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { usePosCatalog } from '@/hooks/usePos';
 import { usePosCartStore } from '@/stores/pos-cart.store';
-import { posApi } from '@/lib/posApi';
+import { isAssembledKit, posApi } from '@/lib/posApi';
 import {
   isOutOfStock,
+  missingComponentsText,
   outOfStockReason,
   stockShortLabel,
 } from '@/lib/kitStock';
@@ -80,7 +81,36 @@ export function ProductGrid({
       stock: inCatalog.stock,
       kitDeductsInventory:
         product.kitDeductsInventory ?? inCatalog.kitDeductsInventory,
+      limitingComponent:
+        product.limitingComponent ?? inCatalog.limitingComponent,
     };
+  }
+
+  /**
+   * Aviso de agotado. Para un kit que se arma, además del componente que
+   * limita (ya viene en el catálogo) pide al API el desglose completo y lo
+   * agrega al mismo toast: TODO lo que falta en la sucursal, con piezas
+   * (CEDEAS: "el sistema anterior decía qué componente faltaba").
+   */
+  function notifyOutOfStock(product: QuickProduct) {
+    const id = toast.error(`${product.name} esta agotado: ${outOfStockReason(product)}`, {
+      duration: 8000,
+    });
+    if (!isAssembledKit(product)) return;
+    void posApi
+      .getKitAvailability(product.id, branchId)
+      .then((availability) => {
+        const text = missingComponentsText(availability);
+        if (!text) return;
+        toast.error(`${product.name} esta agotado en esta sucursal`, {
+          id,
+          description: `Falta: ${text}`,
+          duration: 12000,
+        });
+      })
+      .catch(() => {
+        // Sin desglose: se queda el aviso con el componente limitante.
+      });
   }
 
   function handleAdd(product: QuickProduct) {
@@ -92,7 +122,7 @@ export function ProductGrid({
       return;
     }
     if (isOutOfStock(product)) {
-      toast.error(`${product.name} esta agotado: ${outOfStockReason(product)}`);
+      notifyOutOfStock(product);
       return;
     }
     const inCart = cartQtyByProduct.get(product.id) ?? 0;
@@ -145,11 +175,8 @@ export function ProductGrid({
           : qty;
 
       if (available <= 0) {
-        toast.error(
-          isOutOfStock(product)
-            ? `${product.name} esta agotado: ${outOfStockReason(product)}`
-            : `${product.name} esta agotado (stock: ${product.stock ?? 0})`,
-        );
+        if (isOutOfStock(product)) notifyOutOfStock(product);
+        else toast.error(`${product.name} esta agotado (stock: ${product.stock ?? 0})`);
         return;
       }
 

@@ -270,6 +270,10 @@ declare global {
       app: {
         getUserDataPath: () => Promise<string>;
       };
+      shell: {
+        /** Abre un enlace en el navegador del SO (solo WhatsApp y toniclife.com). */
+        openExternal: (url: string) => Promise<PrinterOpResult>;
+      };
       updater: {
         onUpdateDownloaded: (
           cb: (info: { version: string }) => void,
@@ -299,6 +303,10 @@ declare global {
           sale: SaleReceiptPayload,
           openDrawer: boolean,
         ) => Promise<PrinterOpResult>;
+        /** Ticket digital (PDF) sin importar el modo de impresora. */
+        saveSalePdf: (
+          sale: SaleReceiptPayload,
+        ) => Promise<{ ok: true; path: string } | { ok: false; error: string }>;
       };
       invoice: {
         /** Guarda el PDF de la factura en la carpeta temporal del usuario y lo

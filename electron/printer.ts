@@ -518,6 +518,23 @@ export async function printSale(
   );
 }
 
+/**
+ * Ticket digital: el mismo ticket de venta en PDF SIN importar el modo de
+ * impresora (CEDEAS, 21-oct-2026: mandarlo por WhatsApp o guardarlo para
+ * reclamaciones). Queda en Documentos\Tonic Life\Tickets y se abre con el
+ * visor del SO. Devuelve la ruta del archivo.
+ */
+export async function saveSalePdf(
+  sale: Omit<SaleReceiptInput, 'paperWidth'>,
+): Promise<string> {
+  const config = loadPrinterConfig();
+  const html = buildSaleReceiptHtml({
+    ...sale,
+    paperWidth: config?.paperWidth ?? 80,
+  });
+  return renderPdf(html, `ticket-${sale.saleNumber}.pdf`);
+}
+
 /** Envia el kick del cajon de dinero. Solo soportado en modo network. */
 export async function openCashDrawer(config: PrinterConfig): Promise<void> {
   if (!config.hasCashDrawer) {

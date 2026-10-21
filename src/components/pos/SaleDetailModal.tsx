@@ -9,10 +9,13 @@ import {
   Receipt,
   Printer,
   FileText,
+  FileDown,
   Mail,
   Send,
   Ticket,
   Truck,
+  Copy,
+  MessageCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -110,6 +113,8 @@ export function SaleDetailModal({
   const [showCancel, setShowCancel] = useState(false);
   const [reason, setReason] = useState('');
   const [reprinting, setReprinting] = useState(false);
+  // Ticket digital (PDF del ticket de venta).
+  const [savingPdf, setSavingPdf] = useState(false);
   // Factura: abrir el PDF y reenviarla por correo (formulario inline).
   const [openingPdf, setOpeningPdf] = useState(false);
   const [showResend, setShowResend] = useState(false);
@@ -155,6 +160,7 @@ export function SaleDetailModal({
   const busy =
     cancelSale.isPending ||
     reprinting ||
+    savingPdf ||
     openingPdf ||
     sendingEmail ||
     sendingTickets;
@@ -188,78 +194,86 @@ export function SaleDetailModal({
     !!onInvoiceSale &&
     canInvoiceSale({ sale, branchCountryCode, branchTz, invoicingEnabled });
 
+  /**
+   * Payload del ticket de ESTA venta (mismo para reimprimir y para el PDF):
+   * contenido de kits/paquetes/promos igual que el ticket original. Si el
+   * detalle trae productType se consulta solo esas líneas; con APIs
+   * anteriores (sin productType) se consulta cada producto de la venta y se
+   * imprime lo que tenga contenido. Tolerante: nunca bloquea.
+   */
+  async function buildReceiptPayload(
+    current: NonNullable<typeof sale>,
+  ): Promise<Parameters<typeof window.toniclife.printer.printSale>[0]> {
+    const cashReceived = current.payments.reduce(
+      (s, p) => s + (Number(p.amountReceived) || 0),
+      0,
+    );
+    const changeGiven = current.payments.reduce(
+      (s, p) => s + (Number(p.changeGiven) || 0),
+      0,
+    );
+    const detailHasType = current.items.some((it) => it.productType != null);
+    const componentsByProduct = await resolveComponentsForLines(
+      current.items,
+      {
+        // Modo staff (JWT de usuario): el API exige la sucursal; la de la
+        // venta es la correcta aunque el operador haya cambiado de sucursal.
+        branchId: staffUser ? current.branchId : undefined,
+        branchCountryCode,
+      },
+      { onlyKitLike: detailHasType },
+    ).catch(() => new Map<string, KitComponent[]>());
+    return {
+      branchName,
+      ticketName,
+      saleNumber: current.saleNumber,
+      createdAt: current.createdAt,
+      customerName: current.customerName ?? undefined,
+      customerNumber: current.customerNumber ?? undefined,
+      currencySymbol,
+      items: current.items.map((it) => {
+        const comps = componentsByProduct.get(it.productId);
+        return {
+          name: it.productName,
+          sku: it.productSku,
+          quantity: it.quantity,
+          unitPrice: Number(it.unitPrice),
+          total: Number(it.total),
+          // Cantidad impresa = por unidad × cantidad de la línea.
+          components: comps?.map((c) => ({
+            name: c.name,
+            quantity: c.quantity * it.quantity,
+          })),
+        };
+      }),
+      subtotal: Number(current.subtotal),
+      discountAmount: Number(current.discountAmount) || 0,
+      taxAmount: Number(current.taxAmount),
+      total: Number(current.total),
+      payments: current.payments.map((p) => ({
+        label: PAYMENT_LABELS[p.paymentMethod] ?? p.paymentMethod,
+        amount: Number(p.amount),
+      })),
+      amountReceived: cashReceived > 0 ? cashReceived : undefined,
+      changeGiven,
+      currencyCode: current.currencyCode ?? undefined,
+      // Reimpresión: puntos de la venta desde los items (por unidad ×
+      // cantidad); "totales" = snapshot del saldo al momento de la venta.
+      salePoints: current.items.reduce(
+        (s, it) => s + (it.points ?? 0) * it.quantity,
+        0,
+      ),
+      periodPoints: current.accumulatedPoints,
+    };
+  }
+
   async function handleReprint() {
     if (!sale) return;
     setReprinting(true);
     try {
-      const cashReceived = sale.payments.reduce(
-        (s, p) => s + (Number(p.amountReceived) || 0),
-        0,
-      );
-      const changeGiven = sale.payments.reduce(
-        (s, p) => s + (Number(p.changeGiven) || 0),
-        0,
-      );
-      // Contenido de kits/paquetes/promos, igual que el ticket original. Si
-      // el detalle trae productType se consulta solo esas líneas; con APIs
-      // anteriores (sin productType) se consulta cada producto de la venta y
-      // se imprime lo que tenga contenido. Tolerante: nunca bloquea.
-      const detailHasType = sale.items.some((it) => it.productType != null);
-      const componentsByProduct = await resolveComponentsForLines(
-        sale.items,
-        {
-          // Modo staff (JWT de usuario): el API exige la sucursal; la de la
-          // venta es la correcta aunque el operador haya cambiado de sucursal.
-          branchId: staffUser ? sale.branchId : undefined,
-          branchCountryCode,
-        },
-        { onlyKitLike: detailHasType },
-      ).catch(() => new Map<string, KitComponent[]>());
-
       // openDrawer=false: una reimpresion NUNCA abre el cajon de dinero.
       const r = await window.toniclife.printer.printSale(
-        {
-          branchName,
-          ticketName,
-          saleNumber: sale.saleNumber,
-          createdAt: sale.createdAt,
-          customerName: sale.customerName ?? undefined,
-          customerNumber: sale.customerNumber ?? undefined,
-          currencySymbol,
-          items: sale.items.map((it) => {
-            const comps = componentsByProduct.get(it.productId);
-            return {
-              name: it.productName,
-              sku: it.productSku,
-              quantity: it.quantity,
-              unitPrice: Number(it.unitPrice),
-              total: Number(it.total),
-              // Cantidad impresa = por unidad × cantidad de la línea.
-              components: comps?.map((c) => ({
-                name: c.name,
-                quantity: c.quantity * it.quantity,
-              })),
-            };
-          }),
-          subtotal: Number(sale.subtotal),
-          discountAmount: Number(sale.discountAmount) || 0,
-          taxAmount: Number(sale.taxAmount),
-          total: Number(sale.total),
-          payments: sale.payments.map((p) => ({
-            label: PAYMENT_LABELS[p.paymentMethod] ?? p.paymentMethod,
-            amount: Number(p.amount),
-          })),
-          amountReceived: cashReceived > 0 ? cashReceived : undefined,
-          changeGiven,
-          currencyCode: sale.currencyCode ?? undefined,
-          // Reimpresión: puntos de la venta desde los items (por unidad ×
-          // cantidad); "totales" = snapshot del saldo al momento de la venta.
-          salePoints: sale.items.reduce(
-            (s, it) => s + (it.points ?? 0) * it.quantity,
-            0,
-          ),
-          periodPoints: sale.accumulatedPoints,
-        },
+        await buildReceiptPayload(sale),
         false,
       );
       if (r.ok) {
@@ -273,6 +287,71 @@ export function SaleDetailModal({
       );
     } finally {
       setReprinting(false);
+    }
+  }
+
+  /**
+   * Ticket digital: el mismo ticket en PDF sin importar el modo de impresora,
+   * para mandarlo por WhatsApp o guardarlo (CEDEAS, 21-oct-2026). Queda en
+   * Documentos\Tonic Life\Tickets y se abre con el visor del SO.
+   */
+  async function handleSavePdf() {
+    if (!sale) return;
+    setSavingPdf(true);
+    try {
+      const r = await window.toniclife.printer.saveSalePdf(
+        await buildReceiptPayload(sale),
+      );
+      if (r.ok) {
+        toast.success(`Ticket ${sale.saleNumber} en PDF`, {
+          description: `Guardado en ${r.path}; desde el visor lo compartes o guardas.`,
+          duration: 8000,
+        });
+      } else {
+        toast.error('No se pudo generar el PDF', { description: r.error });
+      }
+    } catch (err) {
+      toast.error(
+        `Error al generar el PDF: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      setSavingPdf(false);
+    }
+  }
+
+  /** Enlace de WhatsApp con el boleto digital (página pública con el QR). */
+  function ticketWhatsappUrl(t: SaleEventTicket): string | null {
+    if (!t.publicUrl) return null;
+    const who = (t.attendeeName ?? sale?.customerName ?? '').trim();
+    const text =
+      `Hola${who ? ` ${who}` : ''}, aquí está tu boleto ${t.ticketNumber}` +
+      `${t.eventName ? ` para ${t.eventName}` : ''} (Tonic Life): ${t.publicUrl}`;
+    const digits = (t.attendeePhone ?? '').replace(/\D/g, '');
+    // 10 dígitos = celular de México sin lada de país.
+    const phone = digits.length === 10 ? `52${digits}` : digits;
+    return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
+  }
+
+  async function handleShareTicket(t: SaleEventTicket) {
+    const url = ticketWhatsappUrl(t);
+    if (!url) {
+      toast.error('Este boleto no tiene enlace público');
+      return;
+    }
+    const r = await window.toniclife.shell.openExternal(url);
+    if (!r.ok) toast.error('No se pudo abrir WhatsApp', { description: r.error });
+  }
+
+  async function handleCopyTicketLink(t: SaleEventTicket) {
+    if (!t.publicUrl) {
+      toast.error('Este boleto no tiene enlace público');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(t.publicUrl);
+      toast.success(`Enlace del boleto ${t.ticketNumber} copiado`);
+    } catch {
+      toast.error('No se pudo copiar el enlace');
     }
   }
 
@@ -764,7 +843,7 @@ export function SaleDetailModal({
                   </p>
                   <ul className="space-y-0.5 text-[11px] text-muted-foreground">
                     {tickets.map((t) => (
-                      <li key={t.id} className="flex flex-wrap gap-x-2">
+                      <li key={t.id} className="flex flex-wrap items-center gap-x-2">
                         <span className="font-mono text-foreground">
                           {t.ticketNumber}
                         </span>
@@ -774,8 +853,33 @@ export function SaleDetailModal({
                         ) : t.emailStatus === 'sent' &&
                           (t.emailedTo || t.attendeeEmail) ? (
                           <span>· enviado a {t.emailedTo || t.attendeeEmail}</span>
+                        ) : t.emailStatus === 'skipped' || !t.attendeeEmail ? (
+                          <span className="text-amber-700">· sin correo</span>
                         ) : (
                           <span className="text-amber-700">· sin enviar</span>
+                        )}
+                        {/* Boleto digital: el enlace público (QR + datos) por WhatsApp o copiado. */}
+                        {t.status !== 'cancelled' && t.publicUrl && (
+                          <span className="inline-flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => void handleShareTicket(t)}
+                              className="inline-flex items-center gap-0.5 rounded border border-emerald-600/40 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 hover:bg-emerald-50"
+                              title={`Mandar el boleto ${t.ticketNumber} por WhatsApp${t.attendeePhone ? ` al ${t.attendeePhone}` : ' (elige el contacto)'}`}
+                            >
+                              <MessageCircle className="size-3" />
+                              WhatsApp
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleCopyTicketLink(t)}
+                              className="inline-flex items-center gap-0.5 rounded border px-1.5 py-0.5 text-[10px] font-medium text-foreground hover:bg-muted"
+                              title="Copiar el enlace del boleto"
+                            >
+                              <Copy className="size-3" />
+                              Copiar
+                            </button>
+                          </span>
                         )}
                       </li>
                     ))}
@@ -905,6 +1009,17 @@ export function SaleDetailModal({
               >
                 <FileText />
                 Facturar
+              </Button>
+            )}
+            {canReprint && (
+              <Button
+                variant="outline"
+                onClick={handleSavePdf}
+                disabled={busy}
+                title="Ticket digital: el mismo ticket en PDF para mandarlo por WhatsApp o guardarlo"
+              >
+                <FileDown />
+                {savingPdf ? 'Generando…' : 'Ticket PDF'}
               </Button>
             )}
             {canReprint && (
