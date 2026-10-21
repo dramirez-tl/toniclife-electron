@@ -586,11 +586,32 @@ export interface SaleReceiptItemRow {
   /** Contenido de un kit/paquete/promo: lo que la sucursal debe ENTREGAR.
    *  quantity ya viene multiplicada por la cantidad de kits vendidos. */
   components?: { name: string; quantity: number }[];
+  /** Regalo a $0 de una campaña de membresía: se imprime "Regalo" en vez
+   *  del precio unitario. */
+  gift?: boolean;
 }
 
 export interface SaleReceiptPaymentRow {
   label: string;
   amount: number;
+}
+
+/** Bloque MEMBRESÍA del ticket (campaña "compra N puntos en producto y tu
+ *  membresía es gratis"). Espejo en src/types.ts. */
+export interface SaleReceiptMembership {
+  name: string;
+  code?: string;
+  /** applied = posición otorgada; pending/failed = pendiente de aplicar;
+   *  reverted = anulada (venta cancelada). */
+  status: 'pending' | 'applied' | 'reverted' | 'failed';
+  /** "Premium" / "Básico". */
+  positionLabel: string;
+  /** Regalos; delivered=false = sin existencia en la sucursal, no entregado. */
+  gifts: { name: string; quantity: number; delivered: boolean }[];
+  couponCode?: string | null;
+  couponPercent?: number | null;
+  /** YYYY-MM-DD */
+  couponValidUntil?: string | null;
 }
 
 export interface SaleReceiptInput {
@@ -626,6 +647,8 @@ export interface SaleReceiptInput {
   salePoints?: number;
   /** Saldo de puntos del periodo DESPUÉS de la venta ("Puntos totales"). */
   periodPoints?: number;
+  /** Campaña de membresía aplicada a la venta: bloque MEMBRESÍA. */
+  membership?: SaleReceiptMembership;
 }
 
 // Datos fiscales del emisor — mismos en todos los tickets (paridad con el
@@ -751,10 +774,14 @@ function renderSale(p: ReceiptWriter, input: SaleReceiptInput): void {
   for (const it of input.items) {
     const title = it.sku ? `(${it.sku}) ${it.name}` : it.name;
     for (const line of wrapWords(title, cols, 2)) p.line(line);
+    // Regalo de campaña de membresía: a $0 y con la palabra "Regalo" en
+    // lugar del precio unitario (la sucursal lo entrega sin cobrarlo).
     p.line(
       labelValue(
-        `  ${it.quantity} x ${fmt(it.unitPrice)}`,
-        fmt(it.total),
+        it.gift
+          ? `  ${it.quantity} x Regalo`
+          : `  ${it.quantity} x ${fmt(it.unitPrice)}`,
+        fmt(it.gift ? 0 : it.total),
         cols,
       ),
     );
@@ -815,6 +842,12 @@ function renderSale(p: ReceiptWriter, input: SaleReceiptInput): void {
     }
   }
 
+  // --- MEMBRESÍA (campaña "compra N puntos y tu membresía es gratis") ---
+  // Lo que el distribuidor se lleva además de la compra: la posición que se
+  // le otorgó al cobrar, los regalos (y cuáles NO se entregaron por falta de
+  // existencia) y el cupón de primera recompra con su vigencia.
+  if (input.membership) renderMembership(p, input.membership, cols);
+
   p.line(sep);
   p.align('center');
   p.line('¡Gracias por su compra!');
@@ -822,6 +855,58 @@ function renderSale(p: ReceiptWriter, input: SaleReceiptInput): void {
 
   p.feed(6);
   p.cut(true);
+}
+
+/** "YYYY-MM-DD" → "DD/MM/YYYY"; cualquier otra cosa se imprime tal cual. */
+function formatDmy(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
+}
+
+function renderMembership(
+  p: ReceiptWriter,
+  m: SaleReceiptMembership,
+  cols: number,
+): void {
+  const sep = '-'.repeat(cols);
+  // Renglones envueltos por palabras con sangría fija (wrapWords colapsa
+  // los espacios, por eso la sangría se antepone después de envolver).
+  const indented = (text: string, indent: string, maxLines: number) =>
+    wrapWords(text, Math.max(8, cols - indent.length), maxLines).map(
+      (line) => indent + line,
+    );
+
+  p.line(sep);
+  p.align('left');
+  p.bold(true).line('MEMBRESÍA').bold(false);
+  for (const line of wrapWords(`Campaña ${m.name}`, cols, 2)) p.line(line);
+  if (m.status === 'reverted') {
+    p.line('Anulada');
+  } else if (m.status === 'applied') {
+    p.line(`Posición: ${m.positionLabel}`.slice(0, cols));
+  } else {
+    p.line('Pendiente de aplicar');
+  }
+  if (m.gifts.length > 0) {
+    p.line('Incluye:');
+    for (const g of m.gifts) {
+      const text = g.delivered
+        ? `${g.quantity} x ${g.name}`
+        : `${g.quantity} x ${g.name} (sin existencia, no entregado)`;
+      for (const line of indented(text, '  ', 3)) p.line(line);
+    }
+  }
+  if (m.couponCode) {
+    const pct =
+      m.couponPercent != null && Number.isFinite(Number(m.couponPercent))
+        ? `${Number(m.couponPercent)} %`
+        : '';
+    let text = `Cupón ${m.couponCode}: ${pct ? `${pct} ` : ''}en tu primera recompra`;
+    if (m.couponValidUntil) {
+      text += `, válido hasta ${formatDmy(m.couponValidUntil)}`;
+    }
+    for (const line of wrapWords(text, cols, 3)) p.line(line);
+  }
 }
 
 /** 3-col row con anchos fijos: folio / hora / total (total right-aligned). */

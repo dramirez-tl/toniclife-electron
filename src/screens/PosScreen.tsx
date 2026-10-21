@@ -35,6 +35,7 @@ import {
 import { DeactivateConfirmDialog } from '@/components/DeactivateConfirmDialog';
 import { ProductGrid } from '@/components/pos/ProductGrid';
 import { AvailablePromotions } from '@/components/pos/AvailablePromotions';
+import { MembershipOfferBanner } from '@/components/pos/MembershipOfferBanner';
 import { Cart } from '@/components/pos/Cart';
 import { ResizeHandle } from '@/components/pos/ResizeHandle';
 import {
@@ -90,6 +91,12 @@ import {
   resolveComponentsForLines,
   type ComponentsContext,
 } from '@/lib/kitComponents';
+import {
+  giftReceiptLines,
+  membershipPositionLabel,
+  membershipStatusLabel,
+  toReceiptMembership,
+} from '@/lib/membership';
 import { usePosCartStore } from '@/stores/pos-cart.store';
 import {
   useStaffSession,
@@ -699,11 +706,18 @@ export function PosScreen({
     try {
       const sessionId = await ensureSession();
 
+      // CAMPAÑA DE MEMBRESÍA ("compra N puntos en producto y tu membresía es
+      // gratis"): la fijó el banner cuando el ticket cumplió los puntos y el
+      // cajero dejó "Aplicar en esta venta". Viaja al crear la venta; el
+      // servidor vuelve a validar y la aplica AL COBRAR.
+      const membershipCampaignId = cart.membershipCampaignId ?? undefined;
+
       // Si el carrito cambió desde el último intento fallido, el intento
       // anterior ya no aplica (la venta pendiente vieja queda para limpieza
       // del corte); se genera una clave nueva.
       const fingerprint = JSON.stringify({
         customerId: cart.customerId,
+        membershipCampaignId: membershipCampaignId ?? null,
         items: cart.items.map((it) => [
           it.productId,
           it.quantity,
@@ -772,6 +786,10 @@ export function PosScreen({
           // Entrega a domicilio confirmada (solo si sigue siendo del cliente
           // asignado). El API la liga a la venta en la misma transacción.
           delivery: activeDelivery ? draftToInput(activeDelivery) : undefined,
+          // Si el servidor no está de acuerdo (faltan puntos, campaña
+          // apagada, ya usada…) responde 400 con el motivo: se muestra tal
+          // cual en el catch de abajo.
+          membershipCampaignId,
         };
         let sale: Sale;
         try {
@@ -824,6 +842,50 @@ export function PosScreen({
           ? ` — Cambio: ${posApi.formatCurrency(result.changeGiven, currencySymbol)}`
           : '';
       toast.success(`Venta ${result.saleNumber} cobrada${changeMsg}`);
+
+      // CAMPAÑA DE MEMBRESÍA: el servidor la aplica AL COBRAR (posición,
+      // regalos a $0 que descuentan existencia y cupón de primera recompra),
+      // así que el resultado se lee de la venta ya cobrada: el ticket imprime
+      // el bloque MEMBRESÍA y los regalos, y se avisa al cajero. Tolerante:
+      // si la lectura falla, el ticket sale sin el bloque y se dice dónde
+      // verlo (la venta YA quedó cobrada).
+      let membershipSale: Sale | null = null;
+      if (membershipCampaignId) {
+        membershipSale = await posApi.getSaleById(saleId).catch(() => null);
+        const m = membershipSale?.membership;
+        if (!m) {
+          toast.info(
+            'No se pudo leer el resultado de la campaña de membresía; revísalo en el detalle de la venta.',
+            { duration: 8000 },
+          );
+        } else if (m.status === 'applied') {
+          const notDelivered = m.gifts.filter((g) => !g.delivered);
+          toast.success(
+            `Membresía ${m.name}: posición ${membershipPositionLabel(m.grantPosition)} aplicada${
+              m.couponCode ? ` · cupón ${m.couponCode}` : ''
+            }`,
+            { duration: 8000 },
+          );
+          if (notDelivered.length > 0) {
+            toast.warning(
+              `Regalos sin existencia en la sucursal (no entregados): ${notDelivered
+                .map((g) => `${g.quantity} x ${g.name}`)
+                .join(', ')}.`,
+              { duration: 10000 },
+            );
+          }
+        } else if (m.status === 'failed') {
+          toast.error(
+            `La membresía ${m.name} no se pudo aplicar${m.error ? `: ${m.error}` : ''}. Revísala en el admin.`,
+            { duration: 12000 },
+          );
+        } else {
+          toast.info(
+            `Membresía ${m.name}: ${membershipStatusLabel(m.status).toLowerCase()}.`,
+            { duration: 8000 },
+          );
+        }
+      }
 
       // Boletos de evento: el API los emite al cobrar (claves ligadas a un
       // evento). Se avisa al cajero cuántos salieron y a qué correo se mandan,
@@ -908,20 +970,25 @@ export function PosScreen({
             customerName: cart.customerName,
             customerNumber: cart.customerNumber,
             currencySymbol,
-            items: cart.items.map((it) => {
-              const comps = componentsByProduct.get(it.productId);
-              return {
-                name: it.productName,
-                sku: it.productSku,
-                quantity: it.quantity,
-                unitPrice: it.unitPrice,
-                total: it.total,
-                components: comps?.map((c) => ({
-                  name: c.name,
-                  quantity: c.quantity * it.quantity,
-                })),
-              };
-            }),
+            items: [
+              ...cart.items.map((it) => {
+                const comps = componentsByProduct.get(it.productId);
+                return {
+                  name: it.productName,
+                  sku: it.productSku,
+                  quantity: it.quantity,
+                  unitPrice: it.unitPrice,
+                  total: it.total,
+                  components: comps?.map((c) => ({
+                    name: c.name,
+                    quantity: c.quantity * it.quantity,
+                  })),
+                };
+              }),
+              // Regalos de la campaña de membresía: los agregó el servidor
+              // a $0 (no están en el carrito) y se imprimen como "Regalo".
+              ...giftReceiptLines(membershipSale?.items ?? []),
+            ],
             subtotal: cart.subtotal,
             // El descuento impreso incluye el del cupón (viaja aparte del
             // manual en el store; sin esto el ticket salía sin descuento).
@@ -944,6 +1011,10 @@ export function PosScreen({
                 ? cart.items.reduce((s, it) => s + it.points * it.quantity, 0)
                 : undefined),
             periodPoints: result.accumulatedPoints,
+            // Bloque MEMBRESÍA (posición, regalos entregados o no, cupón).
+            membership: membershipSale?.membership
+              ? toReceiptMembership(membershipSale.membership)
+              : undefined,
           },
           hadCash,
         )
@@ -1381,6 +1452,15 @@ export function PosScreen({
             <AvailablePromotions
               customerId={cart.customerId}
               branchId={branchId}
+            />
+          )}
+          {/* Campaña de membresía del distribuidor asignado: solo aparece si
+              el API reporta una que le aplique (404 = nada). La terminal se
+              identifica por su licencia; en modo staff viaja la sucursal. */}
+          {cart.customerId && (
+            <MembershipOfferBanner
+              customerId={cart.customerId}
+              branchId={staffActive ? branchId : undefined}
             />
           )}
           <div className="flex-1 min-h-0">

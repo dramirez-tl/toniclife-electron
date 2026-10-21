@@ -16,6 +16,7 @@ import {
   Truck,
   Copy,
   MessageCircle,
+  Crown,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -52,6 +53,13 @@ import {
   looksLikeEmail,
 } from '@/lib/invoiceEmail';
 import { resolveComponentsForLines } from '@/lib/kitComponents';
+import {
+  formatCouponPercent,
+  formatIsoDateDmy,
+  membershipPositionLabel,
+  membershipStatusLabel,
+  toReceiptMembership,
+} from '@/lib/membership';
 import { PosSaleStatus, type KitComponent } from '@/types/pos';
 
 interface SaleDetailModalProps {
@@ -233,12 +241,15 @@ export function SaleDetailModal({
       currencySymbol,
       items: current.items.map((it) => {
         const comps = componentsByProduct.get(it.productId);
+        // Regalo de campaña de membresía: a $0 y con "Regalo" en el ticket.
+        const gift = it.membershipGift === true;
         return {
           name: it.productName,
           sku: it.productSku,
           quantity: it.quantity,
-          unitPrice: Number(it.unitPrice),
-          total: Number(it.total),
+          unitPrice: gift ? 0 : Number(it.unitPrice),
+          total: gift ? 0 : Number(it.total),
+          gift,
           // Cantidad impresa = por unidad × cantidad de la línea.
           components: comps?.map((c) => ({
             name: c.name,
@@ -264,6 +275,10 @@ export function SaleDetailModal({
         0,
       ),
       periodPoints: current.accumulatedPoints,
+      // Bloque MEMBRESÍA (campaña aplicada a la venta), igual que el original.
+      membership: current.membership
+        ? toReceiptMembership(current.membership)
+        : undefined,
     };
   }
 
@@ -625,6 +640,14 @@ export function SaleDetailModal({
                 </Button>
               ) : null}
 
+              {/* Campaña de membresía (mig 168): posición otorgada al cobrar,
+                  regalos (y cuáles NO se entregaron por falta de existencia)
+                  y cupón de primera recompra. Misma información que el
+                  bloque MEMBRESÍA del ticket. */}
+              {sale.membership && (
+                <MembershipCard membership={sale.membership} />
+              )}
+
               {/* Items */}
               <div className="rounded-lg border overflow-hidden">
                 <Table className="text-sm">
@@ -647,6 +670,11 @@ export function SaleDetailModal({
                         <TableCell className="px-3 py-1.5">
                           <div className="text-foreground">
                             {it.productName}
+                            {it.membershipGift && (
+                              <Badge className="ml-1.5 bg-emerald-100 text-emerald-700">
+                                Regalo
+                              </Badge>
+                            )}
                           </div>
                           <div className="text-[11px] text-muted-foreground font-mono">
                             {it.productSku}
@@ -1048,6 +1076,90 @@ function Row({ label, value }: { label: string; value: string }) {
     <div className="flex justify-between text-muted-foreground">
       <span>{label}</span>
       <span className="tabular-nums">{value}</span>
+    </div>
+  );
+}
+
+const fmtPts = (n: number) =>
+  (Number(n) || 0).toLocaleString('es-MX', { maximumFractionDigits: 0 });
+
+/** Tarjeta "Membresía" del detalle: la campaña aplicada a la venta. */
+function MembershipCard({
+  membership: m,
+}: {
+  membership: NonNullable<Sale['membership']>;
+}) {
+  const kitLabel = (k: string | null) =>
+    k ? membershipPositionLabel(k) : 'sin kit';
+  const tone =
+    m.status === 'applied'
+      ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+      : m.status === 'reverted'
+        ? 'border-muted bg-muted/40 text-muted-foreground'
+        : 'border-amber-200 bg-amber-50 text-amber-900';
+  return (
+    <div className={`space-y-1 rounded-lg border p-2.5 text-xs ${tone}`}>
+      <div className="flex items-center justify-between gap-2">
+        <p className="flex min-w-0 items-center gap-1.5 font-semibold">
+          <Crown className="size-4 shrink-0" />
+          <span className="truncate">Membresía · {m.name}</span>
+          <span className="shrink-0 font-mono font-normal opacity-70">
+            {m.code}
+          </span>
+        </p>
+        <Badge
+          variant="outline"
+          className={
+            m.status === 'applied'
+              ? 'border-emerald-300 text-emerald-700'
+              : m.status === 'reverted'
+                ? 'border-muted-foreground/40 text-muted-foreground'
+                : 'border-amber-300 text-amber-700'
+          }
+        >
+          {membershipStatusLabel(m.status)}
+        </Badge>
+      </div>
+      <p>
+        Posición:{' '}
+        <span className="font-medium">
+          {membershipPositionLabel(m.grantPosition)}
+        </span>
+        {(m.kitTypeBefore || m.kitTypeAfter) && (
+          <span className="opacity-80">
+            {' '}
+            ({kitLabel(m.kitTypeBefore)} → {kitLabel(m.kitTypeAfter)})
+          </span>
+        )}
+        {' · '}
+        {fmtPts(m.pointsCounted)} de {fmtPts(m.minPoints)} pts en producto
+      </p>
+      {m.gifts.length > 0 && (
+        <p>
+          <span className="font-medium">Incluye:</span>{' '}
+          {m.gifts
+            .map(
+              (g) =>
+                `${g.quantity} x ${g.name}${
+                  g.delivered ? '' : ' (sin existencia, no entregado)'
+                }`,
+            )
+            .join(', ')}
+        </p>
+      )}
+      {m.couponCode && (
+        <p>
+          Cupón{' '}
+          <span className="font-mono font-semibold">{m.couponCode}</span>
+          {m.couponPercent != null
+            ? `: ${formatCouponPercent(m.couponPercent)} en su primera recompra`
+            : ''}
+          {m.couponValidUntil
+            ? `, válido hasta ${formatIsoDateDmy(m.couponValidUntil)}`
+            : ''}
+        </p>
+      )}
+      {m.error && <p className="text-destructive">{m.error}</p>}
     </div>
   );
 }

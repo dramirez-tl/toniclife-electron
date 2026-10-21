@@ -43,6 +43,11 @@ interface PosCartStore {
   clearCoupon: () => void;
   setRequiresInvoice: (requiresInvoice: boolean) => void;
   setNotes: (notes?: string) => void;
+  /** Campaña de membresía que el ticket cumple (la fija el banner); null =
+   *  ninguna. Viaja como membershipCampaignId al crear la venta. */
+  setMembershipCampaignId: (campaignId: string | null) => void;
+  /** "Aplicar en esta venta" del banner de membresía (default true). */
+  setApplyMembership: (apply: boolean) => void;
   recalculateTotals: () => void;
   refreshItemPrices: (
     prices: Array<{
@@ -78,6 +83,8 @@ const initialCart: PosCart = {
   totalPoints: 0,
   totalBusinessVolume: 0,
   requiresInvoice: false,
+  membershipCampaignId: null,
+  applyMembership: true,
 };
 
 // Tope de cantidad de un item: maxQuantity explícito (derechos disponibles
@@ -137,6 +144,9 @@ const calculateCartTotals = (cart: PosCart): PosCart => {
       couponCode: undefined,
       couponDiscount: undefined,
       couponDescription: undefined,
+      // Sin productos no hay puntos que cumplan una campaña de membresía.
+      membershipCampaignId: null,
+      applyMembership: true,
     };
   }
   const subtotal = cart.items.reduce((sum, item) => sum + item.subtotal, 0);
@@ -247,6 +257,7 @@ export const usePosCartStore = create<PosCartStore>()(
               points: product.points ?? 0,
               businessVolume: product.businessVolume ?? 0,
               productType: product.productType,
+              isEnrollmentKit: product.isEnrollmentKit,
               event: product.event,
               maxQuantity: maxQty,
               components: product.components,
@@ -323,7 +334,15 @@ export const usePosCartStore = create<PosCartStore>()(
       },
 
       loadCart: (cart) => {
-        set({ cart: calculateCartTotals(cart) });
+        set({
+          cart: calculateCartTotals({
+            ...cart,
+            // Snapshots sin los campos de membresía (pestañas estacionadas
+            // por una versión anterior) arrancan como un carrito nuevo.
+            membershipCampaignId: cart.membershipCampaignId ?? null,
+            applyMembership: cart.applyMembership ?? true,
+          }),
+        });
       },
 
       setCustomer: (
@@ -354,6 +373,10 @@ export const usePosCartStore = create<PosCartStore>()(
               attendeeEmail: undefined,
               priceTypeId,
               isPublicPrice: false,
+              // La campaña de membresía es del cliente anterior: el banner
+              // la vuelve a fijar (o no) con las ofertas del nuevo.
+              membershipCampaignId: null,
+              applyMembership: true,
             }),
           };
         });
@@ -385,10 +408,26 @@ export const usePosCartStore = create<PosCartStore>()(
                     customerEmail: undefined,
                     attendeeEmail: undefined,
                     priceTypeId: undefined,
+                    membershipCampaignId: null,
+                    applyMembership: true,
                   }
                 : {}),
             }),
           };
+        });
+      },
+
+      setMembershipCampaignId: (campaignId) => {
+        set((state) => {
+          if (state.cart.membershipCampaignId === campaignId) return state;
+          return { cart: { ...state.cart, membershipCampaignId: campaignId } };
+        });
+      },
+
+      setApplyMembership: (apply) => {
+        set((state) => {
+          if (state.cart.applyMembership === apply) return state;
+          return { cart: { ...state.cart, applyMembership: apply } };
         });
       },
 

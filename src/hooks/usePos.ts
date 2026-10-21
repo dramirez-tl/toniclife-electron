@@ -379,6 +379,9 @@ export const useCancelSale = () => {
       // Las promos canjeables pueden cambiar si la cancelacion regresa
       // puntos al periodo del distribuidor.
       qc.invalidateQueries({ queryKey: ['promotions'] });
+      // Cancelar una venta con campaña de membresía la revierte: el
+      // distribuidor vuelve a ser candidato.
+      qc.invalidateQueries({ queryKey: ['membership'] });
     },
   });
 };
@@ -401,6 +404,9 @@ export const useProcessPayment = () => {
       // Refrescar promos canjeables: la venta pudo haber sumado puntos que
       // desbloquean nuevas promos, o canjeado una con consumes_points=true.
       qc.invalidateQueries({ queryKey: ['promotions'] });
+      // Una venta con campaña de membresía la consume (y cambia la posición
+      // del distribuidor): las ofertas ya no aplican.
+      qc.invalidateQueries({ queryKey: ['membership'] });
     },
   });
 };

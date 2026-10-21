@@ -236,6 +236,9 @@ export interface SaleReceiptPayload {
     /** Contenido de un kit/paquete/promo (lo que se entrega); quantity ya
      *  viene multiplicada por la cantidad de kits vendidos. */
     components?: Array<{ name: string; quantity: number }>;
+    /** Regalo a $0 de una campaña de membresía: se imprime "Regalo" en vez
+     *  del precio unitario. */
+    gift?: boolean;
   }>;
   subtotal: number;
   discountAmount: number;
@@ -250,6 +253,27 @@ export interface SaleReceiptPayload {
   salePoints?: number;
   /** Saldo del periodo DESPUÉS de la venta ("Puntos totales"). */
   periodPoints?: number;
+  /** Campaña de membresía aplicada a la venta: bloque MEMBRESÍA del ticket. */
+  membership?: SaleReceiptMembership;
+}
+
+/** Bloque MEMBRESÍA del ticket (espejo de electron/receipts.ts
+ *  SaleReceiptMembership). */
+export interface SaleReceiptMembership {
+  /** Nombre de la campaña. */
+  name: string;
+  code?: string;
+  /** applied = posición otorgada; pending/failed = pendiente de aplicar;
+   *  reverted = anulada (venta cancelada). */
+  status: 'pending' | 'applied' | 'reverted' | 'failed';
+  /** "Premium" / "Básico". */
+  positionLabel: string;
+  /** Regalos; delivered=false = sin existencia, no entregado. */
+  gifts: Array<{ name: string; quantity: number; delivered: boolean }>;
+  couponCode?: string | null;
+  couponPercent?: number | null;
+  /** YYYY-MM-DD */
+  couponValidUntil?: string | null;
 }
 
 declare global {

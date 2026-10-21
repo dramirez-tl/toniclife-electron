@@ -146,6 +146,9 @@ export interface SaleItem {
    *  APIs anteriores: la reimpresión entonces consulta el contenido de todos
    *  los productos de la venta. */
   productType?: string;
+  /** true = regalo a $0 de una campaña de membresía (lo agregó el servidor;
+   *  descuenta existencia). Ausente en APIs anteriores. */
+  membershipGift?: boolean;
 }
 
 export interface SalePayment {
@@ -217,6 +220,9 @@ export interface Sale {
   /** Entrega a domicilio ligada (mig 161); null = mostrador. Ausente en APIs
    *  anteriores. */
   delivery?: import('./deliveries').SaleDeliverySummary | null;
+  /** Campaña de membresía aplicada a la venta (mig 168); null = ninguna.
+   *  Ausente en APIs anteriores. */
+  membership?: SaleMembership | null;
 }
 
 export interface CreateSaleItemInput {
@@ -256,6 +262,10 @@ export interface CreateSaleInput {
    *  Call Center; el API la liga a la venta en la misma transacción y Almacén
    *  la surte desde el admin. Ausente = venta de mostrador. */
   delivery?: import('./deliveries').CreateSaleDeliveryInput;
+  /** Campaña de membresía que el ticket cumple (GET /pos/membership-campaigns/
+   *  offers). El servidor vuelve a validar público, sucursal y puntos; si no
+   *  está de acuerdo responde 400 con el motivo en español. */
+  membershipCampaignId?: string;
 }
 
 export interface CancelSaleInput {
@@ -395,6 +405,9 @@ export interface PosCartItem {
   businessVolume: number;
   /** Tipo de producto (ej. 'promotional'); usado para retirar promos al cambiar/quitar el distribuidor. */
   productType?: string;
+  /** Kit de inscripción real (gate autoritativo): sus puntos NO cuentan para
+   *  las campañas de membresía. */
+  isEnrollmentKit?: boolean;
   /** Tope de cantidad: para promos = derechos disponibles (default 1). */
   maxQuantity?: number;
   /** Evento del que la clave es boleto (se emiten al cobrar). */
@@ -435,6 +448,94 @@ export interface PosCart {
   totalBusinessVolume: number;
   requiresInvoice: boolean;
   notes?: string;
+  /** Campaña de membresía que el ticket cumple y que viajará al crear la
+   *  venta (la fija MembershipOfferBanner); null = ninguna. Se limpia al
+   *  vaciar el carrito o cambiar de cliente. */
+  membershipCampaignId: string | null;
+  /** "Aplicar en esta venta" (default true): apagado = aunque el ticket
+   *  califique, no se manda la campaña. */
+  applyMembership: boolean;
+}
+
+// ============================================================================
+// CAMPAÑAS DE MEMBRESÍA (mig 168) — espejo de membership-campaign.dto.ts
+// "Compra N puntos en producto y tu membresía de inscripción es GRATIS".
+// ============================================================================
+
+/** Regalo de una campaña (producto a $0 que descuenta existencia). */
+export interface PosMembershipOfferGift {
+  productId: string;
+  sku: string;
+  name: string;
+  quantity: number;
+  sortOrder?: number;
+  /** false = producto inactivo (no se entregará). */
+  productActive?: boolean;
+}
+
+/** Campaña que HOY aplica al cliente en la sucursal (ya filtrada por público
+ *  y no usada). */
+export interface PosMembershipOffer {
+  campaignId: string;
+  code: string;
+  name: string;
+  description: string | null;
+  imageUrl: string | null;
+  /** Puntos EN PRODUCTO que debe juntar el ticket (ver lib/membership.ts). */
+  minPoints: number;
+  /** 'premium' | 'basic' */
+  grantPosition: string;
+  /** Cupón de primera recompra (%); null = sin cupón. */
+  couponPercent: number | null;
+  couponValidDays: number;
+  gifts: PosMembershipOfferGift[];
+  /** Por qué aplica: nuevo (pendiente sin kit) o básico que sube. */
+  audience?: 'new' | 'basic' | null;
+}
+
+export interface PosMembershipCustomer {
+  status: string | null;
+  kitType: string | null;
+  audience: 'new' | 'basic' | null;
+  /** Por qué no aplica ninguna campaña. */
+  reason: string | null;
+}
+
+/** GET /pos/membership-campaigns/offers. Con un API sin la ruta (404) el
+ *  cliente devuelve `{ offers: [], customer: null }`. */
+export interface PosMembershipOffersResponse {
+  offers: PosMembershipOffer[];
+  customer: PosMembershipCustomer | null;
+}
+
+export type SaleMembershipStatus = 'pending' | 'applied' | 'reverted' | 'failed';
+
+export interface SaleMembershipGift {
+  productId?: string;
+  sku: string;
+  name: string;
+  quantity: number;
+  /** false = sin existencia en la sucursal al vender (no se entregó). */
+  delivered: boolean;
+}
+
+/** Lo que viaja dentro de la venta (`Sale.membership`). */
+export interface SaleMembership {
+  campaignId: string;
+  code: string;
+  name: string;
+  status: SaleMembershipStatus;
+  grantPosition: string;
+  pointsCounted: number;
+  minPoints: number;
+  gifts: SaleMembershipGift[];
+  couponCode: string | null;
+  couponPercent: number | null;
+  /** YYYY-MM-DD */
+  couponValidUntil: string | null;
+  kitTypeBefore: string | null;
+  kitTypeAfter: string | null;
+  error: string | null;
 }
 
 /** Respuesta de POST /pos/coupons/validate. */

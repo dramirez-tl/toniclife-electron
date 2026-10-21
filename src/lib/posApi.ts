@@ -16,6 +16,8 @@ import type {
   CashRegister,
   KitComponent,
   PosKitAvailability,
+  PosMembershipOffer,
+  PosMembershipOffersResponse,
   PosSalesByProductResponse,
   Session,
   ActiveSession,
@@ -629,6 +631,90 @@ class PosApi {
   }): Promise<PosCouponValidation> {
     const { data } = await api.post('/pos/coupons/validate', input);
     return data;
+  }
+
+  // --------------------------------------------------------------------------
+  // CAMPAÑAS DE MEMBRESÍA (mig 168)
+  // --------------------------------------------------------------------------
+
+  /**
+   * Campañas de membresía ("compra N puntos en producto y tu membresía es
+   * gratis") que HOY aplican al distribuidor en la sucursal (GET
+   * /pos/membership-campaigns/offers): ya filtradas por público (nuevo
+   * pendiente sin kit o básico que sube) y no usadas, ordenadas por
+   * minPoints. La terminal se identifica por su licencia; en modo staff (JWT
+   * de usuario) el API exige `branchId`. Un API sin la ruta (404: producción
+   * antes de la mig 168) responde `{ offers: [], customer: null }` sin
+   * error, para que el POS opere igual que hoy: sin banner y sin aviso.
+   */
+  async getMembershipOffers(
+    customerId: string,
+    branchId?: string,
+  ): Promise<PosMembershipOffersResponse> {
+    try {
+      const { data } = await api.get('/pos/membership-campaigns/offers', {
+        params: { customerId, ...(branchId ? { branchId } : {}) },
+      });
+      /* eslint-disable @typescript-eslint/no-explicit-any */
+      const d = (data ?? {}) as any;
+      const offers: PosMembershipOffer[] = (
+        Array.isArray(d.offers) ? (d.offers as any[]) : []
+      )
+        .filter((o) => o && o.campaignId)
+        .map(
+          (o): PosMembershipOffer => ({
+            campaignId: String(o.campaignId),
+            code: String(o.code ?? ''),
+            name: String(o.name ?? o.code ?? 'Campaña de membresía'),
+            description: o.description ?? null,
+            imageUrl: resolveImageUrl(o.imageUrl ?? undefined) ?? null,
+            minPoints: Number(o.minPoints) || 0,
+            grantPosition: String(o.grantPosition ?? 'premium'),
+            couponPercent:
+              o.couponPercent != null ? Number(o.couponPercent) : null,
+            couponValidDays: Number(o.couponValidDays) || 0,
+            gifts: (Array.isArray(o.gifts) ? (o.gifts as any[]) : [])
+              .map((g, i) => ({
+                productId: String(g.productId ?? ''),
+                sku: String(g.sku ?? ''),
+                name: String(g.name ?? g.sku ?? 'Regalo'),
+                quantity: Number(g.quantity) || 1,
+                sortOrder: Number(g.sortOrder ?? i) || i,
+                productActive:
+                  typeof g.productActive === 'boolean'
+                    ? g.productActive
+                    : undefined,
+              }))
+              .sort((a, b) => a.sortOrder - b.sortOrder),
+            audience:
+              o.audience === 'new' || o.audience === 'basic'
+                ? o.audience
+                : null,
+          }),
+        )
+        .sort((a, b) => a.minPoints - b.minPoints);
+      const c = d.customer;
+      const customer =
+        c && typeof c === 'object'
+          ? {
+              status: c.status ?? null,
+              kitType: c.kitType ?? null,
+              audience:
+                c.audience === 'new' || c.audience === 'basic'
+                  ? c.audience
+                  : null,
+              reason: c.reason ?? null,
+            }
+          : null;
+      /* eslint-enable @typescript-eslint/no-explicit-any */
+      return { offers, customer };
+    } catch (err) {
+      // 404 = API anterior sin la ruta: sin campañas, sin ruido.
+      if (axios.isAxiosError(err) && err.response?.status === 404) {
+        return { offers: [], customer: null };
+      }
+      throw err;
+    }
   }
 
   // --------------------------------------------------------------------------

@@ -38,11 +38,14 @@ export function CustomerSelector() {
     // EXCEPCION (fix Tulsa): un distribuidor PENDIENTE si se puede asignar —
     // es el paso obligado para COBRARLE su kit de inscripcion, que es lo que
     // lo activa al pagar. El backend valida que a un pendiente solo se le
-    // cobre su kit (createSale rechaza ventas sin kit para pendientes).
+    // cobre su kit (createSale rechaza ventas sin kit para pendientes), con
+    // UNA excepción: una campaña de membresía encendida en la sucursal
+    // ("compra N puntos en producto y tu membresía es gratis") — si aplica,
+    // el banner de membresía aparece arriba del catálogo al asignarlo.
     if (customer.status === 'pending') {
       toast.warning(
-        `El cliente #${customer.customerNumber ?? ''} esta pendiente: agrega su kit de inscripcion al ticket — se activara al cobrarlo. No se le puede vender otra cosa todavia.`,
-        { duration: 6000 },
+        `El cliente #${customer.customerNumber ?? ''} esta pendiente: agrega su kit de inscripcion al ticket — se activara al cobrarlo — o, si hay campaña de membresía en esta sucursal, junta los puntos en producto que pide. No se le puede vender otra cosa todavia.`,
+        { duration: 7000 },
       );
     } else if (customer.status && customer.status !== 'active') {
       toast.error(
