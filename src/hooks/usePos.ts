@@ -66,6 +66,8 @@ export const posKeys = {
   fiscalCatalogs: () => [...posKeys.all, 'fiscal-catalogs'] as const,
   incomingTransfers: (branchId: string) =>
     [...posKeys.all, 'incoming-transfers', branchId] as const,
+  salesByProduct: (branchId: string, from: string, to: string, search: string) =>
+    [...posKeys.all, 'sales-by-product', branchId, from, to, search] as const,
 };
 
 /**
@@ -93,6 +95,22 @@ export const usePosProductSearch = (
     queryFn: () => posApi.searchProducts(query, branchId!),
     enabled: !!branchId && query.trim().length >= 2,
     staleTime: 30 * 1000,
+  });
+
+/** Ventas por producto con folio de la sucursal (corte): cada producto vendido
+ *  con la venta a la que pertenece, para resurtir "lo mismo que vendí". */
+export const usePosSalesByProduct = (
+  branchId: string | undefined,
+  from: string,
+  to: string,
+  enabled = true,
+  search = '',
+) =>
+  useQuery({
+    queryKey: posKeys.salesByProduct(branchId ?? '', from, to, search),
+    queryFn: () => posApi.getSalesByProduct(branchId!, from, to, search || undefined),
+    enabled: enabled && !!branchId && !!from && !!to,
+    staleTime: 60 * 1000,
   });
 
 /** Busqueda de clientes/distribuidores. Dispara desde 1 char (permite buscar

@@ -16,6 +16,7 @@ import type {
   CashRegister,
   KitComponent,
   PosKitAvailability,
+  PosSalesByProductResponse,
   Session,
   ActiveSession,
   OpenSessionInput,
@@ -773,6 +774,60 @@ class PosApi {
       if (axios.isAxiosError(err) && err.response?.status === 404) return null;
       throw err;
     }
+  }
+
+  /**
+   * Ventas por producto con folio de la sucursal (GET /pos/reports/
+   * sales-by-product): cada producto vendido con la venta a la que pertenece,
+   * para resurtir "lo mismo que vendí" (CEDEAS). La terminal se identifica por
+   * su licencia; en modo staff se manda `branchId`. null si el API aún no
+   * tiene la ruta (404).
+   */
+  async getSalesByProduct(
+    branchId: string,
+    startDate: string,
+    endDate: string,
+    search?: string,
+  ): Promise<PosSalesByProductResponse | null> {
+    try {
+      const { data } = await api.get<PosSalesByProductResponse>(
+        '/pos/reports/sales-by-product',
+        {
+          params: {
+            startDate,
+            endDate,
+            branchId,
+            ...(search ? { search } : {}),
+          },
+        },
+      );
+      return data;
+    } catch (err) {
+      if (axios.isAxiosError(err) && err.response?.status === 404) return null;
+      throw err;
+    }
+  }
+
+  /** Excel VENTAS_POR_PRODUCTO de la sucursal (bytes + nombre del archivo). */
+  async getSalesByProductXlsx(
+    branchId: string,
+    startDate: string,
+    endDate: string,
+    search?: string,
+  ): Promise<{ bytes: ArrayBuffer; filename: string }> {
+    const res = await api.get<ArrayBuffer>('/pos/reports/sales-by-product/xlsx', {
+      params: { startDate, endDate, branchId, ...(search ? { search } : {}) },
+      responseType: 'arraybuffer',
+    });
+    const disposition = String(res.headers?.['content-disposition'] ?? '');
+    const m = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition);
+    const fromHeader = m?.[1] ? decodeURIComponent(m[1].trim()) : '';
+    return {
+      bytes: res.data,
+      filename:
+        fromHeader ||
+        `VENTAS_POR_PRODUCTO_${startDate.replaceAll('-', '')}_${endDate.replaceAll('-', '')}.xlsx`,
+    };
   }
 
   /** Estados/departamentos del país (endpoint público, catálogo tonic.states)

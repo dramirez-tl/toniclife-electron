@@ -551,6 +551,46 @@ export interface KitLimitingComponent {
   available: number;
 }
 
+/** GET /pos/reports/sales-by-product — cada producto vendido con el folio de su venta. */
+export interface PosProductSaleLine {
+  saleId: string;
+  saleNumber: string;
+  /** Día local de la sucursal (YYYY-MM-DD). */
+  saleDate: string;
+  /** Hora local (HH:mm). */
+  saleTime: string;
+  customerNumber: string | null;
+  customerName: string;
+  productId: string;
+  productSku: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+  points: number;
+  paymentMethod: string;
+  sellerName: string;
+}
+
+export interface PosProductSalesSummary {
+  productId: string;
+  productSku: string;
+  productName: string;
+  salesCount: number;
+  units: number;
+  amount: number;
+  points: number;
+  lines: PosProductSaleLine[];
+}
+
+export interface PosSalesByProductResponse {
+  startDate: string;
+  endDate: string;
+  branchLabel: string;
+  totals: { sales: number; lines: number; units: number; amount: number; points: number };
+  products: PosProductSalesSummary[];
+}
+
 /** GET /pos/kits/:id/availability — desglose por componente en la sucursal. */
 export interface PosKitAvailability {
   productId: string;

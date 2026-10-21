@@ -6,8 +6,15 @@
 // panel "Ventas recientes" (estado compartido en PosScreen): un solo día =
 // "Corte del día"; varios días = "Corte de ventas".
 
-import { useMemo, useState } from 'react';
-import { X, ClipboardList, Printer, Download, Monitor } from 'lucide-react';
+import { Fragment, useMemo, useState } from 'react';
+import {
+  X,
+  ClipboardList,
+  Printer,
+  Download,
+  Monitor,
+  FileSpreadsheet,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
@@ -33,7 +40,11 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { usePosDailySummary, usePosSales } from '@/hooks/usePos';
+import {
+  usePosDailySummary,
+  usePosSales,
+  usePosSalesByProduct,
+} from '@/hooks/usePos';
 import { posApi } from '@/lib/posApi';
 import { formatTime, localDateOf } from '@/lib/date';
 import { isCfdiCountry } from '@/lib/invoiceEligibility';
@@ -125,12 +136,55 @@ export function CorteModal({
 
   const [printing, setPrinting] = useState(false);
   const [exporting, setExporting] = useState(false);
+  // Ventas por producto con folio (CEDEAS): lo que la tienda resurte.
+  const [exportingProducts, setExportingProducts] = useState(false);
+  const [expandedProducts, setExpandedProducts] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const { data: byProduct, isLoading: loadingByProduct } = usePosSalesByProduct(
+    isOpen ? branchId : undefined,
+    from,
+    to,
+  );
 
   const sales: Sale[] = salesResp?.data ?? [];
   const fmt = (n: number) => posApi.formatCurrency(n, currencySymbol);
 
-  const busy = printing || exporting;
+  const busy = printing || exporting || exportingProducts;
   const hasData = !!summary && !loadingSummary;
+
+  /** Excel VENTAS_POR_PRODUCTO de la sucursal: se guarda en temporales y se
+   *  abre con Excel (mismo camino que el PDF de la factura). */
+  async function handleDownloadProductsXlsx() {
+    setExportingProducts(true);
+    try {
+      const { bytes, filename } = await posApi.getSalesByProductXlsx(
+        branchId,
+        from,
+        to,
+      );
+      const r = await window.toniclife.invoice.openPdf(
+        filename,
+        new Uint8Array(bytes),
+      );
+      if (r.ok) toast.success('Excel de ventas por producto generado.');
+      else toast.error('No se pudo abrir el Excel', { description: r.error });
+    } catch (err) {
+      toast.error(
+        `No se pudo generar el Excel: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      setExportingProducts(false);
+    }
+  }
+
+  const toggleProduct = (productId: string) =>
+    setExpandedProducts((prev) => {
+      const next = new Set(prev);
+      if (next.has(productId)) next.delete(productId);
+      else next.add(productId);
+      return next;
+    });
 
   const title = singleDay ? 'Corte del día' : 'Corte de ventas';
   const cajaLabel = effectiveFiltered
@@ -573,6 +627,128 @@ export function CorteModal({
                   </div>
                 )}
               </div>
+
+              {/* Ventas por producto con folio (CEDEAS): cada producto vendido
+                  con la venta a la que pertenece, para resurtir lo mismo. */}
+              {byProduct && (
+                <div>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold text-foreground">
+                      Ventas por producto ({byProduct.products.length}
+                      {byProduct.products.length === 1 ? ' producto' : ' productos'}
+                      {' · '}
+                      {byProduct.totals.units} piezas)
+                    </h3>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleDownloadProductsXlsx}
+                      disabled={busy || byProduct.products.length === 0}
+                      title="Excel VENTAS_POR_PRODUCTO: cada producto con el folio de cada venta (para pedir resurtido)"
+                    >
+                      <FileSpreadsheet />
+                      {exportingProducts ? 'Generando...' : 'Excel por producto'}
+                    </Button>
+                  </div>
+                  {loadingByProduct ? (
+                    <p className="text-xs text-muted-foreground">Cargando...</p>
+                  ) : byProduct.products.length === 0 ? (
+                    <p className="text-xs text-muted-foreground italic">
+                      Sin productos vendidos.
+                    </p>
+                  ) : (
+                    <div className="rounded-lg border overflow-hidden">
+                      <Table className="text-sm">
+                        <TableHeader className="bg-muted/60">
+                          <TableRow>
+                            <TableHead className="text-left px-3 py-1.5 font-medium text-muted-foreground">
+                              Clave
+                            </TableHead>
+                            <TableHead className="text-left px-3 py-1.5 font-medium text-muted-foreground">
+                              Producto
+                            </TableHead>
+                            <TableHead className="text-right px-3 py-1.5 font-medium text-muted-foreground">
+                              Ventas
+                            </TableHead>
+                            <TableHead className="text-right px-3 py-1.5 font-medium text-muted-foreground">
+                              Piezas
+                            </TableHead>
+                            <TableHead className="text-right px-3 py-1.5 font-medium text-muted-foreground">
+                              Importe
+                            </TableHead>
+                            <TableHead className="px-3 py-1.5" />
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody className="divide-y">
+                          {byProduct.products.map((p) => {
+                            const open = expandedProducts.has(p.productId);
+                            return (
+                              <Fragment key={p.productId}>
+                                <TableRow
+                                  onClick={() => toggleProduct(p.productId)}
+                                  className="cursor-pointer hover:bg-muted/50 transition-colors"
+                                  title="Ver en qué ventas se vendió"
+                                >
+                                  <TableCell className="px-3 py-1.5 font-mono text-xs">
+                                    {p.productSku}
+                                  </TableCell>
+                                  <TableCell className="px-3 py-1.5">
+                                    {p.productName}
+                                  </TableCell>
+                                  <TableCell className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">
+                                    {p.salesCount}
+                                  </TableCell>
+                                  <TableCell className="px-3 py-1.5 text-right font-semibold tabular-nums">
+                                    {p.units}
+                                  </TableCell>
+                                  <TableCell className="px-3 py-1.5 text-right tabular-nums">
+                                    {fmt(Number(p.amount))}
+                                  </TableCell>
+                                  <TableCell className="px-3 py-1.5 text-right text-xs text-primary">
+                                    {open ? 'Ocultar' : 'Ver ventas'}
+                                  </TableCell>
+                                </TableRow>
+                                {open && (
+                                  <TableRow className="bg-muted/30 hover:bg-muted/30">
+                                    <TableCell colSpan={6} className="px-6 py-2">
+                                      <ul className="space-y-0.5 text-xs text-muted-foreground">
+                                        {p.lines.map((l, i) => (
+                                          <li
+                                            key={`${l.saleId}-${i}`}
+                                            className="flex flex-wrap gap-x-3"
+                                          >
+                                            <button
+                                              type="button"
+                                              className="font-mono text-foreground hover:underline"
+                                              onClick={() => onSelectSale?.(l.saleId)}
+                                            >
+                                              {l.saleNumber}
+                                            </button>
+                                            {!singleDay && <span>{l.saleDate}</span>}
+                                            <span>{l.saleTime}</span>
+                                            <span className="truncate max-w-[22rem]">
+                                              {l.customerNumber ? `#${l.customerNumber} ` : ''}
+                                              {l.customerName}
+                                            </span>
+                                            <span className="tabular-nums">
+                                              {l.quantity} × {fmt(Number(l.unitPrice))} ={' '}
+                                              {fmt(Number(l.total))}
+                                            </span>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </TableCell>
+                                  </TableRow>
+                                )}
+                              </Fragment>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           )}
         </div>
