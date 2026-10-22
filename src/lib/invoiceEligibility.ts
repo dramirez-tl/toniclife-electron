@@ -11,10 +11,13 @@
 //   - facturación habilitada en esta terminal;
 //   - el día LOCAL de la venta (zona de la sucursal) cae en el MES NATURAL en
 //     curso: después se factura desde el admin (Contabilidad). Mes natural,
-//     NUNCA el periodo 26→25 del MLM.
+//     NUNCA el periodo 26→25 del MLM;
+//   - sin cobro en dólares, cashback ni promoción (Contabilidad, 22-oct-2026):
+//     basta UN cobro > 0 de esos métodos; el API responde
+//     CFDI_PAYMENT_NOT_INVOICEABLE y la global también los deja fuera.
 
 import { localDateOf } from '@/lib/date';
-import { PosSaleStatus, type Sale } from '@/types/pos';
+import { PosSaleStatus, type Sale, type SalePayment } from '@/types/pos';
 
 export type InvoiceIneligibleReason =
   | 'not_completed'
@@ -23,6 +26,7 @@ export type InvoiceIneligibleReason =
   | 'no_customer'
   | 'already_invoiced'
   | 'in_global'
+  | 'non_invoiceable_payment'
   | 'country'
   | 'invoicing_disabled'
   | 'out_of_month';
@@ -41,7 +45,35 @@ export type InvoiceEligibilitySale = Pick<
   | 'invoiceUuid'
   | 'globalInvoiceId'
   | 'createdAt'
->;
+  | 'paymentMethod'
+> & {
+  /** Cobros de la venta; la lista de ventas los trae, un detalle viejo puede no traerlos. */
+  payments?: Array<Pick<SalePayment, 'paymentMethod' | 'amount'> & { status?: string }>;
+};
+
+/** Métodos de cobro del POS que NO se facturan (espejo de NON_INVOICEABLE_POS_METHODS del API). */
+export const NON_INVOICEABLE_PAYMENT_METHODS: ReadonlySet<string> = new Set([
+  'usd_cash',
+  'cash_usd',
+  'cashback',
+  'promotion',
+]);
+
+/** true si la venta se cobró (total o parcialmente) en dólares, cashback o promoción. */
+export function hasNonInvoiceablePayment(
+  sale: Pick<InvoiceEligibilitySale, 'paymentMethod' | 'payments'>,
+): boolean {
+  if (NON_INVOICEABLE_PAYMENT_METHODS.has(String(sale.paymentMethod ?? ''))) {
+    return true;
+  }
+  return (sale.payments ?? []).some(
+    (p) =>
+      Number(p.amount) > 0 &&
+      p.status !== 'cancelled' &&
+      p.status !== 'refunded' &&
+      NON_INVOICEABLE_PAYMENT_METHODS.has(String(p.paymentMethod ?? '')),
+  );
+}
 
 export interface InvoiceEligibilityInput {
   sale: InvoiceEligibilitySale;
@@ -103,6 +135,9 @@ export function invoiceEligibility(
   if (sale.globalInvoiceId) {
     return { eligible: false, reason: 'in_global' };
   }
+  if (hasNonInvoiceablePayment(sale)) {
+    return { eligible: false, reason: 'non_invoiceable_payment' };
+  }
   if (!isCfdiCountry(input.branchCountryCode)) {
     return { eligible: false, reason: 'country' };
   }
@@ -139,6 +174,8 @@ export const INVOICE_INELIGIBLE_LABELS: Record<InvoiceIneligibleReason, string> 
     already_invoiced: 'La venta ya tiene factura CFDI.',
     in_global:
       'La venta ya fue incluida en una factura global; no se puede facturar de forma nominativa.',
+    non_invoiceable_payment:
+      'La venta tiene cobro en dólares, cashback o promoción: Contabilidad lo registra aparte y no se factura.',
     country: 'La factura CFDI solo aplica en sucursales de México.',
     invoicing_disabled: 'La facturación está deshabilitada en esta terminal.',
     out_of_month:
