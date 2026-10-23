@@ -649,6 +649,9 @@ export interface SaleReceiptInput {
   periodPoints?: number;
   /** Campaña de membresía aplicada a la venta: bloque MEMBRESÍA. */
   membership?: SaleReceiptMembership;
+  /** Venta guardada en la terminal sin conexión, aún no enviada al servidor:
+   *  el folio es provisional y el ticket lo dice. */
+  pendingSync?: boolean;
 }
 
 // Datos fiscales del emisor — mismos en todos los tickets (paridad con el
@@ -757,6 +760,14 @@ function renderSale(p: ReceiptWriter, input: SaleReceiptInput): void {
   p.line(sep);
   p.size(2, 2).line(input.saleNumber).size(1, 1);
   p.line(fecha);
+  if (input.pendingSync) {
+    // Cola local: la venta se registrará en el servidor en cuanto la
+    // terminal recupere la conexión; el folio definitivo lo asigna el servidor.
+    p.bold(true);
+    p.line('VENTA POR SINCRONIZAR');
+    p.bold(false);
+    p.line('Folio provisional (sin conexion)');
+  }
   p.line(sep);
 
   p.align('left');

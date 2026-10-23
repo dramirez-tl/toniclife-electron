@@ -254,6 +254,12 @@ export interface CreateSaleInput {
    * vez de duplicarla.
    */
   clientRequestId?: string;
+  /** Cola local (2.0.81): hora real de la venta en la caja, solo al sincronizar
+   *  una venta guardada sin conexión; el API la registra con esa hora. */
+  soldAt?: string;
+  /** Cola local: la venta se guardó sin conexión; si ya no hay existencia el
+   *  API la acepta de todos modos (el producto ya se entregó) y avisa. */
+  queuedOffline?: boolean;
   /** Boletos de evento: asistente/correo al que se mandan (si no, el cliente). */
   attendeeName?: string;
   attendeeEmail?: string;

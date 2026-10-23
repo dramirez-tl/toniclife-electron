@@ -113,6 +113,18 @@ import {
   usePosSales,
 } from '@/hooks/usePos';
 import { posApi } from '@/lib/posApi';
+import {
+  makeQueuedSale,
+  useSalesOutboxStore,
+  type QueuedSale,
+} from '@/stores/sales-outbox.store';
+import {
+  isQueueRetryableError,
+  onOutboxSynced,
+  startOutboxSync,
+  syncNow,
+} from '@/lib/outboxSync';
+import { OutboxIndicator } from '@/components/pos/OutboxIndicator';
 import { APP_VERSION } from '@/lib/version';
 import { todayLocal } from '@/lib/date';
 import {
@@ -120,12 +132,13 @@ import {
   ALL_TERMINALS,
   terminalOptionsFromRows,
 } from '@/lib/terminalRows';
-import type { StoredSession } from '@/types';
+import type { SaleReceiptPayload, StoredSession } from '@/types';
 import type {
   CreatePaymentInput,
   CreateSaleInput,
   InvoiceRequest,
   KitComponent,
+  PaymentResult,
   QuickProduct,
   KitEnrollmentResponse,
   Sale,
@@ -362,6 +375,24 @@ export function PosScreen({
     customerNumber?: string;
   } | null>(null);
   const queryClient = useQueryClient();
+
+  // COLA LOCAL DE VENTAS (2.0.81): el intento de cobro se guarda en disco
+  // antes de llamar al servidor; si la red falla, se sincroniza solo. Aquí
+  // arranca el ciclo y, al sincronizarse una venta, se refrescan las listas.
+  const outboxUpsert = useSalesOutboxStore((s) => s.upsert);
+  const outboxPatch = useSalesOutboxStore((s) => s.patch);
+  const outboxRemove = useSalesOutboxStore((s) => s.remove);
+  const outboxCount = useSalesOutboxStore((s) => s.items.length);
+  useEffect(() => {
+    const stop = startOutboxSync();
+    const off = onOutboxSynced(() => {
+      void queryClient.invalidateQueries({ queryKey: posKeys.all });
+    });
+    return () => {
+      off();
+      stop();
+    };
+  }, [queryClient]);
   // El borrador aplica al cliente para el que se confirmó; en envío
   // consolidado aplica a cualquier distribuidor (un paquete, varias ventas).
   const activeDelivery =
@@ -702,6 +733,8 @@ export function PosScreen({
     payments: CreatePaymentInput[],
     invoice?: InvoiceRequest,
   ) {
+    // Registro de la cola local de este intento (null hasta que se arma).
+    let queued: QueuedSale | null = null;
     setIsProcessing(true);
     try {
       const sessionId = await ensureSession();
@@ -756,7 +789,7 @@ export function PosScreen({
       // si la respuesta de createSale se perdió, el API la reencuentra por
       // clientRequestId en vez de duplicarla.
       let saleId = attempt.saleId;
-      if (!saleId) {
+      {
         const createInput: CreateSaleInput = {
           sessionId,
           customerId: cart.customerId,
@@ -791,6 +824,27 @@ export function PosScreen({
           // cual en el catch de abajo.
           membershipCampaignId,
         };
+
+        // COLA LOCAL: se guarda en disco ANTES de llamar al servidor. Si la
+        // red falla en crear o en cobrar, el registro sobrevive (incluso a un
+        // cierre del POS) y se sincroniza solo; si todo sale bien se borra.
+        queued = makeQueuedSale({
+          clientRequestId: attempt.clientRequestId,
+          createInput,
+          payments,
+          invoice: invoice ?? null,
+          saleId: saleId ?? null,
+          saleNumber: null,
+          branchCode: branch.code,
+          customerLabel: cart.customerName
+            ? `${cart.customerName}${cart.customerNumber ? ` #${cart.customerNumber}` : ''}`
+            : null,
+          receipt: buildReceiptSnapshot(payments),
+        });
+        outboxUpsert(queued);
+      }
+      if (!saleId) {
+        const createInput = queued.createInput;
         let sale: Sale;
         try {
           sale = await createSale.mutateAsync(createInput);
@@ -809,15 +863,36 @@ export function PosScreen({
         }
         attempt.saleId = sale.id;
         saleId = sale.id;
+        outboxPatch(queued.id, {
+          saleId: sale.id,
+          saleNumber: sale.saleNumber,
+          stage: 'pay',
+        });
       }
 
-      const result = await processPayment.mutateAsync({
-        saleId,
-        payments,
-      });
+      // Cobrar, con UN reintento en línea si la red se cortó o el servidor
+      // respondió 409 (cobro en curso): el API ignora cobros duplicados y
+      // devuelve el original, así que reintentar es seguro. La mayoría de
+      // los cortes de red duran segundos: esto los resuelve sin pasar por la
+      // cola.
+      let result: PaymentResult;
+      try {
+        result = await processPayment.mutateAsync({ saleId, payments });
+      } catch (err) {
+        if (!isQueueRetryableError(err)) throw err;
+        toast.info('El servidor no respondió al cobro; reintentando...', {
+          duration: 4000,
+        });
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        result = await processPayment.mutateAsync({ saleId, payments });
+      }
 
-      // Cobro exitoso: liberar el intento para que la próxima venta genere
-      // su propia clave. La entrega a domicilio ya viajó con la venta.
+      // Cobro exitoso: la venta ya no necesita la cola local.
+      outboxRemove(queued.id);
+      queued = null;
+
+      // Liberar el intento para que la próxima venta genere su propia clave.
+      // La entrega a domicilio ya viajó con la venta.
       saleAttemptRef.current = null;
       if (activeDelivery) {
         if (activeDelivery.consolidated) {
@@ -1057,6 +1132,37 @@ export function PosScreen({
         }
       }
     } catch (err) {
+      // SIN CONEXIÓN (o servidor caído) con el intento ya en la cola local:
+      // la venta NO se pierde. Se imprime el ticket con folio provisional, se
+      // limpia el carrito y el sincronizador la envía en cuanto haya red. El
+      // cliente ya pagó en mostrador; no hay nada que repetir.
+      if (queued && isQueueRetryableError(err)) {
+        const q = queued;
+        queued = null;
+        saleAttemptRef.current = null;
+        clearCart();
+        setPaymentOpen(false);
+        const hadCash = payments.some((p) => p.paymentMethod === 'cash');
+        void window.toniclife.printer.printSale(q.receipt, hadCash).then((r) => {
+          if (!r.ok) {
+            toast.warning('La venta quedó guardada pero el ticket no se imprimió', {
+              description: r.error,
+            });
+          }
+        });
+        toast.warning(
+          `Sin conexión con el servidor: la venta ${q.provisionalNumber} quedó guardada en esta terminal y se enviará sola en cuanto vuelva la red. No la vuelvas a capturar.`,
+          { duration: 15000 },
+        );
+        window.setTimeout(() => syncNow(), 5000);
+        return;
+      }
+      // Rechazo definitivo del servidor (400: stock, cupón, pago…): el cajero
+      // corrige y reintenta como siempre; el registro de la cola se retira.
+      if (queued) {
+        outboxRemove(queued.id);
+        queued = null;
+      }
       // El API rechaza con 400 + `message` completo (p.ej. "Stock insuficiente
       // para componente "X" del kit Y (requiere 1, hay 0)"). Se muestra
       // íntegro y el tiempo suficiente para leerlo; arreglos de validación
@@ -1066,6 +1172,61 @@ export function PosScreen({
     } finally {
       setIsProcessing(false);
     }
+  }
+
+  /**
+   * Ticket tal como se imprimiría ahora (sin componentes de kits ni puntos
+   * del servidor): es lo que se guarda en la cola local para imprimir el
+   * provisional sin tocar la red y poder reimprimirlo después.
+   */
+  function buildReceiptSnapshot(
+    payments: CreatePaymentInput[],
+  ): Omit<SaleReceiptPayload, 'saleNumber' | 'pendingSync'> {
+    const labels: Record<string, string> = {
+      cash: 'Efectivo',
+      card: 'Tarjeta',
+      transfer: 'Transferencia',
+      credit: 'Crédito',
+      mercado_pago: 'Mercado Pago',
+      deposit: 'Depósito',
+      usd_cash: 'Efectivo USD',
+      cashback: 'Monedero',
+      promotion: 'Promoción',
+    };
+    const cashReceived = payments.reduce((s, p) => s + (p.amountReceived ?? 0), 0);
+    const cashPaid = payments
+      .filter((p) => p.paymentMethod === 'cash')
+      .reduce((s, p) => s + p.amount, 0);
+    return {
+      branchName: branch.name,
+      ticketName: branch.ticketName,
+      createdAt: new Date().toISOString(),
+      customerName: cart.customerName,
+      customerNumber: cart.customerNumber,
+      currencySymbol,
+      items: cart.items.map((it) => ({
+        name: it.productName,
+        sku: it.productSku,
+        quantity: it.quantity,
+        unitPrice: it.unitPrice,
+        total: it.total,
+      })),
+      subtotal: cart.subtotal,
+      discountAmount:
+        (cart.couponCode ? cart.couponDiscount : cart.discountAmount) ?? 0,
+      taxAmount: cart.taxAmount,
+      total: cart.total,
+      payments: payments.map((p) => ({
+        label: labels[p.paymentMethod] ?? p.paymentMethod,
+        amount: p.amount,
+      })),
+      amountReceived: cashReceived > 0 ? cashReceived : undefined,
+      changeGiven: Math.max(0, cashReceived - cashPaid),
+      currencyCode: branch.currencyCode,
+      salePoints: cart.customerId
+        ? cart.items.reduce((s, it) => s + it.points * it.quantity, 0)
+        : undefined,
+    };
   }
 
   /**
@@ -1187,6 +1348,7 @@ export function PosScreen({
         </div>
         <div className="flex items-center gap-4" data-tour="pos-status">
           <ConnectionStatus />
+          <OutboxIndicator />
           <div className="h-5 w-px bg-white/20" />
           <div className="flex items-center gap-1.5 text-sm text-white/85 mr-1">
             <Clock className="size-4 shrink-0" />
@@ -1437,7 +1599,19 @@ export function PosScreen({
               onRangeChange={setSalesRange}
               terminalFilter={effectiveSalesTerminal}
               onTerminalFilterChange={setSalesTerminal}
-              onOpenCorte={() => setCorteOpen(true)}
+              onOpenCorte={() => {
+                // El corte solo cuadra con todo en el servidor: con ventas en
+                // la cola local se intenta sincronizar y no se abre.
+                if (outboxCount > 0) {
+                  syncNow();
+                  toast.error(
+                    `Hay ${outboxCount} venta(s) guardada(s) sin sincronizar; espera a que suban (o revisa "por sincronizar" en el encabezado) antes del corte.`,
+                    { duration: 8000 },
+                  );
+                  return;
+                }
+                setCorteOpen(true);
+              }}
               onOpenMovements={() => setMovementsOpen(true)}
               onSelectSale={(id) => setSelectedSaleId(id)}
               onInvoiceSale={(id) => setInvoiceSaleId(id)}

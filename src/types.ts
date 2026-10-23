@@ -255,6 +255,9 @@ export interface SaleReceiptPayload {
   periodPoints?: number;
   /** Campaña de membresía aplicada a la venta: bloque MEMBRESÍA del ticket. */
   membership?: SaleReceiptMembership;
+  /** Venta guardada sin conexión (cola local): folio provisional; el ticket
+   *  imprime "VENTA POR SINCRONIZAR". */
+  pendingSync?: boolean;
 }
 
 /** Bloque MEMBRESÍA del ticket (espejo de electron/receipts.ts
@@ -286,6 +289,11 @@ declare global {
         load: () => Promise<StoredSession | null>;
         save: (session: StoredSession) => Promise<void>;
         clear: () => Promise<void>;
+      };
+      /** Cola local de ventas guardadas sin conexión (archivo atómico en userData). */
+      outbox: {
+        load: () => Promise<unknown[]>;
+        save: (records: unknown[]) => Promise<void>;
       };
       window: {
         setTitle: (title: string) => Promise<void>;

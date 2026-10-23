@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { computeHardwareFingerprint } from './hardware';
 import { setupAutoUpdater } from './updater';
 import { loadSession, saveSession, clearSession, type StoredSession } from './storage';
+import { loadOutbox, saveOutbox } from './outbox';
 import {
   loadPrinterConfig,
   savePrinterConfig,
@@ -204,6 +205,13 @@ ipcMain.handle('session:save', (_evt, session: StoredSession) => {
 
 ipcMain.handle('session:clear', () => {
   clearSession();
+});
+
+// Cola local de ventas (escritura atómica en userData; ver outbox.ts).
+ipcMain.handle('outbox:load', () => loadOutbox());
+
+ipcMain.handle('outbox:save', (_evt, records: unknown[]) => {
+  saveOutbox(records);
 });
 
 ipcMain.handle('window:setTitle', (_evt, title: string) => {

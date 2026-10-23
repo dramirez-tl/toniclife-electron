@@ -21,6 +21,11 @@ const api = {
     save: (session: StoredSession): Promise<void> => ipcRenderer.invoke('session:save', session),
     clear: (): Promise<void> => ipcRenderer.invoke('session:clear'),
   },
+  // Cola local de ventas guardadas sin conexión (sales-outbox.json, atómico).
+  outbox: {
+    load: (): Promise<unknown[]> => ipcRenderer.invoke('outbox:load'),
+    save: (records: unknown[]): Promise<void> => ipcRenderer.invoke('outbox:save', records),
+  },
   window: {
     setTitle: (title: string): Promise<void> => ipcRenderer.invoke('window:setTitle', title),
     close: (): Promise<void> => ipcRenderer.invoke('window:close'),
