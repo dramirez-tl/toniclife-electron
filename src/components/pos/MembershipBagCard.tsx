@@ -2,13 +2,16 @@
 // el cajero eligió desde el catálogo (por código) y lo que falta para poder
 // cobrarla (distribuidor, que le aplique, puntos en producto). Mientras no se
 // cumpla, el botón Cobrar queda bloqueado (o se quita la bolsa). El servidor
-// vuelve a validar todo al crear la venta.
+// vuelve a validar todo al crear la venta. La imagen abre el banner de la
+// promoción en grande (ImageLightbox).
 
-import { ShoppingBag, X } from 'lucide-react';
+import { useState } from 'react';
+import { ShoppingBag, X, ZoomIn } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
 import { describeOfferBenefits } from '@/lib/membership';
+import { ImageLightbox } from './ImageLightbox';
 import type { MembershipBag } from '@/hooks/useMembership';
 
 const fmt = (n: number) =>
@@ -22,6 +25,7 @@ const TONE_CLASS: Record<MembershipBag['tone'], string> = {
 };
 
 export function MembershipBagCard({ bag }: { bag: MembershipBag }) {
+  const [lightboxOpen, setLightboxOpen] = useState(false);
   if (!bag.selectedId) return null;
   const offer = bag.offer;
 
@@ -37,11 +41,22 @@ export function MembershipBagCard({ bag }: { bag: MembershipBag }) {
     >
       <div className="flex items-start gap-2">
         {offer?.imageUrl ? (
-          <img
-            src={offer.imageUrl}
-            alt={offer.name}
-            className="size-12 shrink-0 rounded-md border bg-white object-contain p-0.5"
-          />
+          <button
+            type="button"
+            onClick={() => setLightboxOpen(true)}
+            className="group relative size-12 shrink-0 overflow-hidden rounded-md border bg-white"
+            title="Ver el banner de la promoción en grande"
+            aria-label="Ver el banner de la promoción en grande"
+          >
+            <img
+              src={offer.imageUrl}
+              alt={offer.name}
+              className="size-full object-contain p-0.5"
+            />
+            <span className="absolute inset-0 flex items-center justify-center bg-black/0 text-white opacity-0 transition group-hover:bg-black/35 group-hover:opacity-100">
+              <ZoomIn className="size-4" />
+            </span>
+          </button>
         ) : (
           <div className="flex size-12 shrink-0 items-center justify-center rounded-md border bg-white text-emerald-700">
             <ShoppingBag className="size-6" />
@@ -100,6 +115,28 @@ export function MembershipBagCard({ bag }: { bag: MembershipBag }) {
           <X className="size-3.5" />
         </Button>
       </div>
+
+      {offer && (
+        <ImageLightbox
+          open={lightboxOpen}
+          onClose={() => setLightboxOpen(false)}
+          src={offer.imageUrl ?? undefined}
+          alt={offer.name}
+          title={offer.name}
+          subtitle={
+            <>
+              <span className="font-mono font-bold">{offer.code}</span>
+              <span>· compra de {fmt(offer.minPoints)} pts en producto en una sola venta</span>
+            </>
+          }
+          footer={
+            <p className="truncate text-xs text-muted-foreground" title={describeOfferBenefits(offer)}>
+              <span className="font-medium text-foreground">Incluye:</span>{' '}
+              {describeOfferBenefits(offer)}
+            </p>
+          }
+        />
+      )}
     </div>
   );
 }

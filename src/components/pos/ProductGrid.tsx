@@ -13,6 +13,7 @@ import {
   Ticket,
   Crown,
   ShoppingBag,
+  ZoomIn,
 } from 'lucide-react';
 import { eventLine } from '@/lib/eventInfo';
 import { toast } from 'sonner';
@@ -32,6 +33,7 @@ import {
 } from '@/lib/kitStock';
 import { describeOfferBenefits, matchMembershipOffers } from '@/lib/membership';
 import { ProductInfoModal } from './ProductInfoModal';
+import { ImageLightbox } from './ImageLightbox';
 import type { PosMembershipOffer, QuickProduct } from '@/types/pos';
 
 const fmtPts = (n: number) =>
@@ -73,6 +75,8 @@ export function ProductGrid({
   // se encuentran en el buscador por código o nombre, como un producto, y se
   // agregan al carrito como "bolsa" que guía el ticket hasta los puntos.
   const [showMemberships, setShowMemberships] = useState(false);
+  // Banner de la campaña abierto en grande (clic en su imagen).
+  const [lightboxOffer, setLightboxOffer] = useState<PosMembershipOffer | null>(null);
   const { data: membershipActive } = useMembershipActive(membershipBranchId);
   const campaigns = membershipActive?.offers ?? [];
   const selectedMembershipId = usePosCartStore(
@@ -446,35 +450,53 @@ export function ProductGrid({
               {campaignMatches.map((offer) => {
                 const selected = offer.campaignId === selectedMembershipId;
                 return (
-                  <button
+                  // La imagen es un botón aparte (abre el banner en grande):
+                  // un button no puede anidar otro.
+                  <div
                     key={offer.campaignId}
-                    type="button"
-                    onClick={() => handleSelectCampaign(offer)}
-                    disabled={selected}
                     className={cn(
-                      'flex items-start gap-3 rounded-lg border p-3 text-left transition-colors',
+                      'flex items-start gap-3 rounded-lg border p-3 transition-colors',
                       selected
-                        ? 'cursor-default border-emerald-400 bg-emerald-50'
-                        : 'border-emerald-200 bg-gradient-to-br from-emerald-50/60 to-teal-50/60 hover:border-emerald-400 hover:bg-emerald-50',
+                        ? 'border-emerald-400 bg-emerald-50'
+                        : 'border-emerald-200 bg-gradient-to-br from-emerald-50/60 to-teal-50/60 hover:border-emerald-400',
                     )}
-                    title={
-                      selected
-                        ? 'Ya está en el carrito'
-                        : 'Agregar la bolsa de membresía al carrito'
-                    }
                   >
                     {offer.imageUrl ? (
-                      <img
-                        src={offer.imageUrl}
-                        alt={offer.name}
-                        className="size-14 shrink-0 rounded-md border bg-white object-contain p-0.5"
-                      />
+                      <button
+                        type="button"
+                        onClick={() => setLightboxOffer(offer)}
+                        className="group relative size-14 shrink-0 overflow-hidden rounded-md border bg-white"
+                        title="Ver el banner de la promoción en grande"
+                        aria-label={`Ver el banner de ${offer.name} en grande`}
+                      >
+                        <img
+                          src={offer.imageUrl}
+                          alt={offer.name}
+                          className="size-full object-contain p-0.5"
+                        />
+                        <span className="absolute inset-0 flex items-center justify-center bg-black/0 text-white opacity-0 transition group-hover:bg-black/35 group-hover:opacity-100">
+                          <ZoomIn className="size-4" />
+                        </span>
+                      </button>
                     ) : (
                       <div className="flex size-14 shrink-0 items-center justify-center rounded-md border bg-white text-emerald-700">
                         <ShoppingBag className="size-6" />
                       </div>
                     )}
-                    <div className="min-w-0 flex-1">
+                    <button
+                      type="button"
+                      onClick={() => handleSelectCampaign(offer)}
+                      disabled={selected}
+                      className={cn(
+                        'min-w-0 flex-1 text-left',
+                        selected && 'cursor-default',
+                      )}
+                      title={
+                        selected
+                          ? 'Ya está en el carrito'
+                          : 'Agregar la bolsa de membresía al carrito'
+                      }
+                    >
                       <div className="flex flex-wrap items-center gap-1.5">
                         <Crown className="size-4 shrink-0 text-emerald-700" />
                         <span className="font-mono text-xs font-bold text-emerald-700">
@@ -499,8 +521,8 @@ export function ProductGrid({
                         <span className="font-medium text-foreground">Incluye:</span>{' '}
                         {describeOfferBenefits(offer)}
                       </p>
-                    </div>
-                  </button>
+                    </button>
+                  </div>
                 );
               })}
             </div>
@@ -661,6 +683,53 @@ export function ProductGrid({
         product={infoProduct}
         onClose={() => setInfoProduct(null)}
         currencySymbol={currencySymbol}
+      />
+      {/* Banner de la campaña de membresía en grande (clic en su imagen). */}
+      <ImageLightbox
+        open={lightboxOffer != null}
+        onClose={() => setLightboxOffer(null)}
+        src={lightboxOffer?.imageUrl ?? undefined}
+        alt={lightboxOffer?.name ?? 'Campaña de membresía'}
+        title={lightboxOffer?.name ?? 'Campaña de membresía'}
+        subtitle={
+          lightboxOffer ? (
+            <>
+              <span className="font-mono font-bold">{lightboxOffer.code}</span>
+              <span>
+                · compra de {fmtPts(lightboxOffer.minPoints)} pts en producto en una sola venta
+              </span>
+            </>
+          ) : undefined
+        }
+        footer={
+          lightboxOffer ? (
+            <>
+              <p
+                className="min-w-0 flex-1 truncate text-xs text-muted-foreground"
+                title={describeOfferBenefits(lightboxOffer)}
+              >
+                <span className="font-medium text-foreground">Incluye:</span>{' '}
+                {describeOfferBenefits(lightboxOffer)}
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                className="ml-4 shrink-0"
+                disabled={lightboxOffer.campaignId === selectedMembershipId}
+                onClick={() => {
+                  const offer = lightboxOffer;
+                  setLightboxOffer(null);
+                  handleSelectCampaign(offer);
+                }}
+              >
+                <ShoppingBag />
+                {lightboxOffer.campaignId === selectedMembershipId
+                  ? 'Ya está en el carrito'
+                  : 'Agregar bolsa al carrito'}
+              </Button>
+            </>
+          ) : undefined
+        }
       />
     </div>
   );
