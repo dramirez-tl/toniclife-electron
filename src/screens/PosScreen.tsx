@@ -432,10 +432,11 @@ export function PosScreen({
     setDeliveryOpen(true);
   }, [cart.customerId, deliveryModeActive, delivery]);
 
-  // PESTAÑAS DE PEDIDOS (modo staff): Call Center atiende varias llamadas a
-  // la vez. La pestaña activa vive en el store del carrito + delivery /
-  // deliveryMode / consolidated de arriba; las demás se estacionan como
-  // snapshot en usePosOrderTabs y se restauran al volver.
+  // PESTAÑAS DE PEDIDOS: Call Center atiende varias llamadas a la vez y el
+  // mostrador atiende a varios clientes (26-oct-2026: para todas las
+  // sucursales, no solo en modo staff). La pestaña activa vive en el store
+  // del carrito + delivery / deliveryMode / consolidated de arriba; las demás
+  // se estacionan como snapshot en usePosOrderTabs y se restauran al volver.
   const orderTabs = usePosOrderTabs((s) => s.tabs);
   const activeTabId = usePosOrderTabs((s) => s.activeId);
   const snapshotCurrent = (): OrderTabSnapshot => ({
@@ -483,10 +484,11 @@ export function PosScreen({
     const restore = usePosOrderTabs.getState().closeTab(id);
     if (restore !== undefined) restoreSnapshot(restore);
   };
-  // Fuera del modo staff no hay pestañas: al salir (botón, inactividad o
-  // invalidación de la terminal) se descartan las estacionadas.
+  // Al entrar o salir del modo staff (botón, inactividad o invalidación de la
+  // terminal) cambia quién opera y con qué sucursal: las pestañas
+  // estacionadas se descartan (la activa se queda en el carrito).
   useEffect(() => {
-    if (!staffActive) usePosOrderTabs.getState().reset();
+    usePosOrderTabs.getState().reset();
   }, [staffActive]);
 
   // Si Sistemas apaga el checador de esta terminal, el siguiente latido (≤60 s)
@@ -1684,19 +1686,18 @@ export function PosScreen({
           style={{ width: cartWidth }}
           data-tour="pos-cart"
         >
-          {/* Pestañas de pedidos: solo en modo staff (varias llamadas a la vez) */}
-          {staffActive && (
-            <OrderTabsBar
-              tabs={orderTabs}
-              activeId={activeTabId}
-              liveCart={cart}
-              liveDeliveryMode={deliveryModeActive}
-              disabled={isProcessing || paymentOpen}
-              onSelect={handleSwitchTab}
-              onOpen={handleOpenTab}
-              onClose={handleCloseTab}
-            />
-          )}
+          {/* Pestañas de pedidos: varios carritos a la vez (Call Center en
+              modo staff y, desde 2.0.85, también el mostrador de toda sucursal). */}
+          <OrderTabsBar
+            tabs={orderTabs}
+            activeId={activeTabId}
+            liveCart={cart}
+            liveDeliveryMode={deliveryModeActive}
+            disabled={isProcessing || paymentOpen}
+            onSelect={handleSwitchTab}
+            onOpen={handleOpenTab}
+            onClose={handleCloseTab}
+          />
           <div className="min-h-0 flex-1">
           <Cart
             currencySymbol={currencySymbol}
@@ -1823,8 +1824,12 @@ export function PosScreen({
         isOpen={transfersOpen}
         onClose={() => setTransfersOpen(false)}
         branchId={branchId}
+        branchName={branch.name}
+        ticketName={branch.ticketName ?? undefined}
+        // La sucursal acepta sus propias entradas (Dirección, 26-oct-2026);
+        // en modo staff, los roles que el API admite.
         canReceive={
-          staffActive &&
+          !staffActive ||
           TRANSFER_RECEIVE_ROLES.includes(staffUser?.roleCode ?? '')
         }
       />

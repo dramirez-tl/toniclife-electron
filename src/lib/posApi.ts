@@ -974,6 +974,15 @@ class PosApi {
     return data ?? [];
   }
 
+  /** Detalle de un traspaso de la sucursal (enviado o recibido), con las
+   *  cantidades recibidas si ya se aplicó: para imprimir/reimprimir la lista. */
+  async getTransfer(id: string, branchId?: string): Promise<IncomingTransfer> {
+    const { data } = await api.get(`/pos/transfers/${id}`, {
+      params: branchId ? { branchId } : undefined,
+    });
+    return data;
+  }
+
   /** Acepta la entrada de un traspaso: aplica el movimiento e ingresa el stock
    *  al destino. */
   async receiveTransfer(

@@ -25,8 +25,11 @@ import {
   buildCorteReceiptHtml,
   buildSaleReceiptBytes,
   buildSaleReceiptHtml,
+  buildTransferReceiptBytes,
+  buildTransferReceiptHtml,
   type CorteReceiptInput,
   type SaleReceiptInput,
+  type TransferReceiptInput,
 } from './receipts';
 import { sendRawToWindowsPrinter } from './printraw';
 
@@ -533,6 +536,72 @@ export async function saveSalePdf(
     paperWidth: config?.paperWidth ?? 80,
   });
   return renderPdf(html, `ticket-${sale.saleNumber}.pdf`);
+}
+
+/**
+ * Imprime la lista de entrada de un traspaso (casillas para palomear al
+ * contar; ya recibido, enviado/recibido). Mismo pipeline que printSale, sin
+ * cajón.
+ */
+export async function printTransfer(
+  transfer: Omit<TransferReceiptInput, 'paperWidth'>,
+): Promise<void> {
+  const config = loadPrinterConfig();
+  if (!config) {
+    throw new Error(
+      'No hay impresora configurada. Abre Configuracion de impresora primero.',
+    );
+  }
+
+  const bytes = buildTransferReceiptBytes({
+    ...transfer,
+    paperWidth: config.paperWidth,
+    textLogo: config.dotMatrix ?? false,
+  });
+
+  if (config.connection === 'network') {
+    if (!config.host || !config.port) {
+      throw new Error('Faltan host y puerto de la impresora de red.');
+    }
+    await sendNetwork(config.host, config.port, bytes);
+    return;
+  }
+
+  if (config.connection === 'pdf') {
+    const html = buildTransferReceiptHtml({
+      ...transfer,
+      paperWidth: config.paperWidth,
+    });
+    await renderPdf(html, `traspaso-${transfer.movementNumber}.pdf`);
+    return;
+  }
+
+  if (!config.deviceName) {
+    throw new Error('Selecciona una impresora del sistema.');
+  }
+  if (process.platform === 'win32') {
+    await sendRawToWindowsPrinter(config.deviceName, bytes);
+    return;
+  }
+  throw new Error(
+    'Impresion sistema solo soportada en Windows. Configura impresora de red.',
+  );
+}
+
+/**
+ * La misma lista del traspaso en PDF sin importar el modo de impresora (para
+ * el histórico de la sucursal). Queda en Documentos\Tonic Life\Tickets y se
+ * abre con el visor del SO. Devuelve la ruta.
+ */
+export async function saveTransferPdf(
+  transfer: Omit<TransferReceiptInput, 'paperWidth'>,
+): Promise<string> {
+  const config = loadPrinterConfig();
+  const html = buildTransferReceiptHtml({
+    ...transfer,
+    paperWidth: config?.paperWidth ?? 80,
+  });
+  return renderPdf(html, `traspaso-${transfer.movementNumber}.pdf`);
 }
 
 /** Envia el kick del cajon de dinero. Solo soportado en modo network. */

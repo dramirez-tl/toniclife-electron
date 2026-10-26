@@ -1231,6 +1231,8 @@ export interface IncomingTransferItem {
   productCode: string;
   productName: string;
   quantity: number;
+  /** Piezas realmente recibidas (solo traspasos ya aplicados). */
+  quantityReceived?: number;
 }
 
 export interface IncomingTransfer {
@@ -1250,6 +1252,9 @@ export interface IncomingTransfer {
   requestedAt?: string;
   approvedBy?: { id: string; name: string };
   approvedAt?: string;
+  /** Quién aceptó la entrada y cuándo (solo traspasos ya aplicados). */
+  appliedBy?: { id: string; name: string };
+  appliedAt?: string;
 }
 
 /** Recepcion parcial: cantidades realmente recibidas por linea. */

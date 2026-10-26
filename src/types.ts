@@ -260,6 +260,32 @@ export interface SaleReceiptPayload {
   pendingSync?: boolean;
 }
 
+/** Lista de entrada de un traspaso (espejo de electron/receipts.ts
+ *  TransferReceiptInput sin paperWidth — la elige el main desde la config). */
+export interface TransferReceiptPayload {
+  branchName: string;
+  ticketName?: string;
+  movementNumber: string;
+  originBranchName: string;
+  destinationBranchName: string;
+  /** 'in' = esta sucursal recibe; 'out' = esta sucursal envió. */
+  direction: 'in' | 'out';
+  /** 'pending' = por recibir (casillas en blanco); 'received' = ya aplicado. */
+  status: 'pending' | 'received';
+  sentAt?: string;
+  sentBy?: string;
+  receivedAt?: string;
+  receivedBy?: string;
+  reason?: string;
+  notes?: string;
+  items: Array<{
+    sku?: string;
+    name: string;
+    quantity: number;
+    quantityReceived?: number;
+  }>;
+}
+
 /** Bloque MEMBRESÍA del ticket (espejo de electron/receipts.ts
  *  SaleReceiptMembership). */
 export interface SaleReceiptMembership {
@@ -338,6 +364,14 @@ declare global {
         /** Ticket digital (PDF) sin importar el modo de impresora. */
         saveSalePdf: (
           sale: SaleReceiptPayload,
+        ) => Promise<{ ok: true; path: string } | { ok: false; error: string }>;
+        /** Lista de entrada de un traspaso (casillas para palomear). */
+        printTransfer: (
+          transfer: TransferReceiptPayload,
+        ) => Promise<PrinterOpResult>;
+        /** La misma lista en PDF (histórico). */
+        saveTransferPdf: (
+          transfer: TransferReceiptPayload,
         ) => Promise<{ ok: true; path: string } | { ok: false; error: string }>;
       };
       invoice: {

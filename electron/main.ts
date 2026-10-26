@@ -28,12 +28,18 @@ import {
   printCorte,
   printSale,
   saveSalePdf,
+  printTransfer,
+  saveTransferPdf,
   openCashDrawer,
   listOsPrinters,
   type PrinterConfig,
 } from './printer';
 import { warmUpRawPrinter, disposeRawPrinterWorker } from './printraw';
-import type { CorteReceiptInput, SaleReceiptInput } from './receipts';
+import type {
+  CorteReceiptInput,
+  SaleReceiptInput,
+  TransferReceiptInput,
+} from './receipts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -371,6 +377,29 @@ ipcMain.handle(
   async (_evt, sale: Omit<SaleReceiptInput, 'paperWidth'>) => {
     try {
       const path = await saveSalePdf(sale);
+      return { ok: true, path };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+);
+// Lista de entrada de un traspaso (casillas para palomear) y su PDF.
+ipcMain.handle(
+  'printer:printTransfer',
+  async (_evt, transfer: Omit<TransferReceiptInput, 'paperWidth'>) => {
+    try {
+      await printTransfer(transfer);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+);
+ipcMain.handle(
+  'printer:saveTransferPdf',
+  async (_evt, transfer: Omit<TransferReceiptInput, 'paperWidth'>) => {
+    try {
+      const path = await saveTransferPdf(transfer);
       return { ok: true, path };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };

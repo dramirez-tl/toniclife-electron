@@ -8,7 +8,11 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { HardwareFingerprint } from './hardware';
 import type { StoredSession } from './storage';
 import type { PrinterConfig, OsPrinterInfo } from './printer';
-import type { CorteReceiptInput, SaleReceiptInput } from './receipts';
+import type {
+  CorteReceiptInput,
+  SaleReceiptInput,
+  TransferReceiptInput,
+} from './receipts';
 
 type PrinterOpResult = { ok: true } | { ok: false; error: string };
 
@@ -81,6 +85,16 @@ const api = {
       sale: Omit<SaleReceiptInput, 'paperWidth'>,
     ): Promise<{ ok: true; path: string } | { ok: false; error: string }> =>
       ipcRenderer.invoke('printer:saveSalePdf', sale),
+    /** Lista de entrada de un traspaso (casillas para palomear al contar). */
+    printTransfer: (
+      transfer: Omit<TransferReceiptInput, 'paperWidth'>,
+    ): Promise<PrinterOpResult> =>
+      ipcRenderer.invoke('printer:printTransfer', transfer),
+    /** La misma lista en PDF (histórico), sin importar el modo de impresora. */
+    saveTransferPdf: (
+      transfer: Omit<TransferReceiptInput, 'paperWidth'>,
+    ): Promise<{ ok: true; path: string } | { ok: false; error: string }> =>
+      ipcRenderer.invoke('printer:saveTransferPdf', transfer),
   },
   invoice: {
     /** Guarda el PDF de la factura en la carpeta temporal y lo abre con el

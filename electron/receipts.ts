@@ -920,6 +920,177 @@ function renderMembership(
   }
 }
 
+// ============================================================================
+// LISTA DE ENTRADA DE TRASPASO (ESC/POS y PDF)
+// ============================================================================
+//
+// Lo que la sucursal imprime al recibir mercancía (26-oct-2026, decisión de
+// Dirección): cada renglón lleva una casilla "[ ]" para palomear con pluma al
+// contar; ya recibido se reimprime con lo enviado/recibido y marca las
+// diferencias. Mismo contenido en térmica y en PDF (histórico).
+
+export interface TransferReceiptItemRow {
+  sku?: string;
+  name: string;
+  /** Piezas enviadas. */
+  quantity: number;
+  /** Piezas recibidas (solo traspasos ya aplicados). */
+  quantityReceived?: number;
+}
+
+export interface TransferReceiptInput {
+  branchName: string;
+  /** Nombre comercial para el encabezado (branch.ticketName). */
+  ticketName?: string;
+  movementNumber: string;
+  originBranchName: string;
+  destinationBranchName: string;
+  /** 'in' = esta sucursal recibe; 'out' = esta sucursal envió. */
+  direction: 'in' | 'out';
+  /** 'pending' = por recibir (casillas en blanco); 'received' = ya aplicado. */
+  status: 'pending' | 'received';
+  /** ISO. */
+  sentAt?: string;
+  sentBy?: string;
+  receivedAt?: string;
+  receivedBy?: string;
+  reason?: string;
+  notes?: string;
+  items: TransferReceiptItemRow[];
+  paperWidth: 58 | 80;
+  /** Matriz de punto: logo en texto, sin gráficos. */
+  textLogo?: boolean;
+}
+
+export function buildTransferReceiptBytes(input: TransferReceiptInput): Buffer {
+  const p = new Escpos();
+  renderTransfer(p, input);
+  return p.bytes();
+}
+
+/** Misma lista como HTML (modo "Impresora normal / PDF" e histórico). */
+export function buildTransferReceiptHtml(input: TransferReceiptInput): string {
+  const p = new HtmlReceipt();
+  renderTransfer(p, input);
+  return p.html({
+    cols: colsFor(input.paperWidth),
+    title: `Traspaso ${input.movementNumber}`,
+  });
+}
+
+function formatDateTimeLocal(iso?: string): string {
+  if (!iso) return '';
+  try {
+    return new Date(iso).toLocaleString('es-MX', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return iso;
+  }
+}
+
+function renderTransfer(p: ReceiptWriter, input: TransferReceiptInput): void {
+  const cols = colsFor(input.paperWidth);
+  const sep = '-'.repeat(cols);
+  p.init();
+
+  printHeaderLogo(p, input.paperWidth, input.textLogo);
+
+  p.align('center');
+  if (input.ticketName) p.bold(true).line(input.ticketName.slice(0, cols)).bold(false);
+  p.line(input.branchName.slice(0, cols));
+  p.line(sep);
+  p.size(2, 2)
+    .line(input.direction === 'in' ? 'ENTRADA DE INVENTARIO' : 'TRASPASO ENVIADO')
+    .size(1, 1);
+  p.size(2, 2).line(input.movementNumber).size(1, 1);
+  p.bold(true)
+    .line(input.status === 'received' ? 'RECIBIDO' : 'POR RECIBIR')
+    .bold(false);
+  p.line(sep);
+
+  p.align('left');
+  for (const line of wrapWords(`De:   ${input.originBranchName}`, cols, 2)) p.line(line);
+  for (const line of wrapWords(`Para: ${input.destinationBranchName}`, cols, 2)) p.line(line);
+  if (input.sentAt || input.sentBy) {
+    const who = input.sentBy ? ` - ${input.sentBy}` : '';
+    for (const line of wrapWords(`Enviado: ${formatDateTimeLocal(input.sentAt)}${who}`, cols, 2)) p.line(line);
+  }
+  if (input.status === 'received' && (input.receivedAt || input.receivedBy)) {
+    const who = input.receivedBy ? ` - ${input.receivedBy}` : '';
+    for (const line of wrapWords(`Recibido: ${formatDateTimeLocal(input.receivedAt)}${who}`, cols, 2)) p.line(line);
+  }
+  if (input.reason) for (const line of wrapWords(`Motivo: ${input.reason}`, cols, 3)) p.line(line);
+  if (input.notes) for (const line of wrapWords(`Notas: ${input.notes}`, cols, 3)) p.line(line);
+  p.line(sep);
+
+  // --- RENGLONES ---
+  // "[ ] cant x (clave) producto"; la continuación del nombre va con sangría.
+  // Ya recibido: "[x] rec/env" y "*" cuando hubo diferencia.
+  const received = input.status === 'received';
+  p.bold(true)
+    .line(received ? '    Rec/Env  Producto' : '    Cant  Producto (palomear)')
+    .bold(false);
+  const indent = '    ';
+  let totalQty = 0;
+  let totalReceived = 0;
+  let differences = 0;
+  for (const it of input.items) {
+    const title = it.sku ? `(${it.sku}) ${it.name}` : it.name;
+    totalQty += it.quantity;
+    let head: string;
+    if (received) {
+      const rec = it.quantityReceived ?? it.quantity;
+      totalReceived += rec;
+      const diff = rec !== it.quantity;
+      if (diff) differences += 1;
+      head = `[x] ${String(rec)}/${String(it.quantity)}${diff ? '*' : ''} `;
+    } else {
+      head = `[ ] ${padLeft(String(it.quantity), 3)} x `;
+    }
+    const width = Math.max(8, cols - head.length);
+    const lines = wrapWords(title, width, 3);
+    p.line((head + lines[0]).slice(0, cols));
+    for (const extra of lines.slice(1)) p.line((indent + extra).slice(0, cols));
+  }
+  p.line(sep);
+  p.line(labelValue('Productos', String(input.items.length), cols));
+  p.line(labelValue('Piezas enviadas', String(totalQty), cols));
+  if (received) {
+    p.line(labelValue('Piezas recibidas', String(totalReceived), cols));
+    if (differences > 0) {
+      p.bold(true)
+        .line(labelValue('Renglones con diferencia (*)', String(differences), cols))
+        .bold(false);
+    }
+  }
+  p.line(sep);
+
+  // --- FIRMAS ---
+  p.line('');
+  if (!received) {
+    p.line('Piezas contadas: ' + '_'.repeat(Math.min(14, cols - 18)));
+    p.line('');
+  }
+  p.line('Recibio: ' + '_'.repeat(Math.min(22, cols - 9)));
+  p.line('');
+  p.line('Firma:   ' + '_'.repeat(Math.min(22, cols - 9)));
+  p.line('');
+  p.line('Observaciones:');
+  p.line('_'.repeat(cols));
+  p.line('_'.repeat(cols));
+  p.feed(1);
+  p.align('center');
+  p.line(`Impreso ${formatDateTimeLocal(new Date().toISOString())}`);
+
+  p.feed(6);
+  p.cut(true);
+}
+
 /** 3-col row con anchos fijos: folio / hora / total (total right-aligned). */
 function itemLineFixed(
   folio: string,

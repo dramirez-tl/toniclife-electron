@@ -1,10 +1,11 @@
 // TransfersModal - Entradas de inventario: traspasos En Tránsito dirigidos a
 // esta sucursal + histórico de movimientos. Panel lateral (80 % del ancho)
 // para que la tabla de productos quepa completa.
-// Aceptar la entrada (recepción total o parcial) la hace SOLO CEDEAS,
-// Operaciones o administración desde el modo staff (`canReceive`); la
-// sucursal consulta nada más — el API lo exige igual en
-// POST /pos/transfers/:id/receive (19-oct-2026).
+// La entrada la acepta la propia sucursal (decisión de Dirección,
+// 26-oct-2026; antes solo CEDEAS/Operaciones desde el modo staff) con
+// recepción total o parcial. Cada traspaso se puede IMPRIMIR como lista con
+// casillas para palomear con pluma al contar, o guardar en PDF; desde el
+// histórico se reimprime (con enviado/recibido) para el archivo.
 
 import { useEffect, useState } from 'react';
 import {
@@ -15,6 +16,8 @@ import {
   Inbox,
   Loader2,
   Lock,
+  Printer,
+  FileDown,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -39,17 +42,26 @@ import {
   useReceiveTransfer,
   useBranchInventoryMovements,
 } from '@/hooks/usePos';
+import { posApi } from '@/lib/posApi';
 import { formatDateTime } from '@/lib/date';
-import type { IncomingTransfer, IncomingTransferItem } from '@/types/pos';
+import type { TransferReceiptPayload } from '@/types';
+import type {
+  BranchInventoryMovement,
+  IncomingTransfer,
+  IncomingTransferItem,
+} from '@/types/pos';
 
 /** Roles (código del JWT, `staffUser.roleCode`) que aceptan entradas de
- *  traspasos desde el POS. Espejo del @Roles del API. */
+ *  traspasos desde el POS en modo staff. Espejo del @Roles del API. */
 export const TRANSFER_RECEIVE_ROLES = [
   'super_admin',
   'administrador',
   'admin',
   'operaciones',
   'cedeas',
+  'manager',
+  'cashier',
+  'call_center',
 ];
 
 /** Etiqueta y color por tipo de movimiento (CHECK de inventory_movements). */
@@ -115,12 +127,19 @@ function movementReasonLabel(reason?: string): string {
   return MOVEMENT_REASON_LABEL[reason] ?? reason;
 }
 
+/** Los traspasos del histórico se pueden reimprimir (tienen renglones). */
+const isTransferMovement = (m: BranchInventoryMovement) =>
+  m.movementType === 'transfer_in' || m.movementType === 'transfer_out';
+
 interface TransfersModalProps {
   isOpen: boolean;
   onClose: () => void;
   branchId: string;
-  /** true solo en modo staff con rol CEDEAS / Operaciones / administración:
-   *  habilita "Aceptar entrada" y las cantidades recibidas. */
+  /** Encabezado del ticket impreso. */
+  branchName: string;
+  ticketName?: string;
+  /** true = puede aceptar la entrada (la sucursal siempre; en modo staff
+   *  solo los roles de TRANSFER_RECEIVE_ROLES). Imprimir no depende de esto. */
   canReceive: boolean;
 }
 
@@ -128,6 +147,8 @@ export function TransfersModal({
   isOpen,
   onClose,
   branchId,
+  branchName,
+  ticketName,
   canReceive,
 }: TransfersModalProps) {
   const { data: transfers = [], isLoading } = useIncomingTransfers(
@@ -144,6 +165,8 @@ export function TransfersModal({
     received[it.id] ?? it.quantity;
   const hasDifferences = (t: IncomingTransfer) =>
     t.items.some((it) => receivedQty(it) !== it.quantity);
+  // Impresión/PDF en curso: `${id}:print|pdf` (un trabajo a la vez).
+  const [printingKey, setPrintingKey] = useState<string | null>(null);
   // Histórico de movimientos de la sucursal (lo que Operación aplicó desde
   // el admin: entradas/salidas/ajustes/conteos, y traspasos).
   const [histPage, setHistPage] = useState(1);
@@ -156,6 +179,7 @@ export function TransfersModal({
       setHistPage(1);
       setConfirmingId(null);
       setReceived({});
+      setPrintingKey(null);
     }
   }, [isOpen, branchId]);
   const { data: history, isLoading: histLoading } = useBranchInventoryMovements(
@@ -187,11 +211,121 @@ export function TransfersModal({
     }
   }
 
+  /** Payload del ticket impreso/PDF de un traspaso (pendiente o aplicado). */
+  function buildReceiptPayload(t: IncomingTransfer): TransferReceiptPayload {
+    const applied = t.status === 'applied';
+    return {
+      branchName,
+      ticketName,
+      movementNumber: t.movementNumber,
+      originBranchName: t.branch?.name ?? '',
+      destinationBranchName: t.destinationBranch?.name ?? '',
+      direction: t.destinationBranch?.id === branchId ? 'in' : 'out',
+      status: applied ? 'received' : 'pending',
+      sentAt: t.requestedAt,
+      sentBy: t.requestedBy?.name,
+      receivedAt: applied ? t.appliedAt : undefined,
+      receivedBy: applied ? t.appliedBy?.name : undefined,
+      reason: t.reason || undefined,
+      notes: t.notes || undefined,
+      items: t.items.map((it) => ({
+        sku: it.productCode,
+        name: it.productName,
+        quantity: it.quantity,
+        quantityReceived: applied ? it.quantityReceived ?? it.quantity : undefined,
+      })),
+    };
+  }
+
+  async function printTransfer(t: IncomingTransfer, mode: 'print' | 'pdf') {
+    const key = `${t.id}:${mode}`;
+    setPrintingKey(key);
+    try {
+      const payload = buildReceiptPayload(t);
+      if (mode === 'print') {
+        const r = await window.toniclife.printer.printTransfer(payload);
+        if (r.ok) toast.success(`Lista ${t.movementNumber} impresa`);
+        else toast.error('No se pudo imprimir la lista', { description: r.error });
+      } else {
+        const r = await window.toniclife.printer.saveTransferPdf(payload);
+        if (r.ok) {
+          toast.success(`Traspaso ${t.movementNumber} en PDF`, {
+            description: `Guardado en ${r.path}; desde el visor lo imprimes o lo archivas.`,
+            duration: 8000,
+          });
+        } else {
+          toast.error('No se pudo generar el PDF', { description: r.error });
+        }
+      }
+    } catch (err) {
+      toast.error(
+        `Error al ${mode === 'print' ? 'imprimir' : 'generar el PDF'}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      setPrintingKey(null);
+    }
+  }
+
+  /** Reimpresión desde el histórico: se consulta el traspaso completo (renglones
+   *  y cantidades recibidas) y se imprime con lo enviado/recibido. */
+  async function printHistoryTransfer(
+    m: BranchInventoryMovement,
+    mode: 'print' | 'pdf',
+  ) {
+    const key = `${m.id}:${mode}`;
+    setPrintingKey(key);
+    try {
+      const t = await posApi.getTransfer(m.id, branchId);
+      setPrintingKey(null);
+      await printTransfer(t, mode);
+    } catch (err) {
+      const e = err as { response?: { data?: { message?: string } } };
+      toast.error(
+        e.response?.data?.message ||
+          `No se pudo cargar el traspaso ${m.movementNumber}`,
+      );
+      setPrintingKey(null);
+    }
+  }
+
   const close = () => {
     if (receive.isPending) return;
     setConfirmingId(null);
     onClose();
   };
+
+  const printButtons = (t: IncomingTransfer) => (
+    <>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => printTransfer(t, 'print')}
+        disabled={printingKey !== null || receive.isPending}
+        title="Imprime la lista con casillas para palomear al contar"
+      >
+        {printingKey === `${t.id}:print` ? (
+          <Loader2 className="size-4 animate-spin" />
+        ) : (
+          <Printer />
+        )}
+        Imprimir lista
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => printTransfer(t, 'pdf')}
+        disabled={printingKey !== null || receive.isPending}
+        title="Guarda la misma lista en PDF (Documentos\\Tonic Life\\Tickets)"
+      >
+        {printingKey === `${t.id}:pdf` ? (
+          <Loader2 className="size-4 animate-spin" />
+        ) : (
+          <FileDown />
+        )}
+        PDF
+      </Button>
+    </>
+  );
 
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && close()}>
@@ -238,9 +372,9 @@ export function TransfersModal({
               <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                 <Lock className="mt-0.5 size-3.5 shrink-0" />
                 <p>
-                  La sucursal solo consulta. La entrada la acepta{' '}
-                  <strong>CEDEAS, Operaciones o administración</strong> desde
-                  el modo staff (o desde el admin, en Inventario › Traspasos).
+                  Tu usuario de staff no puede aceptar entradas desde el POS;
+                  sal del modo staff para recibirlas como sucursal, o hazlo
+                  desde el admin en Inventario › Traspasos.
                 </p>
               </div>
             )}
@@ -381,49 +515,56 @@ export function TransfersModal({
                         </TableBody>
                       </Table>
 
-                      {/* Acción (solo quien puede aceptar) */}
-                      {canReceive && (
-                        <div className="flex items-center justify-end gap-2 border-t bg-muted/30 px-4 py-3">
-                          {confirming ? (
-                            <>
-                              <span className="mr-auto text-xs text-muted-foreground">
-                                {hasDifferences(t)
-                                  ? 'Hay diferencias entre lo enviado y lo recibido: se registraran como faltante o excedente para Operacion. ¿Confirmas la entrada?'
-                                  : '¿Confirmas que recibiste toda la mercancia?'}
-                              </span>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setConfirmingId(null)}
-                                disabled={busy}
-                              >
-                                Cancelar
-                              </Button>
-                              <Button
-                                size="sm"
-                                onClick={() => handleReceive(t)}
-                                disabled={busy}
-                              >
-                                {busy ? (
-                                  <Loader2 className="size-4 animate-spin" />
-                                ) : (
-                                  <Check />
-                                )}
-                                {busy ? 'Recibiendo...' : 'Sí, aceptar entrada'}
-                              </Button>
-                            </>
-                          ) : (
+                      {/* Acciones: imprimir/PDF para todos; aceptar solo quien puede */}
+                      <div className="flex flex-wrap items-center justify-end gap-2 border-t bg-muted/30 px-4 py-3">
+                        {confirming ? (
+                          <>
+                            <span className="mr-auto text-xs text-muted-foreground">
+                              {hasDifferences(t)
+                                ? 'Hay diferencias entre lo enviado y lo recibido: se registraran como faltante o excedente para Operacion. ¿Confirmas la entrada?'
+                                : '¿Confirmas que recibiste toda la mercancia?'}
+                            </span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setConfirmingId(null)}
+                              disabled={busy}
+                            >
+                              Cancelar
+                            </Button>
                             <Button
                               size="sm"
-                              onClick={() => setConfirmingId(t.id)}
-                              disabled={receive.isPending}
+                              onClick={() => handleReceive(t)}
+                              disabled={busy}
                             >
-                              <PackageCheck />
-                              Aceptar entrada
+                              {busy ? (
+                                <Loader2 className="size-4 animate-spin" />
+                              ) : (
+                                <Check />
+                              )}
+                              {busy ? 'Recibiendo...' : 'Sí, aceptar entrada'}
                             </Button>
-                          )}
-                        </div>
-                      )}
+                          </>
+                        ) : (
+                          <>
+                            <span className="mr-auto text-xs text-muted-foreground">
+                              Imprime la lista para palomear mientras cuentas; luego
+                              captura lo recibido y acepta la entrada.
+                            </span>
+                            {printButtons(t)}
+                            {canReceive && (
+                              <Button
+                                size="sm"
+                                onClick={() => setConfirmingId(t.id)}
+                                disabled={receive.isPending || printingKey !== null}
+                              >
+                                <PackageCheck />
+                                Aceptar entrada
+                              </Button>
+                            )}
+                          </>
+                        )}
+                      </div>
                     </CardContent>
                   </Card>
                 );
@@ -487,6 +628,9 @@ export function TransfersModal({
                       <TableHead className="px-3 py-1.5 text-right">
                         Estado
                       </TableHead>
+                      <TableHead className="px-3 py-1.5 text-right">
+                        Lista
+                      </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -495,6 +639,7 @@ export function TransfersModal({
                         label: m.movementType,
                         className: 'bg-muted text-muted-foreground',
                       };
+                      const printable = isTransferMovement(m);
                       return (
                         <TableRow key={m.id}>
                           <TableCell className="whitespace-nowrap px-3 py-1.5 text-muted-foreground">
@@ -528,6 +673,42 @@ export function TransfersModal({
                           </TableCell>
                           <TableCell className="px-3 py-1.5 text-right">
                             {MOVEMENT_STATUS_LABEL[m.status] ?? m.status}
+                          </TableCell>
+                          <TableCell className="px-3 py-1.5 text-right">
+                            {printable ? (
+                              <div className="flex items-center justify-end gap-1">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 px-2"
+                                  onClick={() => printHistoryTransfer(m, 'print')}
+                                  disabled={printingKey !== null}
+                                  title="Reimprimir la lista del traspaso"
+                                >
+                                  {printingKey === `${m.id}:print` ? (
+                                    <Loader2 className="size-3.5 animate-spin" />
+                                  ) : (
+                                    <Printer className="size-3.5" />
+                                  )}
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 px-2"
+                                  onClick={() => printHistoryTransfer(m, 'pdf')}
+                                  disabled={printingKey !== null}
+                                  title="Guardar la lista del traspaso en PDF"
+                                >
+                                  {printingKey === `${m.id}:pdf` ? (
+                                    <Loader2 className="size-3.5 animate-spin" />
+                                  ) : (
+                                    <FileDown className="size-3.5" />
+                                  )}
+                                </Button>
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground/60">—</span>
+                            )}
                           </TableCell>
                         </TableRow>
                       );
