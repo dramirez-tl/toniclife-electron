@@ -3,7 +3,17 @@
 // precio publico, sin price tiers — eso llega en 4c con el selector de cliente).
 
 import { useMemo, useState } from 'react';
-import { Search, ScanBarcode, PackageX, Plus, ListPlus, Info, Ticket } from 'lucide-react';
+import {
+  Search,
+  ScanBarcode,
+  PackageX,
+  Plus,
+  ListPlus,
+  Info,
+  Ticket,
+  Crown,
+  ShoppingBag,
+} from 'lucide-react';
 import { eventLine } from '@/lib/eventInfo';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
@@ -11,6 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { usePosCatalog } from '@/hooks/usePos';
+import { useMembershipActive } from '@/hooks/useMembership';
 import { usePosCartStore } from '@/stores/pos-cart.store';
 import { isAssembledKit, posApi } from '@/lib/posApi';
 import {
@@ -19,8 +30,12 @@ import {
   outOfStockReason,
   stockShortLabel,
 } from '@/lib/kitStock';
+import { describeOfferBenefits, matchMembershipOffers } from '@/lib/membership';
 import { ProductInfoModal } from './ProductInfoModal';
-import type { QuickProduct } from '@/types/pos';
+import type { PosMembershipOffer, QuickProduct } from '@/types/pos';
+
+const fmtPts = (n: number) =>
+  n.toLocaleString('es-MX', { maximumFractionDigits: 0 });
 
 interface ProductGridProps {
   branchId: string;
@@ -29,12 +44,16 @@ interface ProductGridProps {
    *  (isEnrollmentKit=true). El kit NO se agrega al carrito directamente;
    *  PosScreen abre el flujo de enrolamiento de distribuidor. */
   onKitDetected: (product: QuickProduct) => void;
+  /** Sucursal para las campañas de membresía SOLO en modo staff (JWT de
+   *  usuario); la terminal se identifica por su licencia y no la manda. */
+  membershipBranchId?: string;
 }
 
 export function ProductGrid({
   branchId,
   currencySymbol,
   onKitDetected,
+  membershipBranchId,
 }: ProductGridProps) {
   const priceTypeId = usePosCartStore((s) => s.cart.priceTypeId);
   const { data: catalog = [], isLoading } = usePosCatalog(branchId, priceTypeId);
@@ -49,6 +68,35 @@ export function ProductGrid({
   const [bulkMode, setBulkMode] = useState(false);
   const [bulkText, setBulkText] = useState('');
   const [bulkLoading, setBulkLoading] = useState(false);
+
+  // Campañas de membresía ENCENDIDAS en esta sucursal (vacío = nada visible):
+  // se encuentran en el buscador por código o nombre, como un producto, y se
+  // agregan al carrito como "bolsa" que guía el ticket hasta los puntos.
+  const [showMemberships, setShowMemberships] = useState(false);
+  const { data: membershipActive } = useMembershipActive(membershipBranchId);
+  const campaigns = membershipActive?.offers ?? [];
+  const selectedMembershipId = usePosCartStore(
+    (s) => s.cart.membershipSelectedId,
+  );
+  const hasCustomer = usePosCartStore((s) => !!s.cart.customerId);
+  const setMembershipSelected = usePosCartStore((s) => s.setMembershipSelected);
+  const campaignMatches = useMemo(
+    () =>
+      showMemberships ? campaigns : matchMembershipOffers(campaigns, filter),
+    [campaigns, filter, showMemberships],
+  );
+
+  function handleSelectCampaign(offer: PosMembershipOffer) {
+    setMembershipSelected(offer.campaignId);
+    toast.success(`Bolsa ${offer.code} agregada al carrito`, {
+      description: hasCustomer
+        ? `Agrega producto hasta juntar ${fmtPts(offer.minPoints)} pts; al cobrar se aplica todo.`
+        : `Asigna al distribuidor y agrega producto hasta juntar ${fmtPts(offer.minPoints)} pts.`,
+      duration: 7000,
+    });
+    setShowMemberships(false);
+    setFilter('');
+  }
 
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
@@ -332,6 +380,17 @@ export function ProductGrid({
             <ListPlus />
             Lote
           </Button>
+          {campaigns.length > 0 && (
+            <Button
+              variant={showMemberships ? 'default' : 'outline'}
+              onClick={() => setShowMemberships((v) => !v)}
+              title="Campañas de membresía habilitadas en esta sucursal"
+              data-tour="pos-memberships-button"
+            >
+              <Crown />
+              Membresías ({campaigns.length})
+            </Button>
+          )}
         </div>
 
         {/* Modo lote */}
@@ -376,19 +435,92 @@ export function ProductGrid({
 
       {/* Grid */}
       <div className="flex-1 overflow-y-auto p-4">
+        {/* Campañas de membresía que coinciden con la búsqueda (o todas, con
+            el botón Membresías): tarjetas antes del catálogo. */}
+        {campaignMatches.length > 0 && (
+          <div className="mb-4 space-y-2" data-tour="pos-membership-cards">
+            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-900">
+              Campañas de membresía · esta sucursal
+            </p>
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(17rem,1fr))] gap-3">
+              {campaignMatches.map((offer) => {
+                const selected = offer.campaignId === selectedMembershipId;
+                return (
+                  <button
+                    key={offer.campaignId}
+                    type="button"
+                    onClick={() => handleSelectCampaign(offer)}
+                    disabled={selected}
+                    className={cn(
+                      'flex items-start gap-3 rounded-lg border p-3 text-left transition-colors',
+                      selected
+                        ? 'cursor-default border-emerald-400 bg-emerald-50'
+                        : 'border-emerald-200 bg-gradient-to-br from-emerald-50/60 to-teal-50/60 hover:border-emerald-400 hover:bg-emerald-50',
+                    )}
+                    title={
+                      selected
+                        ? 'Ya está en el carrito'
+                        : 'Agregar la bolsa de membresía al carrito'
+                    }
+                  >
+                    {offer.imageUrl ? (
+                      <img
+                        src={offer.imageUrl}
+                        alt={offer.name}
+                        className="size-14 shrink-0 rounded-md border bg-white object-contain p-0.5"
+                      />
+                    ) : (
+                      <div className="flex size-14 shrink-0 items-center justify-center rounded-md border bg-white text-emerald-700">
+                        <ShoppingBag className="size-6" />
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Crown className="size-4 shrink-0 text-emerald-700" />
+                        <span className="font-mono text-xs font-bold text-emerald-700">
+                          {offer.code}
+                        </span>
+                        {selected && (
+                          <span className="rounded-full bg-emerald-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                            En el carrito
+                          </span>
+                        )}
+                      </div>
+                      <p className="truncate text-sm font-medium text-foreground">
+                        {offer.name}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Compra de {fmtPts(offer.minPoints)} pts en producto en una sola venta
+                      </p>
+                      <p
+                        className="mt-0.5 truncate text-[11px] text-muted-foreground"
+                        title={describeOfferBenefits(offer)}
+                      >
+                        <span className="font-medium text-foreground">Incluye:</span>{' '}
+                        {describeOfferBenefits(offer)}
+                      </p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
         {isLoading ? (
           <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
             Cargando catalogo...
           </div>
         ) : filtered.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-2">
-            <PackageX className="size-10" />
-            <p className="text-sm">
-              {filter
-                ? 'Ningun producto coincide con la busqueda'
-                : 'No hay productos disponibles en el catalogo'}
-            </p>
-          </div>
+          campaignMatches.length === 0 && (
+            <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-2">
+              <PackageX className="size-10" />
+              <p className="text-sm">
+                {filter
+                  ? 'Ningun producto coincide con la busqueda'
+                  : 'No hay productos disponibles en el catalogo'}
+              </p>
+            </div>
+          )
         ) : (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(11rem,1fr))] gap-3">
             {filtered.map((product) => {

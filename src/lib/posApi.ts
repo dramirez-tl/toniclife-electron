@@ -4,6 +4,7 @@
 
 import axios from 'axios';
 import { api } from './api';
+import { parseMembershipOffersResponse } from '@/lib/membership';
 import type {
   CreateSaleDeliveryInput,
   CustomerAddress,
@@ -16,7 +17,6 @@ import type {
   CashRegister,
   KitComponent,
   PosKitAvailability,
-  PosMembershipOffer,
   PosMembershipOffersResponse,
   PosSalesByProductResponse,
   Session,
@@ -655,61 +655,32 @@ class PosApi {
       const { data } = await api.get('/pos/membership-campaigns/offers', {
         params: { customerId, ...(branchId ? { branchId } : {}) },
       });
-      /* eslint-disable @typescript-eslint/no-explicit-any */
-      const d = (data ?? {}) as any;
-      const offers: PosMembershipOffer[] = (
-        Array.isArray(d.offers) ? (d.offers as any[]) : []
-      )
-        .filter((o) => o && o.campaignId)
-        .map(
-          (o): PosMembershipOffer => ({
-            campaignId: String(o.campaignId),
-            code: String(o.code ?? ''),
-            name: String(o.name ?? o.code ?? 'Campaña de membresía'),
-            description: o.description ?? null,
-            imageUrl: resolveImageUrl(o.imageUrl ?? undefined) ?? null,
-            minPoints: Number(o.minPoints) || 0,
-            grantPosition: String(o.grantPosition ?? 'premium'),
-            couponPercent:
-              o.couponPercent != null ? Number(o.couponPercent) : null,
-            couponValidDays: Number(o.couponValidDays) || 0,
-            gifts: (Array.isArray(o.gifts) ? (o.gifts as any[]) : [])
-              .map((g, i) => ({
-                productId: String(g.productId ?? ''),
-                sku: String(g.sku ?? ''),
-                name: String(g.name ?? g.sku ?? 'Regalo'),
-                quantity: Number(g.quantity) || 1,
-                sortOrder: Number(g.sortOrder ?? i) || i,
-                productActive:
-                  typeof g.productActive === 'boolean'
-                    ? g.productActive
-                    : undefined,
-              }))
-              .sort((a, b) => a.sortOrder - b.sortOrder),
-            audience:
-              o.audience === 'new' || o.audience === 'basic'
-                ? o.audience
-                : null,
-          }),
-        )
-        .sort((a, b) => a.minPoints - b.minPoints);
-      const c = d.customer;
-      const customer =
-        c && typeof c === 'object'
-          ? {
-              status: c.status ?? null,
-              kitType: c.kitType ?? null,
-              audience:
-                c.audience === 'new' || c.audience === 'basic'
-                  ? c.audience
-                  : null,
-              reason: c.reason ?? null,
-            }
-          : null;
-      /* eslint-enable @typescript-eslint/no-explicit-any */
-      return { offers, customer };
+      return parseMembershipOffersResponse(data, resolveImageUrl);
     } catch (err) {
       // 404 = API anterior sin la ruta: sin campañas, sin ruido.
+      if (axios.isAxiosError(err) && err.response?.status === 404) {
+        return { offers: [], customer: null };
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Campañas de membresía ENCENDIDAS en la sucursal (GET
+   * /pos/membership-campaigns), sin cliente: alimentan la búsqueda por
+   * código en el catálogo, el botón "Membresías" y la bolsa del carrito. Si
+   * la sucursal no tiene ninguna habilitada (o el API no trae la ruta) la
+   * lista viene vacía y el POS no muestra nada.
+   */
+  async getMembershipActive(
+    branchId?: string,
+  ): Promise<PosMembershipOffersResponse> {
+    try {
+      const { data } = await api.get('/pos/membership-campaigns', {
+        params: branchId ? { branchId } : {},
+      });
+      return parseMembershipOffersResponse(data, resolveImageUrl);
+    } catch (err) {
       if (axios.isAxiosError(err) && err.response?.status === 404) {
         return { offers: [], customer: null };
       }

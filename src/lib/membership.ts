@@ -5,10 +5,187 @@
 
 import type {
   PosMembershipOffer,
+  PosMembershipOffersResponse,
   SaleMembership,
   SaleMembershipStatus,
 } from '@/types/pos';
 import type { SaleReceiptMembership, SaleReceiptPayload } from '@/types';
+
+/**
+ * Respuesta de /pos/membership-campaigns(/offers) → tipos del POS, tolerante
+ * a campos faltantes (API viejo) y ordenada por minPoints. `resolveImage`
+ * convierte la liga de la imagen a la base del API (posApi.resolveImageUrl).
+ */
+export function parseMembershipOffersResponse(
+  data: unknown,
+  resolveImage: (url?: string) => string | undefined,
+): PosMembershipOffersResponse {
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const d = (data ?? {}) as any;
+  const offers: PosMembershipOffer[] = (
+    Array.isArray(d.offers) ? (d.offers as any[]) : []
+  )
+    .filter((o) => o && o.campaignId)
+    .map(
+      (o): PosMembershipOffer => ({
+        campaignId: String(o.campaignId),
+        code: String(o.code ?? ''),
+        name: String(o.name ?? o.code ?? 'Campaña de membresía'),
+        description: o.description ?? null,
+        imageUrl: resolveImage(o.imageUrl ?? undefined) ?? null,
+        minPoints: Number(o.minPoints) || 0,
+        grantPosition: String(o.grantPosition ?? 'premium'),
+        couponPercent: o.couponPercent != null ? Number(o.couponPercent) : null,
+        couponValidDays: Number(o.couponValidDays) || 0,
+        gifts: (Array.isArray(o.gifts) ? (o.gifts as any[]) : [])
+          .map((g, i) => ({
+            productId: String(g.productId ?? ''),
+            sku: String(g.sku ?? ''),
+            name: String(g.name ?? g.sku ?? 'Regalo'),
+            quantity: Number(g.quantity) || 1,
+            sortOrder: Number(g.sortOrder ?? i) || i,
+            productActive:
+              typeof g.productActive === 'boolean' ? g.productActive : undefined,
+          }))
+          .sort((a, b) => a.sortOrder - b.sortOrder),
+        audience:
+          o.audience === 'new' || o.audience === 'basic' ? o.audience : null,
+      }),
+    )
+    .sort((a, b) => a.minPoints - b.minPoints);
+  const c = d.customer;
+  const customer =
+    c && typeof c === 'object'
+      ? {
+          status: c.status ?? null,
+          kitType: c.kitType ?? null,
+          audience:
+            c.audience === 'new' || c.audience === 'basic' ? c.audience : null,
+          reason: c.reason ?? null,
+        }
+      : null;
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+  return { offers, customer };
+}
+
+/**
+ * Campañas que coinciden con lo tecleado en el buscador del catálogo: por
+ * código ("MEMB1650"), por nombre o por la palabra "membresía" (3+ letras,
+ * para que "mem" ya las muestre). Sin texto no coincide ninguna.
+ */
+export function matchMembershipOffers(
+  offers: readonly PosMembershipOffer[],
+  query: string,
+): PosMembershipOffer[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  const generic = q.length >= 3 && 'membresia membresía campaña campana'.includes(q);
+  return offers.filter(
+    (o) =>
+      generic ||
+      o.code.toLowerCase().includes(q) ||
+      o.name.toLowerCase().includes(q),
+  );
+}
+
+export interface MembershipBagInput {
+  /** Campaña elegida tal como la reporta la sucursal; null = ya no está
+   *  encendida aquí (o aún cargando, ver loadingOffer). */
+  offer: PosMembershipOffer | null;
+  loadingOffer: boolean;
+  hasCustomer: boolean;
+  /** Ya respondió /offers para el distribuidor asignado. */
+  offersLoaded: boolean;
+  /** La campaña está entre las ofertas que HOY aplican al distribuidor. */
+  eligible: boolean;
+  /** Motivo del API cuando al distribuidor no le aplica ninguna. */
+  customerReason: string | null;
+  /** Puntos EN PRODUCTO del ticket (membershipPoints). */
+  points: number;
+}
+
+export type MembershipBagTone = 'ok' | 'info' | 'warn' | 'error';
+
+export interface MembershipBagStatus {
+  /** Cumple todo: al cobrar viaja la campaña. */
+  ready: boolean;
+  missing: number;
+  pct: number;
+  tone: MembershipBagTone;
+  message: string;
+}
+
+const fmtPts = (n: number) =>
+  n.toLocaleString('es-MX', { maximumFractionDigits: 0 });
+
+/**
+ * Qué le falta a la "bolsa" de membresía del carrito para poder cobrarla, en
+ * el orden en que el cajero lo resuelve: campaña vigente en la sucursal →
+ * distribuidor asignado → que le aplique (nuevo o básico, no usada) → puntos
+ * en producto. Misma regla que el servidor al validar membershipCampaignId.
+ */
+export function membershipBagStatus(i: MembershipBagInput): MembershipBagStatus {
+  if (!i.offer) {
+    return i.loadingOffer
+      ? { ready: false, missing: 0, pct: 0, tone: 'info', message: 'Cargando la campaña…' }
+      : {
+          ready: false,
+          missing: 0,
+          pct: 0,
+          tone: 'error',
+          message:
+            'Esta campaña ya no está habilitada en esta sucursal: quita la bolsa para cobrar.',
+        };
+  }
+  const missing = Math.max(0, i.offer.minPoints - i.points);
+  const pct =
+    i.offer.minPoints > 0 ? Math.min(100, (i.points / i.offer.minPoints) * 100) : 100;
+  if (!i.hasCustomer) {
+    return {
+      ready: false,
+      missing,
+      pct,
+      tone: 'warn',
+      message: 'Asigna al distribuidor (nuevo o básico) para poder aplicarla.',
+    };
+  }
+  if (!i.offersLoaded) {
+    return {
+      ready: false,
+      missing,
+      pct,
+      tone: 'info',
+      message: 'Verificando si la campaña aplica al distribuidor…',
+    };
+  }
+  if (!i.eligible) {
+    return {
+      ready: false,
+      missing,
+      pct,
+      tone: 'error',
+      message: i.customerReason
+        ? `No aplica: ${i.customerReason}`
+        : 'No aplica a este distribuidor (ya la usó o ya tiene esa posición).',
+    };
+  }
+  if (missing > 0) {
+    return {
+      ready: false,
+      missing,
+      pct,
+      tone: 'info',
+      message: `Faltan ${fmtPts(missing)} pts en producto: agrega producto al carrito.`,
+    };
+  }
+  return {
+    ready: true,
+    missing: 0,
+    pct: 100,
+    tone: 'ok',
+    message: 'Lista: al cobrar se aplican la membresía, los regalos y el cupón.',
+  };
+}
 
 /** Tipos de producto cuyos puntos NO cuentan para la campaña (espejo del
  *  servidor): kits, promos canjeables y boletos de evento. */

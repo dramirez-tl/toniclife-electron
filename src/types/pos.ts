@@ -461,6 +461,10 @@ export interface PosCart {
   /** "Aplicar en esta venta" (default true): apagado = aunque el ticket
    *  califique, no se manda la campaña. */
   applyMembership: boolean;
+  /** "Bolsa" de membresía que el cajero eligió desde el catálogo (por código
+   *  de campaña): guía el ticket hasta juntar los puntos y bloquea el cobro
+   *  mientras no se cumpla. null = sin bolsa. Se limpia al vaciar el carrito. */
+  membershipSelectedId: string | null;
 }
 
 // ============================================================================

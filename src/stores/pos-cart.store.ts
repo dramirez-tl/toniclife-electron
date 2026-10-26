@@ -48,6 +48,10 @@ interface PosCartStore {
   setMembershipCampaignId: (campaignId: string | null) => void;
   /** "Aplicar en esta venta" del banner de membresía (default true). */
   setApplyMembership: (apply: boolean) => void;
+  /** "Bolsa" de membresía elegida desde el catálogo (null = quitarla). Al
+   *  cambiarla se limpia membershipCampaignId: la bolsa lo vuelve a fijar
+   *  solo cuando el ticket cumple. */
+  setMembershipSelected: (campaignId: string | null) => void;
   recalculateTotals: () => void;
   refreshItemPrices: (
     prices: Array<{
@@ -85,6 +89,7 @@ const initialCart: PosCart = {
   requiresInvoice: false,
   membershipCampaignId: null,
   applyMembership: true,
+  membershipSelectedId: null,
 };
 
 // Tope de cantidad de un item: maxQuantity explícito (derechos disponibles
@@ -341,6 +346,7 @@ export const usePosCartStore = create<PosCartStore>()(
             // por una versión anterior) arrancan como un carrito nuevo.
             membershipCampaignId: cart.membershipCampaignId ?? null,
             applyMembership: cart.applyMembership ?? true,
+            membershipSelectedId: cart.membershipSelectedId ?? null,
           }),
         });
       },
@@ -428,6 +434,20 @@ export const usePosCartStore = create<PosCartStore>()(
         set((state) => {
           if (state.cart.applyMembership === apply) return state;
           return { cart: { ...state.cart, applyMembership: apply } };
+        });
+      },
+
+      setMembershipSelected: (campaignId) => {
+        set((state) => {
+          if (state.cart.membershipSelectedId === campaignId) return state;
+          return {
+            cart: {
+              ...state.cart,
+              membershipSelectedId: campaignId,
+              membershipCampaignId: null,
+              applyMembership: true,
+            },
+          };
         });
       },
 

@@ -1630,8 +1630,10 @@ export function PosScreen({
           )}
           {/* Campaña de membresía del distribuidor asignado: solo aparece si
               el API reporta una que le aplique (404 = nada). La terminal se
-              identifica por su licencia; en modo staff viaja la sucursal. */}
-          {cart.customerId && (
+              identifica por su licencia; en modo staff viaja la sucursal.
+              Con una "bolsa" elegida desde el catálogo, la bolsa del carrito
+              sustituye al banner. */}
+          {cart.customerId && !cart.membershipSelectedId && (
             <MembershipOfferBanner
               customerId={cart.customerId}
               branchId={staffActive ? branchId : undefined}
@@ -1642,6 +1644,7 @@ export function PosScreen({
               branchId={branchId}
               currencySymbol={currencySymbol}
               onKitDetected={handleKitDetected}
+              membershipBranchId={staffActive ? branchId : undefined}
             />
           </div>
         </main>
@@ -1677,6 +1680,7 @@ export function PosScreen({
             currencyCode={currencyCode}
             isProcessing={isProcessing}
             branchId={branch.id}
+            membershipBranchId={staffActive ? branchId : undefined}
             staffMode={staffActive}
             deliveryMode={deliveryModeActive}
             onDeliveryModeChange={(on) => {

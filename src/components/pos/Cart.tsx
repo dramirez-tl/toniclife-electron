@@ -26,8 +26,10 @@ import { usePosCartStore } from '@/stores/pos-cart.store';
 import { posApi } from '@/lib/posApi';
 import { formatIncludes, isKitLikeType } from '@/lib/kitComponents';
 import { eventLine } from '@/lib/eventInfo';
+import { useMembershipBag } from '@/hooks/useMembership';
 import { CustomerSelector } from './CustomerSelector';
 import { PosPointsBar } from './PosPointsBar';
+import { MembershipBagCard } from './MembershipBagCard';
 
 interface CartProps {
   currencySymbol: string;
@@ -58,6 +60,9 @@ interface CartProps {
   onDeliveryClear?: () => void;
   /** Compras anteriores del distribuidor asignado. */
   onShowPurchases?: () => void;
+  /** Sucursal para las campañas de membresía SOLO en modo staff (JWT de
+   *  usuario); la terminal se identifica por su licencia. */
+  membershipBranchId?: string;
 }
 
 // Tope de cantidad del item (espejo del store): maxQuantity explícito o 1
@@ -83,6 +88,7 @@ export function Cart({
   onDelivery,
   onDeliveryClear,
   onShowPurchases,
+  membershipBranchId,
 }: CartProps) {
   const cart = usePosCartStore((s) => s.cart);
   const updateItemQuantity = usePosCartStore((s) => s.updateItemQuantity);
@@ -114,6 +120,9 @@ export function Cart({
   const hasCoupon = !!cart.couponCode && (cart.couponDiscount ?? 0) > 0;
   // Compat: descuento manual solo puede venir de estado viejo; ya no hay UI.
   const hasManualDiscount = !!cart.discountAmount && cart.discountAmount > 0;
+  // "Bolsa" de membresía elegida desde el catálogo: mientras no se cumpla
+  // (distribuidor, que le aplique, puntos) el cobro queda bloqueado.
+  const bag = useMembershipBag(membershipBranchId);
 
   async function applyCoupon() {
     if (validatingCoupon) return; // Enter repetido: evita doble validación
@@ -363,11 +372,14 @@ export function Cart({
 
       {/* Items */}
       <div className="flex-1 overflow-y-auto">
+        <MembershipBagCard bag={bag} />
         {cart.items.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-2 px-6 text-center">
             <ShoppingCart className="size-10 opacity-30" />
             <p className="text-sm">
-              El carrito esta vacio. Busca productos para agregar.
+              {bag.selectedId
+                ? 'Agrega producto para llenar la bolsa de membresía.'
+                : 'El carrito esta vacio. Busca productos para agregar.'}
             </p>
           </div>
         ) : (
@@ -622,7 +634,7 @@ export function Cart({
         <Button
           size="xl"
           className="w-full mt-2"
-          disabled={cart.items.length === 0 || isProcessing}
+          disabled={cart.items.length === 0 || isProcessing || bag.blocking}
           onClick={onCheckout}
         >
           {isProcessing
@@ -634,6 +646,12 @@ export function Cart({
             </span>
           )}
         </Button>
+        {bag.blocking && cart.items.length > 0 && (
+          <p className="text-[11px] leading-snug text-amber-800">
+            Bolsa {bag.offer?.code ?? 'de membresía'}: {bag.message} Para cobrar sin la
+            campaña, quita la bolsa.
+          </p>
+        )}
       </div>
     </div>
   );
