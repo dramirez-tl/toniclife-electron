@@ -2,8 +2,11 @@
 //
 // A diferencia de KitProspectModal (que se dispara al agregar un kit), aqui el
 // cajero da de alta a alguien tecleando el NUMERO del distribuidor patrocinador.
-// El kit es OPCIONAL: puede registrar y cobrar el kit en el momento, o solo
-// registrar (el nuevo distribuidor compra su kit despues).
+// El kit es OPCIONAL: puede registrar y cobrar el kit en el momento, solo
+// registrar (el nuevo distribuidor compra su kit despues) o, si la sucursal
+// tiene una campaña de membresía encendida, registrar y armar la "bolsa" de
+// membresía: junta N puntos en producto en este mismo ticket y al cobrar
+// queda Premium y activo sin pagar kit (ver lib/membership.ts, useMembershipBag).
 
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -18,6 +21,7 @@ import {
   Hash,
   Package,
   AlertTriangle,
+  Gift,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -56,6 +60,8 @@ import {
   useSponsorByNumber,
 } from '@/hooks/usePos';
 import { posApi } from '@/lib/posApi';
+import { useMembershipActive } from '@/hooks/useMembership';
+import { membershipPositionLabel } from '@/lib/membership';
 import {
   getAddressForm,
   validateAddress,
@@ -66,6 +72,7 @@ import { normalizePhone, phoneHint } from '@/lib/phone';
 import type {
   QuickProduct,
   KitEnrollmentResponse,
+  PosMembershipOffer,
   SponsorLookup,
 } from '@/types/pos';
 
@@ -90,9 +97,24 @@ interface RegisterDistributorModalProps {
   currencySymbol?: string;
   /** Kits de inscripcion disponibles (productos isEnrollmentKit). */
   enrollmentKits: QuickProduct[];
-  /** Llamado al terminar: si se eligio kit, se pasa para cobrarlo. */
-  onRegistered: (result: KitEnrollmentResponse, kit: QuickProduct | null) => void;
+  /** Sucursal para las campañas de membresía: SOLO en modo staff (la terminal se identifica por su licencia). */
+  membershipBranchId?: string;
+  /**
+   * Llamado al terminar: con kit, se pasa para cobrarlo; con campaña de
+   * membresía, su id para dejar la bolsa armada en el carrito.
+   */
+  onRegistered: (
+    result: KitEnrollmentResponse,
+    kit: QuickProduct | null,
+    membershipCampaignId: string | null,
+  ) => void;
 }
+
+/** Cómo se inscribe el distribuidor nuevo. */
+type EnrollChoice = 'none' | 'kit' | 'membership';
+
+const fmtPts = (n: number) =>
+  n.toLocaleString('es-MX', { maximumFractionDigits: 0 });
 
 const EMPTY_FORM = {
   firstName: '',
@@ -141,6 +163,7 @@ export function RegisterDistributorModal({
   branchCountryCode,
   currencySymbol = '$',
   enrollmentKits,
+  membershipBranchId,
   onRegistered,
 }: RegisterDistributorModalProps) {
   // Buscador de patrocinador con DOS inputs (mismo patron que el buscador de
@@ -168,8 +191,10 @@ export function RegisterDistributorModal({
   const [form, setForm] = useState(EMPTY_FORM);
   const [countryId, setCountryId] = useState('');
   const [sendEmail, setSendEmail] = useState(true);
-  const [chargeKit, setChargeKit] = useState(false);
+  const [enroll, setEnroll] = useState<EnrollChoice>('none');
+  const chargeKit = enroll === 'kit';
   const [kitId, setKitId] = useState<string>('');
+  const [membershipId, setMembershipId] = useState('');
   // Kit en vista previa (lightbox de imagen para ver el detalle del kit).
   const [previewKit, setPreviewKit] = useState<QuickProduct | null>(null);
   const [result, setResult] = useState<KitEnrollmentResponse | null>(null);
@@ -211,8 +236,9 @@ export function RegisterDistributorModal({
       setForm(EMPTY_FORM);
       setCountryId('');
       setSendEmail(true);
-      setChargeKit(false);
+      setEnroll('none');
       setKitId('');
+      setMembershipId('');
       setPreviewKit(null);
       setResult(null);
     }
@@ -254,6 +280,15 @@ export function RegisterDistributorModal({
   const selectedKit = enrollmentKits.find((k) => k.id === kitId) ?? null;
 
   const isDistribuidor = tipo === 'distribuidor';
+  // Campañas de membresía ENCENDIDAS en la sucursal (sin cliente): opción de
+  // inscripción "membresía por compra". Con un API sin la ruta no hay ninguna.
+  const membershipActive = useMembershipActive(
+    membershipBranchId,
+    isOpen && isDistribuidor,
+  );
+  const campaigns: PosMembershipOffer[] = membershipActive.data?.offers ?? [];
+  const selectedCampaign =
+    campaigns.find((c) => c.campaignId === membershipId) ?? null;
   // País de residencia elegido: decide CURP (solo México/Frontera) y las
   // opciones de identificación oficial.
   const selectedCountryCode = countries
@@ -272,7 +307,8 @@ export function RegisterDistributorModal({
     !!countryId &&
     (!isDistribuidor ||
       (form.birthDate.trim().length > 0 && form.birthDate <= todayIso)) &&
-    (!isDistribuidor || !chargeKit || !!kitId) &&
+    (!isDistribuidor || enroll !== 'kit' || !!kitId) &&
+    (!isDistribuidor || enroll !== 'membership' || !!selectedCampaign) &&
     !isPending;
 
   async function handleSubmit() {
@@ -345,7 +381,13 @@ export function RegisterDistributorModal({
 
   function handleContinue() {
     if (result) {
-      onRegistered(result, isDistribuidor && chargeKit ? selectedKit : null);
+      onRegistered(
+        result,
+        isDistribuidor && chargeKit ? selectedKit : null,
+        isDistribuidor && enroll === 'membership'
+          ? (selectedCampaign?.campaignId ?? null)
+          : null,
+      );
     }
     onClose();
   }
@@ -475,13 +517,17 @@ export function RegisterDistributorModal({
                 ? 'Cliente preferente activo. Ya puede comprar con precio preferente.'
                 : chargeKit && selectedKit
                   ? 'El kit se agregará al carrito y el cliente cambiará al nuevo distribuidor para cobrar la inscripción.'
-                  : 'El distribuidor quedó pendiente. Podrá comprar su kit después para activarse.'}
+                  : enroll === 'membership' && selectedCampaign
+                    ? `El cliente cambiará al nuevo distribuidor con la bolsa ${selectedCampaign.code} armada: agrega ${fmtPts(selectedCampaign.minPoints)} pts en producto y cobra; al cobrar queda ${membershipPositionLabel(selectedCampaign.grantPosition)} y activo.`
+                    : 'El distribuidor quedó pendiente. Podrá comprar su kit después para activarse.'}
             </p>
 
             <Button className="w-full" onClick={handleContinue}>
               {isDistribuidor && chargeKit && selectedKit
                 ? 'Continuar al cobro del kit'
-                : 'Listo'}
+                : isDistribuidor && enroll === 'membership' && selectedCampaign
+                  ? 'Continuar a armar la membresía'
+                  : 'Listo'}
             </Button>
           </div>
         ) : (
@@ -504,8 +550,9 @@ export function RegisterDistributorModal({
                 type="button"
                 onClick={() => {
                   setTipo('preferente');
-                  setChargeKit(false);
+                  setEnroll('none');
                   setKitId('');
+                  setMembershipId('');
                 }}
                 className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
                   !isDistribuidor
@@ -840,19 +887,48 @@ export function RegisterDistributorModal({
               </div>
             )}
 
-            {/* Kit opcional (solo distribuidor) */}
+            {/* Cómo se inscribe (solo distribuidor): solo registro, kit de
+                inscripción cobrado ahora, o membresía por compra (campaña
+                encendida en la sucursal: junta N pts en producto en este
+                ticket y queda Premium sin pagar kit). */}
             {isDistribuidor && (
             <Card className="gap-3 rounded-lg bg-muted/30 p-4 shadow-none">
-              <Label className="flex items-center gap-2 text-sm text-foreground">
-                <Checkbox
-                  checked={chargeKit}
-                  onCheckedChange={(c) => {
-                    setChargeKit(c === true);
-                    if (c !== true) setKitId('');
+              <Label className="text-sm text-foreground">¿Cómo se inscribe?</Label>
+              <div
+                className={`grid gap-2 ${campaigns.length > 0 ? 'grid-cols-3' : 'grid-cols-2'}`}
+              >
+                <EnrollOption
+                  active={enroll === 'none'}
+                  onClick={() => {
+                    setEnroll('none');
+                    setKitId('');
+                    setMembershipId('');
                   }}
+                  title="Solo registrar"
+                  hint="Queda pendiente hasta comprar kit"
                 />
-                Cobrar kit de inscripción ahora
-              </Label>
+                <EnrollOption
+                  active={enroll === 'kit'}
+                  onClick={() => {
+                    setEnroll('kit');
+                    setMembershipId('');
+                  }}
+                  title="Cobrar kit ahora"
+                  hint="Kit de inscripción en este ticket"
+                />
+                {campaigns.length > 0 && (
+                  <EnrollOption
+                    active={enroll === 'membership'}
+                    onClick={() => {
+                      setEnroll('membership');
+                      setKitId('');
+                      if (campaigns.length === 1) setMembershipId(campaigns[0].campaignId);
+                    }}
+                    title="Membresía por compra"
+                    hint="Junta puntos en producto y queda Premium"
+                  />
+                )}
+              </div>
               {chargeKit &&
                 (sortedKits.length === 0 ? (
                   <div className="flex items-center gap-2 rounded-lg border border-dashed px-3 py-3 text-xs text-muted-foreground">
@@ -968,9 +1044,80 @@ export function RegisterDistributorModal({
                   </AlertDescription>
                 </Alert>
               )}
-              {!chargeKit && (
+              {enroll === 'membership' && (
+                <div className="grid gap-2">
+                  {campaigns.map((c) => {
+                    const selected = c.campaignId === membershipId;
+                    const includes = [
+                      ...c.gifts.map((g) =>
+                        g.quantity > 1 ? `${g.quantity}× ${g.name}` : g.name,
+                      ),
+                      ...(c.couponPercent
+                        ? [`cupón ${c.couponPercent} % en su primera recompra`]
+                        : []),
+                    ];
+                    return (
+                      <button
+                        type="button"
+                        key={c.campaignId}
+                        onClick={() =>
+                          setMembershipId(selected ? '' : c.campaignId)
+                        }
+                        className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-colors ${
+                          selected
+                            ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                            : 'border-border bg-background hover:bg-muted/50'
+                        }`}
+                      >
+                        <div className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted">
+                          {c.imageUrl ? (
+                            <img
+                              src={c.imageUrl}
+                              alt={c.name}
+                              className="size-full object-cover"
+                              loading="lazy"
+                            />
+                          ) : (
+                            <Gift className="size-6 text-muted-foreground" />
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="line-clamp-2 text-sm font-medium leading-snug text-foreground">
+                            {c.name}
+                          </div>
+                          <div className="mt-0.5 text-[11px] text-muted-foreground">
+                            <span className="font-mono">{c.code}</span> ·{' '}
+                            {fmtPts(c.minPoints)} pts en producto → posición{' '}
+                            {membershipPositionLabel(c.grantPosition)} sin pagar kit
+                          </div>
+                          {includes.length > 0 && (
+                            <div className="mt-0.5 line-clamp-2 text-[11px] text-muted-foreground">
+                              Incluye: {includes.join(', ')}
+                            </div>
+                          )}
+                        </div>
+                        {selected && (
+                          <Check className="size-4 shrink-0 text-primary" />
+                        )}
+                      </button>
+                    );
+                  })}
+                  <p className="text-[11px] text-muted-foreground">
+                    Al registrar, el carrito pasa al nuevo distribuidor con la
+                    bolsa de membresía armada: agrega producto hasta juntar los
+                    puntos y cobra; al cobrar queda con la posición y activo.
+                    Los kits, promociones y boletos no cuentan para los puntos.
+                  </p>
+                </div>
+              )}
+              {enroll === 'none' && (
                 <p className="text-[11px] text-muted-foreground">
-                  Sin kit, el distribuidor queda pendiente hasta que compre uno.
+                  Sin kit{campaigns.length > 0 ? ' ni membresía' : ''}, el
+                  distribuidor queda pendiente hasta que compre uno
+                  {campaigns.length > 0
+                    ? ' o junte los puntos de una membresía'
+                    : ''}
+                  .
                 </p>
               )}
             </Card>
@@ -993,7 +1140,9 @@ export function RegisterDistributorModal({
                   ? 'Registrando...'
                   : isDistribuidor && chargeKit
                     ? 'Registrar y cobrar kit'
-                    : 'Registrar'}
+                    : isDistribuidor && enroll === 'membership'
+                      ? 'Registrar y armar membresía'
+                      : 'Registrar'}
               </Button>
             </div>
           </div>
@@ -1038,6 +1187,37 @@ export function RegisterDistributorModal({
         />
       </SheetContent>
     </Sheet>
+  );
+}
+
+/** Opción de inscripción (solo registro / kit / membresía) como tarjeta seleccionable. */
+function EnrollOption({
+  active,
+  onClick,
+  title,
+  hint,
+}: {
+  active: boolean;
+  onClick: () => void;
+  title: string;
+  hint: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`rounded-lg border px-3 py-2 text-left transition-colors ${
+        active
+          ? 'border-primary bg-primary/5 ring-1 ring-primary'
+          : 'border-border bg-background hover:bg-muted/50'
+      }`}
+    >
+      <div className="text-sm font-medium text-foreground">{title}</div>
+      <div className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+        {hint}
+      </div>
+    </button>
   );
 }
 

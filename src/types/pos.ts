@@ -788,6 +788,8 @@ export interface KitEnrollmentResponse {
   userId: string;
   status: string;
   kitPosition: string;
+  /** Tipo de precio con el que nace (distribuidor); ausente con un API anterior. */
+  priceTypeId?: string | null;
   sponsor: {
     id: string;
     customerNumber: string;

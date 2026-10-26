@@ -337,6 +337,7 @@ export function PosScreen({
   const clearCart = usePosCartStore((s) => s.clearCart);
   const loadCart = usePosCartStore((s) => s.loadCart);
   const setCustomer = usePosCartStore((s) => s.setCustomer);
+  const setMembershipSelected = usePosCartStore((s) => s.setMembershipSelected);
   const addItem = usePosCartStore((s) => s.addItem);
   const createSale = useCreateSale();
   const processPayment = useProcessPayment();
@@ -1284,7 +1285,12 @@ export function PosScreen({
   function handleDistributorRegistered(
     result: KitEnrollmentResponse,
     kit: QuickProduct | null,
+    membershipCampaignId: string | null,
   ) {
+    // El alta ya trae el tipo de precio con el que nace (distribuidor): así la
+    // compra de inscripción se cotiza y suma puntos como la de cualquier
+    // distribuidor. Con un API anterior se conserva el del carrito.
+    const priceTypeId = result.priceTypeId ?? cart.priceTypeId;
     if (kit) {
       // Alta + cobro de kit: pasar al nuevo distribuidor como cliente y
       // agregar el kit al carrito para cobrarlo.
@@ -1292,10 +1298,27 @@ export function PosScreen({
         result.customerId,
         result.fullName,
         undefined,
-        cart.priceTypeId,
+        priceTypeId,
         result.customerNumber,
       );
       addEnrollmentKitToCart(kit, result.fullName);
+    } else if (membershipCampaignId) {
+      // Alta + membresía por compra: el nuevo distribuidor queda como cliente
+      // con la bolsa elegida; el cajero junta los puntos en producto y cobra
+      // (useMembershipBag bloquea el cobro hasta cumplir; al cobrar el API lo
+      // deja Premium y activo).
+      setCustomer(
+        result.customerId,
+        result.fullName,
+        undefined,
+        priceTypeId,
+        result.customerNumber,
+      );
+      setMembershipSelected(membershipCampaignId);
+      toast.success(
+        `Registro completo: ${result.customerNumber}. Arma la bolsa de membresía: agrega producto hasta juntar los puntos y cobra.`,
+        { duration: 7000 },
+      );
     } else {
       toast.success(`Registro completo: ${result.customerNumber}`);
     }
@@ -1997,6 +2020,7 @@ export function PosScreen({
         branchCountryCode={branch.country?.code}
         currencySymbol={currencySymbol}
         enrollmentKits={enrollmentKits}
+        membershipBranchId={staffActive ? branchId : undefined}
         onRegistered={handleDistributorRegistered}
       />
 
