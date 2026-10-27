@@ -11,6 +11,8 @@ export const promotionKeys = {
     [...promotionKeys.all, 'current', branchId] as const,
   redeemed: (customerId: string, branchId: string) =>
     [...promotionKeys.all, 'redeemed', customerId, branchId] as const,
+  reachable: (customerId: string, branchId: string, cartPoints: number) =>
+    [...promotionKeys.all, 'reachable', customerId, branchId, cartPoints] as const,
 };
 
 /**
@@ -47,6 +49,31 @@ export const useAvailablePromotionsForCustomer = (
       promotionsApi.listAvailableForCustomer(customerId!, branchId!),
     enabled: !!customerId && !!branchId,
     staleTime: 60 * 1000,
+    gcTime: 5 * 60 * 1000,
+  });
+};
+
+/**
+ * Promos que el distribuidor ALCANZARÍA con los puntos del carrito (canje en
+ * la misma compra, 27-oct-2026). Se reconsulta cuando cambian los puntos del
+ * carrito; con 0 puntos no se consulta.
+ */
+export const useReachablePromotionsForCustomer = (
+  customerId: string | undefined,
+  branchId: string | undefined,
+  cartPoints: number,
+) => {
+  const pts = Math.max(0, Math.round(cartPoints || 0));
+  return useQuery({
+    queryKey:
+      customerId && branchId
+        ? promotionKeys.reachable(customerId, branchId, pts)
+        : promotionKeys.reachable('disabled', 'disabled', 0),
+    queryFn: () =>
+      promotionsApi.listReachableForCustomer(customerId!, branchId!, pts),
+    enabled: !!customerId && !!branchId && pts > 0,
+    placeholderData: (prev) => prev,
+    staleTime: 15 * 1000,
     gcTime: 5 * 60 * 1000,
   });
 };

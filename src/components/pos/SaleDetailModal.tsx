@@ -60,6 +60,7 @@ import {
   membershipStatusLabel,
   toReceiptMembership,
 } from '@/lib/membership';
+import { toReceiptPromotions } from '@/lib/promoCart';
 import { PosSaleStatus, type KitComponent } from '@/types/pos';
 
 interface SaleDetailModalProps {
@@ -279,6 +280,8 @@ export function SaleDetailModal({
       membership: current.membership
         ? toReceiptMembership(current.membership)
         : undefined,
+      // Bloque PROMOCIÓN (promo canjeada en la venta), igual que el original.
+      promotions: toReceiptPromotions(current.promotions),
     };
   }
 

@@ -97,6 +97,7 @@ import {
   membershipStatusLabel,
   toReceiptMembership,
 } from '@/lib/membership';
+import { toReceiptPromotions } from '@/lib/promoCart';
 import { usePosCartStore } from '@/stores/pos-cart.store';
 import {
   useStaffSession,
@@ -965,6 +966,26 @@ export function PosScreen({
         }
       }
 
+      // PROMOCIONES canjeadas en esta venta (incluidas las alcanzadas con esta
+      // misma compra, 27-oct-2026): el bloque PROMOCIÓN del ticket sale de la
+      // venta ya cobrada. Tolerante: si falla la lectura, el ticket sale sin
+      // el bloque (la línea a $0 sí va entre los artículos).
+      let promoSale: Sale | null = membershipSale;
+      if (cart.items.some((it) => it.productType === 'promotional')) {
+        if (!promoSale) {
+          promoSale = await posApi.getSaleById(saleId).catch(() => null);
+        }
+        const bySale = (promoSale?.promotions ?? []).filter(
+          (p) => p.grantedBySale,
+        );
+        if (bySale.length > 0) {
+          toast.success(
+            `Promoción canjeada en esta misma compra: ${bySale.map((p) => p.code).join(', ')}`,
+            { duration: 8000 },
+          );
+        }
+      }
+
       // Boletos de evento: el API los emite al cobrar (claves ligadas a un
       // evento). Se avisa al cajero cuántos salieron y a qué correo se mandan,
       // o que falta el correo (entonces se envían después desde el admin).
@@ -1093,6 +1114,8 @@ export function PosScreen({
             membership: membershipSale?.membership
               ? toReceiptMembership(membershipSale.membership)
               : undefined,
+            // Bloque PROMOCIÓN (promo canjeada, con qué puntos y qué incluye).
+            promotions: toReceiptPromotions(promoSale?.promotions),
           },
           hadCash,
         )
@@ -1651,6 +1674,7 @@ export function PosScreen({
             <AvailablePromotions
               customerId={cart.customerId}
               branchId={branchId}
+              cartPoints={cart.totalPoints}
             />
           )}
           {/* Campaña de membresía del distribuidor asignado: solo aparece si

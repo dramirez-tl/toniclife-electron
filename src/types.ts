@@ -255,9 +255,23 @@ export interface SaleReceiptPayload {
   periodPoints?: number;
   /** Campaña de membresía aplicada a la venta: bloque MEMBRESÍA del ticket. */
   membership?: SaleReceiptMembership;
+  /** Promociones canjeadas en la venta: bloque PROMOCIÓN del ticket. */
+  promotions?: SaleReceiptPromotion[];
   /** Venta guardada sin conexión (cola local): folio provisional; el ticket
    *  imprime "VENTA POR SINCRONIZAR". */
   pendingSync?: boolean;
+}
+
+/** Bloque PROMOCIÓN del ticket (espejo de electron/receipts.ts
+ *  SaleReceiptPromotion). */
+export interface SaleReceiptPromotion {
+  code: string;
+  name: string;
+  minPointsRequired: number;
+  pointsAtGrant: number;
+  /** true = alcanzada y canjeada en esta misma compra. */
+  grantedBySale: boolean;
+  items: Array<{ name: string; quantity: number }>;
 }
 
 /** Lista de entrada de un traspaso (espejo de electron/receipts.ts

@@ -614,6 +614,19 @@ export interface SaleReceiptMembership {
   couponValidUntil?: string | null;
 }
 
+/** Bloque PROMOCIÓN del ticket (promo canjeada en la venta; 27-oct-2026).
+ *  Espejo en src/types.ts. */
+export interface SaleReceiptPromotion {
+  code: string;
+  name: string;
+  minPointsRequired: number;
+  /** Puntos del periodo con los que se ganó el derecho. */
+  pointsAtGrant: number;
+  /** true = alcanzada y canjeada en esta misma compra. */
+  grantedBySale: boolean;
+  items: { name: string; quantity: number }[];
+}
+
 export interface SaleReceiptInput {
   branchName: string;
   /** Nombre comercial para el encabezado del ticket (branch.ticketName). */
@@ -649,6 +662,9 @@ export interface SaleReceiptInput {
   periodPoints?: number;
   /** Campaña de membresía aplicada a la venta: bloque MEMBRESÍA. */
   membership?: SaleReceiptMembership;
+  /** Promociones canjeadas en la venta: bloque PROMOCIÓN (la línea a $0 ya
+   *  va entre los artículos; aquí se explica el canje y qué incluye). */
+  promotions?: SaleReceiptPromotion[];
   /** Venta guardada en la terminal sin conexión, aún no enviada al servidor:
    *  el folio es provisional y el ticket lo dice. */
   pendingSync?: boolean;
@@ -859,6 +875,13 @@ function renderSale(p: ReceiptWriter, input: SaleReceiptInput): void {
   // existencia) y el cupón de primera recompra con su vigencia.
   if (input.membership) renderMembership(p, input.membership, cols);
 
+  // --- PROMOCIÓN (promo canjeada en esta venta; 27-oct-2026) ---
+  // Igual que MEMBRESÍA: qué promo se llevó, si la alcanzó con esta misma
+  // compra (canje en la misma compra) y qué incluye.
+  if (input.promotions && input.promotions.length > 0) {
+    renderPromotions(p, input.promotions, cols);
+  }
+
   p.line(sep);
   p.align('center');
   p.line('¡Gracias por su compra!');
@@ -918,6 +941,38 @@ function renderMembership(
     }
     for (const line of wrapWords(text, cols, 3)) p.line(line);
   }
+}
+
+const fmtPts = (n: number) =>
+  Math.round(n).toLocaleString('es-MX', { maximumFractionDigits: 0 });
+
+function renderPromotions(
+  p: ReceiptWriter,
+  promos: readonly SaleReceiptPromotion[],
+  cols: number,
+): void {
+  const sep = '-'.repeat(cols);
+  const indented = (text: string, indent: string, maxLines: number) =>
+    wrapWords(text, Math.max(8, cols - indent.length), maxLines).map(
+      (line) => indent + line,
+    );
+  p.line(sep);
+  p.align('left');
+  p.bold(true).line(promos.length > 1 ? 'PROMOCIONES' : 'PROMOCIÓN').bold(false);
+  promos.forEach((pr, i) => {
+    if (i > 0) p.line('');
+    for (const line of wrapWords(`${pr.code} - ${pr.name}`, cols, 2)) p.line(line);
+    const detalle = pr.grantedBySale
+      ? `Canjeada en esta misma compra: alcanzó los ${fmtPts(pr.minPointsRequired)} pts (${fmtPts(pr.pointsAtGrant)} acumulados)`
+      : `Canjeada (derecho ganado con ${fmtPts(pr.minPointsRequired)} pts)`;
+    for (const line of wrapWords(detalle, cols, 3)) p.line(line);
+    if (pr.items.length > 0) {
+      p.line('Incluye:');
+      for (const it of pr.items) {
+        for (const line of indented(`${it.quantity} x ${it.name}`, '  ', 2)) p.line(line);
+      }
+    }
+  });
 }
 
 // ============================================================================

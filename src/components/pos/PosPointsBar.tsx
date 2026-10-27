@@ -8,10 +8,16 @@
 // vigente del país de la sucursal; si el carrito cruza un umbral, lo avisa.
 
 import { Award, Gift, TrendingUp } from 'lucide-react';
+import { toast } from 'sonner';
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
 import { useCustomerPeriodStats } from '@/hooks/usePos';
-import { useCurrentPromotions } from '@/hooks/usePromotions';
+import {
+  useCurrentPromotions,
+  useReachablePromotionsForCustomer,
+} from '@/hooks/usePromotions';
+import { usePosCartStore } from '@/stores/pos-cart.store';
+import { reachablePromoToQuickProduct } from '@/lib/promoCart';
 
 interface PosPointsBarProps {
   customerId: string;
@@ -28,6 +34,15 @@ export function PosPointsBar({
 }: PosPointsBarProps) {
   const { data: stats, isLoading } = useCustomerPeriodStats(customerId);
   const { data: currentPromos = [] } = useCurrentPromotions(branchId);
+  // Canje en la misma compra (27-oct-2026): promos que alcanza con este
+  // carrito, con botón para agregarlas aquí mismo (también están arriba).
+  const { data: reachable = [] } = useReachablePromotionsForCustomer(
+    customerId,
+    branchId,
+    cartPoints,
+  );
+  const addItem = usePosCartStore((s) => s.addItem);
+  const cartItems = usePosCartStore((s) => s.cart.items);
 
   if (isLoading || !stats) {
     return (
@@ -112,10 +127,37 @@ export function PosPointsBar({
       {(crossedPromo.length > 0 || nextPromo != null) && (
         <div className="flex items-center justify-between gap-2 text-[11px] mt-1">
           {crossedPromo.length > 0 ? (
-            <span className="flex items-center gap-1 font-medium text-emerald-600">
+            <span className="flex flex-wrap items-center gap-1 font-medium text-emerald-600">
               <Gift className="size-3" />
-              ¡Con esta venta llega a{' '}
-              {Math.max(...crossedPromo).toLocaleString()} pts (promo)!
+              {reachable.length > 0 ? (
+                <>
+                  ¡Con esta venta alcanza{' '}
+                  {reachable.map((r) => r.code).join(', ')}!
+                  {reachable.map((r) => {
+                    const inCart = cartItems.some((it) => it.productId === r.productId);
+                    return (
+                      <button
+                        key={r.productId}
+                        type="button"
+                        disabled={inCart}
+                        onClick={() => {
+                          addItem(reachablePromoToQuickProduct(r), 1);
+                          toast.success(`${r.code} agregada: se canjea en esta misma compra al cobrar`);
+                        }}
+                        className="rounded border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
+                        title={inCart ? 'Ya está en el carrito' : `Agregar ${r.code} y canjearla en esta compra`}
+                      >
+                        {inCart ? `${r.code} en el carrito` : `Agregar ${r.code}`}
+                      </button>
+                    );
+                  })}
+                </>
+              ) : (
+                <>
+                  ¡Con esta venta llega a{' '}
+                  {Math.max(...crossedPromo).toLocaleString()} pts (promo)!
+                </>
+              )}
             </span>
           ) : (
             <span />

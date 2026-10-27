@@ -223,6 +223,8 @@ export interface Sale {
   /** Campaña de membresía aplicada a la venta (mig 168); null = ninguna.
    *  Ausente en APIs anteriores. */
   membership?: SaleMembership | null;
+  /** Promociones canjeadas en esta venta (bloque PROMOCIÓN del ticket). */
+  promotions?: SalePromotion[] | null;
 }
 
 export interface CreateSaleItemInput {
@@ -422,6 +424,11 @@ export interface PosCartItem {
    *  undefined = aún no se consultó (PosScreen lo completa en segundo plano
    *  para kit/pack/promocional); [] = se consultó y no tiene contenido. */
   components?: KitComponent[];
+  /** Promo que se alcanza CON ESTA compra (canje en la misma compra): aún no
+   *  hay derecho; nace y se canjea al cobrar. Si el carrito deja de alcanzar
+   *  `promoMinPoints`, el POS la retira. */
+  promoBySale?: boolean;
+  promoMinPoints?: number;
   lotId?: string;
   notes?: string;
 }
@@ -516,6 +523,19 @@ export interface PosMembershipCustomer {
 export interface PosMembershipOffersResponse {
   offers: PosMembershipOffer[];
   customer: PosMembershipCustomer | null;
+}
+
+/** Promoción canjeada en una venta (`Sale.promotions`, API 27-oct-2026). */
+export interface SalePromotion {
+  productId: string;
+  code: string;
+  name: string;
+  minPointsRequired: number;
+  /** Puntos del periodo con los que se ganó el derecho. */
+  pointsAtGrant: number;
+  /** true = alcanzada y canjeada en esta misma compra. */
+  grantedBySale: boolean;
+  items: Array<{ code: string; name: string; quantity: number }>;
 }
 
 export type SaleMembershipStatus = 'pending' | 'applied' | 'reverted' | 'failed';
@@ -632,6 +652,9 @@ export interface QuickProduct {
   /** Tope de cantidad en el carrito. Para promos canjeables = derechos
    *  disponibles del distribuidor (availableCount); sin dato, promo = 1. */
   maxQuantity?: number;
+  /** Promo alcanzada con la compra en curso (ver PosCartItem.promoBySale). */
+  promoBySale?: boolean;
+  promoMinPoints?: number;
   /**
    * TRUE solo para kits de inscripción reales (gate autoritativo, mig 037).
    * Dispara el flujo de enrolamiento de distribuidor en POS.

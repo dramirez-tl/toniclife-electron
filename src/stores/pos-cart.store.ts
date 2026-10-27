@@ -266,6 +266,8 @@ export const usePosCartStore = create<PosCartStore>()(
               event: product.event,
               maxQuantity: maxQty,
               components: product.components,
+              promoBySale: product.promoBySale,
+              promoMinPoints: product.promoMinPoints,
             });
             newItems = [...state.cart.items, newItem];
           }

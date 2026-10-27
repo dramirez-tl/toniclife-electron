@@ -48,6 +48,25 @@ export interface CurrentPromotion {
   items: Array<{ code: string; name: string; quantity: number }>;
 }
 
+/**
+ * Promo que el distribuidor ALCANZARÍA con la venta en curso (canje en la
+ * misma compra, 27-oct-2026): aún no tiene el derecho; nace y se canjea al
+ * cobrar si la promo va en el carrito.
+ */
+export interface ReachablePromotion {
+  productId: string;
+  code: string;
+  name: string;
+  description?: string;
+  minPointsRequired: number;
+  /** Puntos del periodo antes de esta venta. */
+  currentPoints: number;
+  /** currentPoints + puntos del carrito. */
+  projectedPoints: number;
+  consumesPoints: boolean;
+  items: Array<{ code: string; name: string; quantity: number }>;
+}
+
 /** Promo YA CANJEADA por el cliente, con dónde se cobró. */
 export interface RedeemedPromotionForCustomer {
   code: string;
@@ -107,6 +126,23 @@ class PromotionsApi {
       { params: { branchId } },
     );
     return data;
+  }
+
+  /**
+   * Promos que el distribuidor ALCANZARÍA con los puntos de la venta en curso
+   * (canje en la misma compra). No otorga nada: el derecho nace y se canjea
+   * al cobrar si la promo va en el carrito.
+   */
+  async listReachableForCustomer(
+    customerId: string,
+    branchId: string,
+    cartPoints: number,
+  ): Promise<ReachablePromotion[]> {
+    const { data } = await api.get<ReachablePromotion[]>(
+      `/pos/promotions/reachable/${customerId}`,
+      { params: { branchId, cartPoints: Math.max(0, Math.round(cartPoints)) } },
+    );
+    return data ?? [];
   }
 }
 
