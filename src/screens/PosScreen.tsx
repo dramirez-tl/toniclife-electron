@@ -98,7 +98,7 @@ import {
   toReceiptMembership,
 } from '@/lib/membership';
 import { toReceiptPromotions } from '@/lib/promoCart';
-import { usePosCartStore } from '@/stores/pos-cart.store';
+import { cartGrossTotal, usePosCartStore } from '@/stores/pos-cart.store';
 import {
   useStaffSession,
   STAFF_IDLE_TIMEOUT_MS,
@@ -663,10 +663,12 @@ export function PosScreen({
     };
   }, [cartItems, componentsCtx]);
 
-  // Re-valida el CUPÓN cuando cambia la base del descuento (subtotal +
-  // impuestos, antes de cupón): el % cambia con el total y la compra mínima
-  // puede dejar de cumplirse. Si ya no aplica, se retira con aviso.
-  const couponBase = Math.round((cart.subtotal + cart.taxAmount) * 100) / 100;
+  // Re-valida el CUPÓN cuando cambia la base del descuento: el TOTAL CON
+  // IMPUESTO del carrito antes del cupón (regla 29-oct-2026; subtotal +
+  // impuestos ya no sirven: quedan con el descuento aplicado y la base se
+  // encogería en cada re-validación). El % cambia con el total y la compra
+  // mínima puede dejar de cumplirse. Si ya no aplica, se retira con aviso.
+  const couponBase = cartGrossTotal(cart.items);
   const cartCouponCode = cart.couponCode;
   // El cliente asignado también es dependencia: un cupón personal deja de
   // aplicar si se cambia/quita el distribuidor de la venta.
@@ -1078,6 +1080,12 @@ export function PosScreen({
                   quantity: it.quantity,
                   unitPrice: it.unitPrice,
                   total: it.total,
+                  // Para el bloque de totales con cupón (lib/receiptTotals):
+                  // descuento manual de línea, si el precio incluye el IVA y
+                  // la tasa (solo los renglones con impuesto opinan).
+                  lineDiscount: it.discountAmount,
+                  taxIncluded: it.isIncludedInPrice,
+                  taxRate: it.taxRate,
                   components: comps?.map((c) => ({
                     name: c.name,
                     quantity: c.quantity * it.quantity,
@@ -1088,6 +1096,9 @@ export function PosScreen({
               // a $0 (no están en el carrito) y se imprimen como "Regalo".
               ...giftReceiptLines(membershipSale?.items ?? []),
             ],
+            // Subtotal e IVA ya con el descuento prorrateado y Descuento = D
+            // con impuesto (regla 29-oct-2026): mismo desglose que guarda el
+            // API y que imprime la reimpresión desde Ventas recientes.
             subtotal: cart.subtotal,
             // El descuento impreso incluye el del cupón (viaja aparte del
             // manual en el store; sin esto el ticket salía sin descuento).
@@ -1095,6 +1106,8 @@ export function PosScreen({
               (cart.couponCode ? cart.couponDiscount : cart.discountAmount) ?? 0,
             taxAmount: cart.taxAmount,
             total: cart.total,
+            // Con cupón el ticket imprime "Cupón <código>" (ver receipts.ts).
+            couponCode: cart.couponCode,
             payments: payments.map((p) => ({
               label: PAYMENT_LABELS[p.paymentMethod] ?? p.paymentMethod,
               amount: p.amount,
@@ -1236,12 +1249,19 @@ export function PosScreen({
         quantity: it.quantity,
         unitPrice: it.unitPrice,
         total: it.total,
+        // Bloque de totales con cupón (lib/receiptTotals): descuento manual
+        // de línea, si el precio incluye el IVA y la tasa (solo los renglones
+        // con impuesto opinan).
+        lineDiscount: it.discountAmount,
+        taxIncluded: it.isIncludedInPrice,
+        taxRate: it.taxRate,
       })),
       subtotal: cart.subtotal,
       discountAmount:
         (cart.couponCode ? cart.couponDiscount : cart.discountAmount) ?? 0,
       taxAmount: cart.taxAmount,
       total: cart.total,
+      couponCode: cart.couponCode,
       payments: payments.map((p) => ({
         label: labels[p.paymentMethod] ?? p.paymentMethod,
         amount: p.amount,

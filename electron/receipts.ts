@@ -17,6 +17,11 @@ import {
   sanitizeForPrinter,
 } from './escpos';
 import { buildLogoBitmapBytes, loadLogoDataUrl } from './logo';
+// Puro (sin Electron): el mismo bloque de totales que el carrito y el detalle.
+import {
+  buildReceiptTotalsRows,
+  receiptTotalsLabel,
+} from '../src/lib/receiptTotals';
 
 // ============================================================================
 // ESCRITOR DE TICKET: ESC/POS (Escpos) o HTML (HtmlReceipt, para PDF)
@@ -582,7 +587,21 @@ export interface SaleReceiptItemRow {
   sku?: string;
   quantity: number;
   unitPrice: number;
+  /** Lo que se imprime en el renglón: bruto CON impuesto (precio × cantidad
+   *  − descuento manual de línea; en US × (1 + tasa)), ANTES del cupón. */
   total: number;
+  /** Descuento MANUAL de línea en el espacio del precio (sin UI desde
+   *  ago-2026); NUNCA la parte del cupón prorrateada. Para el Subtotal del
+   *  bloque de totales con cupón. */
+  lineDiscount?: number;
+  /** true = el precio incluye el impuesto (MX); false = se añade (US). Decide
+   *  la variante del bloque de totales con cupón (ver lib/receiptTotals.ts);
+   *  sin dato se deduce por cuadre. */
+  taxIncluded?: boolean;
+  /** Tasa del renglón (decimal): solo los renglones CON impuesto opinan sobre
+   *  `taxIncluded` (un producto MX sin regla fiscal llega como "no incluido"
+   *  y mandaba el ticket a la variante US). */
+  taxRate?: number;
   /** Contenido de un kit/paquete/promo: lo que la sucursal debe ENTREGAR.
    *  quantity ya viene multiplicada por la cantidad de kits vendidos. */
   components?: { name: string; quantity: number }[];
@@ -646,10 +665,15 @@ export interface SaleReceiptInput {
   currencySymbol: string;
 
   items: SaleReceiptItemRow[];
+  /** Base sin impuesto YA con el descuento prorrateado (regla 29-oct-2026). */
   subtotal: number;
+  /** Descuento global (cupón o manual) CON impuesto: lo que ve el cliente. */
   discountAmount: number;
+  /** Impuesto YA con el descuento prorrateado; subtotal + taxAmount = total. */
   taxAmount: number;
   total: number;
+  /** Código del cupón aplicado: la fila del descuento dice "Cupón X". */
+  couponCode?: string;
 
   payments: SaleReceiptPaymentRow[];
   amountReceived?: number;
@@ -824,14 +848,36 @@ function renderSale(p: ReceiptWriter, input: SaleReceiptInput): void {
   p.line(sep);
 
   // --- TOTALES ---
-  p.line(labelValue('Subtotal', fmt(input.subtotal), cols));
-  if (input.discountAmount > 0) {
-    p.line(labelValue('Descuento', fmt(-input.discountAmount), cols));
+  // Subtotal e IVA llegan YA con el descuento prorrateado y Descuento es el
+  // monto CON impuesto (regla 29-oct-2026). Presentación (decisión de
+  // Sistemas, 29-oct 11:40; lib/receiptTotals.ts, misma en carrito y detalle):
+  //   - sin cupón/descuento: Subtotal, IVA, TOTAL, como siempre;
+  //   - con cupón y precio con IVA incluido: Subtotal BRUTO (total + D),
+  //     "Cupón X" −D, TOTAL y debajo "IVA incluido" con el impuesto neto
+  //     (también en 0.00, como la reimpresión del admin);
+  //   - con cupón e impuesto añadido (US): Subtotal sin impuesto, Descuento en
+  //     el espacio del precio, Tax y TOTAL.
+  // La fila IVA/Tax en 0 no se imprime (como siempre: antes era
+  // `if (taxAmount > 0)`); las pantallas sí la muestran. "Cupón <código>"
+  // solo si cabe junto al importe; si no, "Cupón" (labelValue recortaría el
+  // importe con un código largo: coupons.code admite 40 caracteres).
+  for (const row of buildReceiptTotalsRows({
+    items: input.items,
+    subtotal: input.subtotal,
+    discountAmount: input.discountAmount,
+    taxAmount: input.taxAmount,
+    total: input.total,
+    couponCode: input.couponCode,
+  })) {
+    if (row.kind === 'tax' && !(row.amount > 0)) continue;
+    const value = fmt(row.amount);
+    const text = labelValue(receiptTotalsLabel(row, value, cols), value, cols);
+    if (row.kind === 'total') {
+      p.bold(true).line(text).bold(false);
+    } else {
+      p.line(text);
+    }
   }
-  if (input.taxAmount > 0) {
-    p.line(labelValue('IVA', fmt(input.taxAmount), cols));
-  }
-  p.bold(true).line(labelValue('TOTAL', fmt(input.total), cols)).bold(false);
   {
     const moneda = currencyDisplayName(input.currencyCode);
     if (moneda) p.line(labelValue('Moneda', moneda, cols));

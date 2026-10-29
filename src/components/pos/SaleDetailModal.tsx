@@ -46,13 +46,19 @@ import { posApi } from '@/lib/posApi';
 import { getApiErrorMessage } from '@/lib/apiError';
 import { formatDateTime } from '@/lib/date';
 import { canInvoiceSale } from '@/lib/invoiceEligibility';
-import type { Sale, SaleEventTicket } from '@/types/pos';
+import type { Sale, SaleEventTicket, SaleItem } from '@/types/pos';
 import {
   INVOICE_STATUS_LABELS,
   firstRecipient,
   looksLikeEmail,
 } from '@/lib/invoiceEmail';
 import { resolveComponentsForLines } from '@/lib/kitComponents';
+import {
+  buildReceiptTotalsRows,
+  savedSaleItemGross,
+  savedSaleItemTaxIncluded,
+  type ReceiptTotalsRow,
+} from '@/lib/receiptTotals';
 import {
   formatCouponPercent,
   formatIsoDateDmy,
@@ -85,6 +91,56 @@ interface SaleDetailModalProps {
   onAddDelivery?: (sale: Sale) => void;
   /** Texto del botón cuando hay un envío consolidado abierto. */
   attachLabel?: string;
+}
+
+/**
+ * Importe del renglón tal como lo imprime el ticket (pantalla y reimpresión):
+ * con cupón o descuento global, el BRUTO (precio × cantidad, con impuesto),
+ * igual que el ticket original de caja — el total guardado ya trae descontada
+ * su parte del cupón (regla 29-oct-2026) y es el bloque de totales quien
+ * explica el descuento. Sin descuento, el total guardado, como siempre.
+ */
+function saleLineTotal(sale: Sale, it: SaleItem): number {
+  if (it.membershipGift === true) return 0;
+  if ((Number(sale.discountAmount) || 0) > 0) {
+    return savedSaleItemGross(it, savedSaleItemTaxIncluded(it));
+  }
+  return Number(it.total);
+}
+
+/** Filas del bloque de totales (lib/receiptTotals.ts): misma presentación
+ *  que el ticket impreso y el carrito. */
+function saleTotalsRows(sale: Sale): ReceiptTotalsRow[] {
+  return buildReceiptTotalsRows({
+    items: sale.items.map((it) => ({
+      quantity: it.quantity,
+      unitPrice: Number(it.unitPrice),
+      gift: it.membershipGift === true,
+      taxIncluded: savedSaleItemTaxIncluded(it),
+    })),
+    subtotal: Number(sale.subtotal),
+    discountAmount: Number(sale.discountAmount) || 0,
+    taxAmount: Number(sale.taxAmount),
+    total: Number(sale.total),
+    couponCode: sale.couponCode,
+  });
+}
+
+/** Etiqueta en pantalla de una fila de totales. */
+function saleRowLabel(row: ReceiptTotalsRow, sale: Sale): string {
+  switch (row.kind) {
+    case 'discount':
+      if (row.code) return `Cupón ${row.code}`;
+      return sale.discountReason
+        ? `Descuento (${sale.discountReason})`
+        : 'Descuento';
+    case 'tax':
+      return 'Impuestos';
+    case 'taxIncluded':
+      return 'IVA incluido';
+    default:
+      return 'Subtotal';
+  }
 }
 
 const PAYMENT_LABELS: Record<string, string> = {
@@ -249,7 +305,11 @@ export function SaleDetailModal({
           sku: it.productSku,
           quantity: it.quantity,
           unitPrice: gift ? 0 : Number(it.unitPrice),
-          total: gift ? 0 : Number(it.total),
+          // Con cupón, el bruto del renglón (como el ticket original).
+          total: saleLineTotal(current, it),
+          // Si el precio incluye el impuesto, deducido del renglón guardado
+          // (bloque de totales con cupón, lib/receiptTotals).
+          taxIncluded: savedSaleItemTaxIncluded(it),
           gift,
           // Cantidad impresa = por unidad × cantidad de la línea.
           components: comps?.map((c) => ({
@@ -262,6 +322,7 @@ export function SaleDetailModal({
       discountAmount: Number(current.discountAmount) || 0,
       taxAmount: Number(current.taxAmount),
       total: Number(current.total),
+      couponCode: current.couponCode ?? undefined,
       payments: current.payments.map((p) => ({
         label: PAYMENT_LABELS[p.paymentMethod] ?? p.paymentMethod,
         amount: Number(p.amount),
@@ -687,7 +748,7 @@ export function SaleDetailModal({
                           {it.quantity}
                         </TableCell>
                         <TableCell className="px-3 py-1.5 text-right tabular-nums">
-                          {fmt(Number(it.total))}
+                          {fmt(saleLineTotal(sale, it))}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -695,22 +756,35 @@ export function SaleDetailModal({
                 </Table>
               </div>
 
-              {/* Totales */}
+              {/* Totales con la misma presentación que el ticket impreso
+                  (decisión de Sistemas, 29-oct-2026; lib/receiptTotals.ts):
+                  sin cupón, Subtotal / Impuestos / Total como siempre; con
+                  cupón y precio con IVA, Subtotal bruto / Cupón −D / Total e
+                  "IVA incluido"; con impuesto añadido (US), Subtotal sin
+                  impuesto / Descuento / Impuestos / Total. Lo guardado por el
+                  API no cambia (subtotal e impuestos ya prorrateados). */}
               <div className="space-y-1 text-sm">
-                <Row label="Subtotal" value={fmt(Number(sale.subtotal))} />
-                {Number(sale.discountAmount) > 0 && (
-                  <Row
-                    label="Descuento"
-                    value={`- ${fmt(Number(sale.discountAmount))}`}
-                  />
+                {saleTotalsRows(sale).map((row) =>
+                  row.kind === 'total' ? (
+                    <div
+                      key={row.kind}
+                      className="flex justify-between pt-1 border-t font-bold text-foreground"
+                    >
+                      <span>Total</span>
+                      <span className="tabular-nums">{fmt(row.amount)}</span>
+                    </div>
+                  ) : (
+                    <Row
+                      key={row.kind}
+                      label={saleRowLabel(row, sale)}
+                      value={
+                        row.kind === 'discount'
+                          ? `- ${fmt(-row.amount)}`
+                          : fmt(row.amount)
+                      }
+                    />
+                  ),
                 )}
-                <Row label="Impuestos" value={fmt(Number(sale.taxAmount))} />
-                <div className="flex justify-between pt-1 border-t font-bold text-foreground">
-                  <span>Total</span>
-                  <span className="tabular-nums">
-                    {fmt(Number(sale.total))}
-                  </span>
-                </div>
               </div>
 
               {/* Pagos */}

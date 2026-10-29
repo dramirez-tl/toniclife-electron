@@ -189,10 +189,18 @@ export interface Sale {
   posLicenseLabel?: string;
   posLicenseKey?: string;
   status: PosSaleStatus;
+  /** Base sin impuesto YA con el descuento global prorrateado (regla
+   *  29-oct-2026); subtotal + taxAmount = total. */
   subtotal: number;
+  /** Descuento global (cupón o manual) CON impuesto. Los renglones
+   *  (`items[].discountAmount`) ya traen su parte: NO sumarlos como dos
+   *  descuentos distintos. */
   discountAmount: number;
   discountPercent?: number;
+  /** Motivo del descuento manual; con cupón, el API guarda el código. */
   discountReason?: string;
+  /** Código del cupón aplicado (mig 108); ausente sin cupón. */
+  couponCode?: string;
   taxAmount: number;
   total: number;
   paymentMethod: PosPaymentMethod;
@@ -231,6 +239,9 @@ export interface CreateSaleItemInput {
   productId: string;
   quantity: number;
   lotId?: string;
+  /** Descuento de línea: % sobre precio × cantidad, o importe de TODA la
+   *  línea a centavos (el API lo redondea igual y le suma la parte del
+   *  descuento global al guardar el renglón). */
   discountPercent?: number;
   discountAmount?: number;
   notes?: string;
@@ -404,6 +415,11 @@ export interface PosCartItem {
   taxRate: number;
   taxAmount: number;
   isIncludedInPrice: boolean;
+  /** Descuento de LÍNEA manual (sin UI desde ago-2026). `discountPercent`
+   *  va sobre precio × cantidad y se redondea a centavos; `discountAmount`
+   *  es el importe de TODA la línea (no por unidad), a centavos, tal como lo
+   *  recibe el API (items[].discountAmount, máx. 2 decimales) y lo manda
+   *  PosScreen. El store lo reescribe con el descuento calculado. */
   discountPercent?: number;
   discountAmount?: number;
   subtotal: number;
@@ -445,16 +461,24 @@ export interface PosCart {
   attendeeEmail?: string;
   priceTypeId?: string;
   isPublicPrice?: boolean;
+  /** Σ base (sin impuesto) de los renglones YA con el descuento global
+   *  (cupón o manual) prorrateado — regla 29-oct-2026, igual que
+   *  pos_sales.subtotal. subtotal + taxAmount = total al centavo. */
   subtotal: number;
+  /** Descuento manual: % sobre el TOTAL CON IMPUESTO del carrito. */
   discountPercent?: number;
+  /** Descuento manual D, CON impuesto (lo que ve el cliente). */
   discountAmount?: number;
   discountReason?: string;
-  /** Cupón aplicado (validado server-side). El descuento del cupón NO pasa
-   *  por discountAmount: se resta del total SIN recalcular impuestos, para
-   *  que el total del cliente coincida exactamente con el de la venta. */
+  /** Cupón aplicado (validado server-side). `couponDiscount` es el descuento
+   *  D CON impuesto que calculó el API sobre el total con impuesto del
+   *  carrito (`cartGrossTotal`); el store lo prorratea por renglón, así que
+   *  subtotal y taxAmount quedan ya con descuento. No pasa por
+   *  discountAmount (cupón y manual se excluyen). */
   couponCode?: string;
   couponDiscount?: number;
   couponDescription?: string;
+  /** Σ impuesto de los renglones YA con el descuento prorrateado. */
   taxAmount: number;
   total: number;
   totalPoints: number;

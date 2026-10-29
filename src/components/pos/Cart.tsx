@@ -22,7 +22,8 @@ import {
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { usePosCartStore } from '@/stores/pos-cart.store';
+import { cartGrossTotal, usePosCartStore } from '@/stores/pos-cart.store';
+import { buildReceiptTotalsRows } from '@/lib/receiptTotals';
 import { posApi } from '@/lib/posApi';
 import { formatIncludes, isKitLikeType } from '@/lib/kitComponents';
 import { eventLine } from '@/lib/eventInfo';
@@ -118,8 +119,27 @@ export function Cart({
   const itemCount = cart.items.reduce((sum, it) => sum + it.quantity, 0);
   const fmt = (n: number) => posApi.formatCurrency(n, currencySymbol);
   const hasCoupon = !!cart.couponCode && (cart.couponDiscount ?? 0) > 0;
-  // Compat: descuento manual solo puede venir de estado viejo; ya no hay UI.
-  const hasManualDiscount = !!cart.discountAmount && cart.discountAmount > 0;
+  // Filas del bloque de totales (lib/receiptTotals.ts): misma presentación
+  // que el ticket impreso y el detalle de venta. El descuento manual solo
+  // puede venir de estado viejo (ya no hay UI); se muestra igual que el
+  // cupón pero con la etiqueta "Descuento".
+  const totalsRows = buildReceiptTotalsRows({
+    items: cart.items.map((it) => ({
+      quantity: it.quantity,
+      unitPrice: it.unitPrice,
+      lineDiscount: it.discountAmount,
+      taxIncluded: it.isIncludedInPrice,
+      // Solo los renglones con impuesto opinan sobre taxIncluded (un
+      // producto MX sin regla fiscal llega como "no incluido").
+      taxRate: it.taxRate,
+    })),
+    subtotal: cart.subtotal,
+    discountAmount:
+      (cart.couponCode ? cart.couponDiscount : cart.discountAmount) ?? 0,
+    taxAmount: cart.taxAmount,
+    total: cart.total,
+    couponCode: cart.couponCode,
+  });
   // "Bolsa" de membresía elegida desde el catálogo: mientras no se cumpla
   // (distribuidor, que le aplique, puntos) el cobro queda bloqueado.
   const bag = useMembershipBag(membershipBranchId);
@@ -131,11 +151,13 @@ export function Cart({
     setValidatingCoupon(true);
     setCouponError(null);
     try {
-      // Base del descuento: subtotal + impuestos (lo que paga el cliente),
-      // ANTES de cupón. El API re-valida al crear la venta.
+      // Base del descuento: el TOTAL CON IMPUESTO del carrito antes de
+      // cualquier descuento (lo que paga el cliente; regla 29-oct-2026). No
+      // sirve subtotal + impuestos: esos ya quedan con el descuento aplicado.
+      // El API re-valida al crear la venta.
       const result = await posApi.validateCoupon({
         code,
-        subtotal: Math.round((cart.subtotal + cart.taxAmount) * 100) / 100,
+        subtotal: cartGrossTotal(cart.items),
         customerId: cart.customerId,
       });
       if (!result.valid || !result.coupon) {
@@ -594,36 +616,69 @@ export function Cart({
         </div>
       )}
 
-      {/* Totales + Cobrar */}
+      {/* Totales + Cobrar. El store trae subtotal e impuestos YA con el
+          descuento (cupón o manual) prorrateado (regla 29-oct-2026). Lo que se
+          MUESTRA sigue la decisión de Sistemas (29-oct 11:40), igual que el
+          ticket impreso y el detalle (lib/receiptTotals.ts): sin cupón,
+          Subtotal / Impuestos / Total como siempre; con cupón y precio con
+          IVA, Subtotal bruto / Cupón −D / Total y la línea "IVA incluido";
+          con impuesto añadido (US), Subtotal sin impuesto / Descuento /
+          Impuestos / Total. */}
       <div className="border-t p-4 space-y-2">
-        <div className="flex justify-between text-sm text-muted-foreground">
-          <span>Subtotal</span>
-          <span className="tabular-nums">{fmt(cart.subtotal)}</span>
-        </div>
-        {hasManualDiscount && (
-          <div className="flex justify-between text-sm text-emerald-600">
-            <span>Descuento</span>
-            <span className="tabular-nums">- {fmt(cart.discountAmount!)}</span>
-          </div>
-        )}
-        {hasCoupon && (
-          <div className="flex justify-between text-sm text-emerald-600">
-            <span>
-              Cupón <span className="font-mono">{cart.couponCode}</span>
-            </span>
-            <span className="tabular-nums">- {fmt(cart.couponDiscount!)}</span>
-          </div>
-        )}
-        <div className="flex justify-between text-sm text-muted-foreground">
-          <span>Impuestos</span>
-          <span className="tabular-nums">{fmt(cart.taxAmount)}</span>
-        </div>
-        <div className="flex justify-between items-baseline pt-2 border-t">
-          <span className="font-semibold text-foreground">Total</span>
-          <span className="text-xl font-bold text-primary tabular-nums">
-            {fmt(cart.total)}
-          </span>
-        </div>
+        {totalsRows.map((row) => {
+          switch (row.kind) {
+            case 'discount':
+              return (
+                <div
+                  key={row.kind}
+                  className="flex justify-between text-sm text-emerald-600"
+                >
+                  <span>
+                    {row.code ? (
+                      <>
+                        Cupón <span className="font-mono">{row.code}</span>
+                      </>
+                    ) : (
+                      row.label
+                    )}
+                  </span>
+                  <span className="tabular-nums">- {fmt(-row.amount)}</span>
+                </div>
+              );
+            case 'total':
+              return (
+                <div
+                  key={row.kind}
+                  className="flex justify-between items-baseline pt-2 border-t"
+                >
+                  <span className="font-semibold text-foreground">Total</span>
+                  <span className="text-xl font-bold text-primary tabular-nums">
+                    {fmt(row.amount)}
+                  </span>
+                </div>
+              );
+            case 'taxIncluded':
+              return (
+                <div
+                  key={row.kind}
+                  className="flex justify-between text-[11px] text-muted-foreground"
+                >
+                  <span>IVA incluido</span>
+                  <span className="tabular-nums">{fmt(row.amount)}</span>
+                </div>
+              );
+            default:
+              return (
+                <div
+                  key={row.kind}
+                  className="flex justify-between text-sm text-muted-foreground"
+                >
+                  <span>{row.kind === 'tax' ? 'Impuestos' : 'Subtotal'}</span>
+                  <span className="tabular-nums">{fmt(row.amount)}</span>
+                </div>
+              );
+          }
+        })}
         {cart.totalPoints > 0 && (
           <div className="flex justify-between text-[11px] text-muted-foreground">
             <span>Puntos de la venta</span>

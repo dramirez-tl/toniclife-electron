@@ -1,6 +1,9 @@
 // stores/pos-cart.store.ts - Zustand store del carrito POS.
-// Portado verbatim de toniclife-next/src/stores/pos-cart.store.ts — la logica
-// de calculo de impuestos/descuentos/totales es identica para mantener paridad.
+// Portado de toniclife-next/src/stores/pos-cart.store.ts. Desde el 29-oct-2026
+// los totales siguen la regla del API (createSale / pos/lib/sale-discount.lib):
+// el descuento global (cupón o manual) va SOBRE EL TOTAL CON IMPUESTO y se
+// prorratea por renglón. El cálculo vive en `lib/saleDiscount.ts`, ESPEJO 1:1
+// de la lib del API; ver `calculateCartTotals`.
 
 import { create } from 'zustand';
 import type {
@@ -9,6 +12,18 @@ import type {
   PosCartItem,
   QuickProduct,
 } from '@/types/pos';
+import {
+  applyGlobalDiscount,
+  fixedDiscount,
+  percentDiscount,
+  roundHalfUp2,
+  saleGrossTotal,
+  type SaleDiscountLine,
+} from '@/lib/saleDiscount';
+
+// Reparto proporcional con residuo al último renglón (lib/saleDiscount.ts);
+// se re-exporta para quien lo tomaba del store.
+export { prorateDiscount } from '@/lib/saleDiscount';
 
 interface PosCartStore {
   cart: PosCart;
@@ -68,16 +83,10 @@ const DEFAULT_TAX_RATE = 0; // El API manda el rate correcto por pais.
 // Redondeo a 2 decimales (dinero). Con sales tax US (impuesto añadido) el total
 // sale con >2 decimales (ej. 48 * 0.0852 = 52.0896); sin redondear, el monto del
 // pago se rechazaba en el API ("payments.0.amount must be a number ...").
-// MITAD HACIA ARRIBA pese al float (7.175 se guarda como 7.17499999…):
-// se aplana el ruido binario a 6 decimales antes de redondear. MISMA función
-// que el API (pos/lib/money.lib.ts): el pago se arma con este total y el API
-// lo valida al centavo contra el suyo (Santa Fe Springs, 13-oct-2026).
-const round2 = (n: number): number => {
-  if (!Number.isFinite(n)) return 0;
-  const sign = n < 0 ? -1 : 1;
-  const cents = Math.round(Number((Math.abs(n) * 100).toFixed(6)));
-  return (sign * cents) / 100;
-};
+// MITAD HACIA ARRIBA pese al float (7.175 se guarda como 7.17499999…): MISMA
+// función que el API (pos/lib/money.lib.ts): el pago se arma con este total y
+// el API lo valida al centavo contra el suyo (Santa Fe Springs, 13-oct-2026).
+const round2 = roundHalfUp2;
 
 const initialCart: PosCart = {
   items: [],
@@ -97,14 +106,25 @@ const initialCart: PosCart = {
 const itemMaxQuantity = (item: PosCartItem): number | undefined =>
   item.maxQuantity ?? (item.productType === 'promotional' ? 1 : undefined);
 
-const calculateItemTotal = (item: PosCartItem): PosCartItem => {
+/**
+ * Importes de UN renglón. El descuento de LÍNEA manual (sin UI desde
+ * ago-2026; latente) se calcula IGUAL que el API en createSale: a centavos
+ * con la mitad hacia arriba, y `discountAmount` es el importe de TODA la
+ * línea (no por unidad), que es lo que recibe CreateSaleDto.items[]
+ * .discountAmount (máx. 2 decimales) y lo que PosScreen manda tal cual.
+ * Sin redondear, un medio centavo exacto (0.03 × 50 % = 0.015) dejaba el
+ * bruto del renglón 1¢ arriba del API (0.02 vs 0.01) y T, D y el total
+ * dejaban de cuadrar; multiplicar por la cantidad volvía a multiplicar al
+ * recalcular (cambio de cantidad). Idempotente.
+ */
+export const calculateItemTotal = (item: PosCartItem): PosCartItem => {
   const lineAmount = item.unitPrice * item.quantity;
   let lineDiscount = 0;
 
   if (item.discountPercent) {
-    lineDiscount = lineAmount * (item.discountPercent / 100);
+    lineDiscount = round2(lineAmount * (item.discountPercent / 100));
   } else if (item.discountAmount) {
-    lineDiscount = item.discountAmount * item.quantity;
+    lineDiscount = round2(item.discountAmount);
   }
 
   const afterDiscount = lineAmount - lineDiscount;
@@ -132,7 +152,63 @@ const calculateItemTotal = (item: PosCartItem): PosCartItem => {
   };
 };
 
-const calculateCartTotals = (cart: PosCart): PosCart => {
+/**
+ * Renglón del carrito tal como lo ve la lib de descuentos, que es EXACTAMENTE
+ * como createSale del API arma sus `discountLines`: importe = precio ×
+ * cantidad SIN redondear, descuento de línea manual ya a centavos (lo fija
+ * calculateItemTotal), tasa decimal y si el precio incluye el impuesto.
+ */
+export const toDiscountLine = (item: PosCartItem): SaleDiscountLine => ({
+  amount: item.unitPrice * item.quantity,
+  lineDiscount: item.discountAmount ?? 0,
+  rate: item.taxRate ?? DEFAULT_TAX_RATE,
+  taxIncluded: item.isIncludedInPrice,
+});
+
+/**
+ * Total CON impuesto del carrito ANTES del descuento global: T = round2(Σ
+ * bruto_i SIN redondear por renglón) = round2(Σ item.total), la MISMA fórmula
+ * que `saleGrossTotal` del API (pos/lib/sale-discount.lib.ts) y que el cobro
+ * de siempre (2.0.86 y anteriores): dos renglones US de $10 @ 8.25 % dan
+ * 21.65 (10.825 + 10.825), no 21.66. Es la BASE del cupón (lo que se manda a
+ * validar al API) y del descuento manual, y no cambia al aplicar el cupón.
+ * `subtotal + taxAmount` ya NO sirve como base: quedan con el descuento
+ * aplicado y la re-validación del cupón se haría sobre un total cada vez
+ * menor. El API valida el pago al centavo contra su T: si el API cambiara su
+ * fórmula, lib/saleDiscount.ts cambia en la MISMA versión.
+ */
+export const cartGrossTotal = (items: PosCartItem[]): number =>
+  saleGrossTotal(items.map(toDiscountLine));
+
+/**
+ * Totales del carrito. REGLA (Dirección/Sistemas, 29-oct-2026): el descuento
+ * global —cupón o descuento manual— se calcula SOBRE EL TOTAL CON IMPUESTO
+ * (T) y se prorratea entre los renglones en proporción a su bruto; de cada
+ * neto se separa la base (neto / (1 + tasa)) y el impuesto (el resto). Por
+ * eso `subtotal` y `taxAmount` quedan YA con el descuento aplicado,
+ * `couponDiscount` / `discountAmount` es D (CON impuesto: lo que ve el
+ * cliente en el ticket) y `total` = T − D = subtotal + taxAmount al centavo.
+ *
+ * MISMA regla y mismo redondeo que el API en createSale, vía
+ * lib/saleDiscount.ts (espejo 1:1 de pos/lib/sale-discount.lib.ts): T =
+ * round2(Σ bruto sin redondear); brutos a centavos con el residuo en el
+ * último renglón con importe; D prorrateado sobre esos brutos; base_i del
+ * neto exacto e impuesto_i = neto_i − base_i; cabecera subtotal = Σ base_i,
+ * impuesto = total − subtotal, total = T − D. El total mostrado coincide con
+ * el de la venta al centavo. Ejemplos canónicos (spec del API, portados a
+ * pos-cart.store.test.ts):
+ * - MX, $332 con IVA 16 % incluido, cupón 30 %: D 99.60 → neto 232.40, base
+ *   200.34, IVA 32.06.
+ * - MX mixto, $391 (IVA 0 %) + $332 (IVA 16 %), cupón 10 %: D 72.30 (partes
+ *   39.10 y 33.20) → subtotal 609.49, IVA 41.21, total 650.70.
+ * - US, $100 sin impuesto incluido, sales tax 8.25 %, cupón 10 %: bruto
+ *   108.25, D 10.83 → base 90.00, impuesto 7.42, total 97.42.
+ * - US sin descuento, 2 × $10 @ 8.25 %: T 21.65 (brutos 10.83 + 10.82);
+ *   $70 + $30 @ 10.25 %: T 110.25, cabecera 100.00 / 10.25.
+ * Los `items` conservan sus importes brutos (son para la UI); al API viaja el
+ * carrito + el código del cupón (o el descuento manual) y él recalcula.
+ */
+export const calculateCartTotals = (cart: PosCart): PosCart => {
   // Carrito vacío = venta nueva: ningún descuento/cupón debe sobrevivir (el
   // cupón de la venta anterior se colaba a la siguiente al quitar items).
   if (cart.items.length === 0) {
@@ -154,32 +230,32 @@ const calculateCartTotals = (cart: PosCart): PosCart => {
       applyMembership: true,
     };
   }
-  const subtotal = cart.items.reduce((sum, item) => sum + item.subtotal, 0);
 
-  let globalDiscount = 0;
-  if (cart.discountPercent) {
-    globalDiscount = subtotal * (cart.discountPercent / 100);
+  const lines = cart.items.map(toDiscountLine);
+  const grossTotal = saleGrossTotal(lines);
+
+  // Cupón y descuento manual se excluyen (el API tampoco acepta ambos): con
+  // cupón, el manual se descarta. El descuento del cupón ya lo calculó el API
+  // sobre T (porcentaje con tope, o monto fijo) y aquí solo se acota; el
+  // manual porcentual se calcula sobre T. Nunca negativo ni mayor que T.
+  // El porcentaje manual va ANTES que el monto: el store reescribe
+  // `discountAmount` con el monto derivado del porcentaje en cada recálculo
+  // (si el carrito cambia, D cambia). El API recibe ambos y toma primero el
+  // monto, que es ese mismo D: el resultado es idéntico.
+  const hasCoupon = !!cart.couponCode;
+  let discount = 0;
+  if (hasCoupon) {
+    discount = fixedDiscount(grossTotal, cart.couponDiscount ?? 0);
+  } else if (cart.discountPercent) {
+    discount = percentDiscount(grossTotal, cart.discountPercent);
   } else if (cart.discountAmount) {
-    globalDiscount = cart.discountAmount;
+    discount = fixedDiscount(grossTotal, cart.discountAmount);
   }
 
-  let taxAmount: number;
-  if (globalDiscount > 0 && subtotal > 0) {
-    const discountFactor = 1 - globalDiscount / subtotal;
-    taxAmount = cart.items.reduce((sum, item) => {
-      const rate = item.taxRate ?? DEFAULT_TAX_RATE;
-      return sum + item.subtotal * discountFactor * rate;
-    }, 0);
-  } else {
-    taxAmount = cart.items.reduce((sum, item) => sum + item.taxAmount, 0);
-  }
-
-  // El descuento de CUPÓN se resta del total SIN recalcular impuestos: así el
-  // total mostrado coincide EXACTO con el que calcula el API en createSale
-  // (subtotal - descuento + impuestos íntegros). El API valida el cupón sobre
-  // subtotal+impuestos, por eso el % del cupón "incluye" el impuesto.
-  const couponDiscount = cart.couponCode ? (cart.couponDiscount ?? 0) : 0;
-  const total = subtotal - globalDiscount + taxAmount - couponDiscount;
+  // Prorrateo por renglón y desglose base / impuesto, idéntico al API:
+  // subtotal = Σ base_i, taxAmount = total − subtotal, total = T − D.
+  const amounts = applyGlobalDiscount(lines, discount);
+  const { subtotal, tax: taxAmount, total } = amounts;
 
   const totalPoints = cart.items.reduce(
     (sum, item) => sum + item.points * item.quantity,
@@ -192,12 +268,19 @@ const calculateCartTotals = (cart: PosCart): PosCart => {
 
   return {
     ...cart,
-    subtotal: round2(subtotal),
-    discountAmount: globalDiscount ? round2(globalDiscount) : undefined,
-    taxAmount: round2(taxAmount),
-    total: round2(Math.max(0, total)),
+    subtotal,
+    taxAmount,
+    total,
     totalPoints,
     totalBusinessVolume,
+    ...(hasCoupon
+      ? {
+          couponDiscount: discount,
+          discountPercent: undefined,
+          discountAmount: undefined,
+          discountReason: undefined,
+        }
+      : { discountAmount: discount > 0 ? discount : undefined }),
   };
 };
 

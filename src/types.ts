@@ -232,7 +232,16 @@ export interface SaleReceiptPayload {
     sku?: string;
     quantity: number;
     unitPrice: number;
+    /** Bruto CON impuesto del renglón ANTES del cupón (lo que se imprime). */
     total: number;
+    /** Descuento MANUAL de línea en el espacio del precio (nunca la parte del
+     *  cupón prorrateada). */
+    lineDiscount?: number;
+    /** true = el precio incluye el impuesto (MX); false = se añade (US). */
+    taxIncluded?: boolean;
+    /** Tasa del renglón (decimal): solo los renglones con impuesto opinan
+     *  sobre `taxIncluded`. */
+    taxRate?: number;
     /** Contenido de un kit/paquete/promo (lo que se entrega); quantity ya
      *  viene multiplicada por la cantidad de kits vendidos. */
     components?: Array<{ name: string; quantity: number }>;
@@ -240,10 +249,16 @@ export interface SaleReceiptPayload {
      *  del precio unitario. */
     gift?: boolean;
   }>;
+  /** Base sin impuesto YA con el descuento prorrateado (regla 29-oct-2026). */
   subtotal: number;
+  /** Descuento global (cupón o manual) CON impuesto: lo que ve el cliente. */
   discountAmount: number;
+  /** Impuesto YA con el descuento prorrateado; subtotal + taxAmount = total. */
   taxAmount: number;
   total: number;
+  /** Código del cupón aplicado: la fila del descuento del ticket dice
+   *  "Cupón X" (sin él, "Descuento"). */
+  couponCode?: string;
   payments: Array<{ label: string; amount: number }>;
   amountReceived?: number;
   changeGiven: number;
