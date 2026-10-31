@@ -513,6 +513,7 @@ export function CorteModal({
                   branchId={branchId}
                   branchName={branchName}
                   day={to}
+                  branchTz={branchTz}
                   currencySymbol={currencySymbol}
                   invoicingEnabled={invoicingEnabled}
                 />
@@ -528,6 +529,7 @@ export function CorteModal({
                   branchName={branchName}
                   from={from}
                   to={to}
+                  branchTz={branchTz}
                   currencySymbol={currencySymbol}
                   invoicingEnabled={invoicingEnabled}
                 />

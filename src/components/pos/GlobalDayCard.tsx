@@ -3,8 +3,9 @@
 //
 // Se muestra en "Ventas recientes" cuando el rango es un solo día y en el
 // corte del día. Lee GET /pos/billing/global/days?from=día&to=día y traduce
-// cada estado a una leyenda en español. El POS solo EMITE la global de un día
-// cerrado: cancelar o reexpedir es de Contabilidad desde el admin.
+// cada estado a una leyenda en español. El POS solo EMITE la global (de un día
+// terminado o del DÍA EN CURSO, cuando la caja ya impactó todas sus ventas;
+// 31-oct-2026): cancelar o reexpedir es de Contabilidad desde el admin.
 
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -20,6 +21,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getApiErrorMessage } from '@/lib/apiError';
+import { todayLocal } from '@/lib/date';
 import { useGlobalDays } from '@/hooks/usePos';
 import { posApi } from '@/lib/posApi';
 import {
@@ -39,6 +41,8 @@ interface GlobalDayCardProps {
   invoicingEnabled: boolean;
   /** Variante compacta para el panel lateral. */
   compact?: boolean;
+  /** Zona horaria de la sucursal: decide si `day` es HOY (aviso al emitir). */
+  branchTz?: string;
 }
 
 export function GlobalDayCard({
@@ -48,6 +52,7 @@ export function GlobalDayCard({
   currencySymbol,
   invoicingEnabled,
   compact = false,
+  branchTz,
 }: GlobalDayCardProps) {
   // Sondea cada 5 s mientras la global del día se timbra en segundo plano.
   const { data, isLoading, isError, refetch } = useGlobalDays(
@@ -63,6 +68,9 @@ export function GlobalDayCard({
     (d) => d.localDate === day,
   );
   const fmt = (n: number) => posApi.formatCurrency(n, currencySymbol);
+  // La global de HOY se puede emitir (31-oct-2026): se avisa que debe ser al
+  // terminar de impactar las ventas del día.
+  const isToday = day === todayLocal(branchTz);
 
   // Descarga el PDF/XML de la global emitida y lo abre con el visor del SO
   // (mismo camino que la factura de una venta: bytes por el API → IPC).
@@ -121,6 +129,7 @@ export function GlobalDayCard({
           textSize={textSize}
           fmt={fmt}
           invoicingEnabled={invoicingEnabled}
+          isToday={isToday}
           onEmit={() => setModalOpen(true)}
           onOpenFile={(ext) => void handleOpenFile(ext)}
           downloading={downloading}
@@ -133,6 +142,7 @@ export function GlobalDayCard({
         branchId={branchId}
         branchName={branchName}
         date={day}
+        isToday={isToday}
         currencySymbol={currencySymbol}
         onStamped={() => void refetch()}
       />
@@ -145,6 +155,7 @@ function DayStatus({
   textSize,
   fmt,
   invoicingEnabled,
+  isToday,
   onEmit,
   onOpenFile,
   downloading,
@@ -153,6 +164,8 @@ function DayStatus({
   textSize: string;
   fmt: (n: number) => string;
   invoicingEnabled: boolean;
+  /** El día es HOY en la sucursal: emitir solo al terminar de impactar ventas. */
+  isToday: boolean;
   onEmit: () => void;
   onOpenFile: (ext: 'pdf' | 'xml') => void;
   downloading: 'pdf' | 'xml' | null;
@@ -240,6 +253,16 @@ function DayStatus({
               Por emitir: {row.pendingForms.map((f) => `forma ${f.paymentForm} · ${f.ticketCount} tickets · ${fmt(Number(f.total))}`).join(' · ')}
             </p>
           )}
+          {isToday && (
+            <p className={`${textSize} flex items-start gap-1 text-amber-700`}>
+              <Info className="size-3.5 shrink-0 mt-0.5" />
+              <span>
+                Global de hoy: emítela solo cuando ya estén impactadas todas
+                las ventas del día. Lo que se venda después se emite aparte,
+                en otra global del mismo día.
+              </span>
+            </p>
+          )}
           <Button
             size="sm"
             className="w-full"
@@ -310,10 +333,11 @@ function DayStatus({
         </p>
       );
     case 'open':
+      // Día futuro (API >= 31-oct-2026) o, con un API anterior, el día en curso.
       return (
         <p className={`${muted} flex items-center gap-1`}>
           <Clock className="size-3.5 shrink-0" />
-          Se podrá emitir mañana (día en curso).
+          Todavía no se puede emitir la global de este día.
         </p>
       );
     case 'pending_reissue':

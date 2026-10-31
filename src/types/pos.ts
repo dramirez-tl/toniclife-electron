@@ -988,7 +988,9 @@ export const GLOBAL_DAY_STATUS_LABELS: Record<GlobalDayStatus, string> = {
   no_sales: 'Sin ventas que declarar',
   ready: 'Lista para emitir',
   blocked: 'Bloqueada',
-  open: 'Día en curso',
+  // 'open' = día futuro (API >= 31-oct-2026) o el día en curso con un API
+  // anterior (hasta entonces la global solo se emitía de días cerrados).
+  open: 'Aún no se puede emitir',
   emitted: 'Factura global emitida',
   cancelled: 'Global cancelada',
   pending_reissue: 'Pendiente de reexpedir',

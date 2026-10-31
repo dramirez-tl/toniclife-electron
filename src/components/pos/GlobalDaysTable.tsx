@@ -2,7 +2,8 @@
 // día de un rango, con el botón para emitir la de los días listos. Es la
 // versión "por día" del GlobalDayCard para el corte de varios días: el
 // cajero ve de un vistazo qué días ya tienen su global y cuáles faltan.
-// El POS solo EMITE; cancelar o reexpedir es de Contabilidad desde el admin.
+// El POS solo EMITE (también la del día en curso, al terminar de impactar las
+// ventas; 31-oct-2026); cancelar o reexpedir es de Contabilidad desde el admin.
 
 import { useState } from 'react';
 import { BookCheck, CheckCircle2, Clock, Info, TriangleAlert } from 'lucide-react';
@@ -16,6 +17,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useGlobalDays } from '@/hooks/usePos';
+import { todayLocal } from '@/lib/date';
 import { posApi } from '@/lib/posApi';
 import {
   GLOBAL_BLOCK_REASON_LABELS,
@@ -33,6 +35,8 @@ interface GlobalDaysTableProps {
   currencySymbol: string;
   /** Interruptor "Facturación" de la terminal; apagado = no se emite. */
   invoicingEnabled: boolean;
+  /** Zona horaria de la sucursal: decide qué día es HOY (aviso al emitir). */
+  branchTz?: string;
 }
 
 export function GlobalDaysTable({
@@ -42,6 +46,7 @@ export function GlobalDaysTable({
   to,
   currencySymbol,
   invoicingEnabled,
+  branchTz,
 }: GlobalDaysTableProps) {
   const { data, isLoading, isError, refetch } = useGlobalDays(
     branchId,
@@ -50,6 +55,8 @@ export function GlobalDaysTable({
   );
   const [emitDay, setEmitDay] = useState<string | null>(null);
   const fmt = (n: number) => posApi.formatCurrency(n, currencySymbol);
+  // La global de HOY también se emite (31-oct-2026), al terminar de impactar.
+  const today = todayLocal(branchTz);
 
   // Sin respuesta (API viejo, terminal sin acceso): no se muestra nada.
   if (isError) return null;
@@ -104,7 +111,7 @@ export function GlobalDaysTable({
                     {d.localDate}
                   </TableCell>
                   <TableCell className="px-3 py-1.5 text-xs">
-                    <DayStatusCell row={d} />
+                    <DayStatusCell row={d} isToday={d.localDate === today} />
                   </TableCell>
                   <TableCell className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">
                     {d.ticketCount}
@@ -143,6 +150,7 @@ export function GlobalDaysTable({
         branchId={branchId}
         branchName={branchName}
         date={emitDay ?? to}
+        isToday={emitDay === today}
         currencySymbol={currencySymbol}
         onStamped={() => void refetch()}
       />
@@ -150,7 +158,14 @@ export function GlobalDaysTable({
   );
 }
 
-function DayStatusCell({ row }: { row: GlobalDayStatusRow }) {
+function DayStatusCell({
+  row,
+  isToday,
+}: {
+  row: GlobalDayStatusRow;
+  /** La fila es HOY: la global se emite al terminar de impactar las ventas. */
+  isToday: boolean;
+}) {
   switch (row.status) {
     case 'emitted':
       return (
@@ -172,6 +187,7 @@ function DayStatusCell({ row }: { row: GlobalDayStatusRow }) {
         <span className="text-foreground">
           {GLOBAL_DAY_STATUS_LABELS.ready}
           {row.lateEmission ? ' · emisión tardía' : ''}
+          {isToday ? ' · hoy: al terminar de impactar las ventas' : ''}
         </span>
       );
     case 'blocked':
@@ -191,7 +207,7 @@ function DayStatusCell({ row }: { row: GlobalDayStatusRow }) {
       return (
         <span className="flex items-center gap-1 text-muted-foreground">
           <Clock className="size-3.5 shrink-0" />
-          Día en curso (mañana)
+          {GLOBAL_DAY_STATUS_LABELS.open}
         </span>
       );
     case 'pending_reissue':

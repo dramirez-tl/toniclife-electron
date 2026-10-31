@@ -14,6 +14,9 @@
 //    segundo plano; se sondea GET status (por forma de pago). Si responde 409
 //    CFDI_GLOBAL_PREVIEW_STALE se recarga la vista previa. El POS no cancela
 //    ni reexpide globales: eso es de Contabilidad en el admin.
+// 4) Desde el 31-oct-2026 también se emite la global del DÍA EN CURSO: la caja
+//    la pide cuando ya impactó todas sus ventas (aviso `isToday`); lo vendido
+//    después entra en otra global del mismo día y forma de pago.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -55,6 +58,8 @@ interface GlobalInvoiceModalProps {
   branchName: string;
   /** Día local de la sucursal (YYYY-MM-DD). */
   date: string;
+  /** `date` es HOY en la sucursal: aviso de emitir al terminar de impactar ventas. */
+  isToday?: boolean;
   currencySymbol: string;
   /** Tras timbrar con éxito (la tarjeta del día se refresca aquí). */
   onStamped?: () => void;
@@ -91,6 +96,7 @@ export function GlobalInvoiceModal({
   branchId,
   branchName,
   date,
+  isToday = false,
   currencySymbol,
   onStamped,
 }: GlobalInvoiceModalProps) {
@@ -406,6 +412,18 @@ export function GlobalInvoiceModal({
                 <Alert variant="destructive">
                   <AlertTriangle />
                   <AlertDescription>{stampError}</AlertDescription>
+                </Alert>
+              )}
+
+              {isToday && (
+                <Alert>
+                  <Info />
+                  <AlertDescription>
+                    Global del día en curso (hoy): emítela solo cuando ya
+                    estén impactadas todas las ventas de hoy. Lo que se venda
+                    después no entra en esta global; se emite aparte, en otra
+                    global del mismo día.
+                  </AlertDescription>
                 </Alert>
               )}
 

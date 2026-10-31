@@ -479,6 +479,7 @@ export function RecentSales({
             branchId={branchId}
             branchName={branchName}
             day={range.to}
+            branchTz={branchTz}
             currencySymbol={currencySymbol}
             invoicingEnabled={invoicingEnabled}
             compact
