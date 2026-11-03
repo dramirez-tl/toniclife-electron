@@ -67,7 +67,8 @@ const METHODS: Array<{ method: PosPaymentMethod; label: string }> = [
   { method: PosPaymentMethod.CASHBACK, label: 'Cashback' },
   { method: PosPaymentMethod.PROMOTION, label: 'Promocion' },
   { method: PosPaymentMethod.USD_CASH, label: 'USD Efectivo' },
-  { method: PosPaymentMethod.DEPOSIT, label: 'Deposito' },
+  // "Deposito" se retiró del cobro el 3-nov-2026 (Diego): las ventas viejas con
+  // ese método siguen mostrándose en detalle, corte y reportes.
   { method: PosPaymentMethod.UNDEFINED, label: 'Por definir' },
 ];
 
