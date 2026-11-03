@@ -32,6 +32,8 @@ export interface StampRetryState {
   saleNumber: string;
   fiscalData: CreateFiscalDataInput;
   invoicePaymentMethod: 'PUE' | 'PPD';
+  /** La venta tiene un cobro "Por definir": el API exige PPD (PUE deshabilitado). */
+  ppdRequired?: boolean;
   error: string;
 }
 
@@ -150,6 +152,7 @@ export function StampRetryModal({
             catalogs={catalogs}
             paymentMethod={paymentMethod}
             onPaymentMethodChange={setPaymentMethod}
+            ppdRequired={state.ppdRequired === true}
             disabled={retrying}
           />
         </div>

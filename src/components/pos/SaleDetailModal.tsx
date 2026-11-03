@@ -154,7 +154,7 @@ const PAYMENT_LABELS: Record<string, string> = {
   promotion: 'Promocion',
   usd_cash: 'USD Efectivo',
   mixed: 'Mixto',
-  undefined: 'Sin definir',
+  undefined: 'Por definir',
 };
 
 export function SaleDetailModal({

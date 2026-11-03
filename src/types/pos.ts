@@ -323,6 +323,8 @@ export interface DailySalesSummary {
   totalUsdCash: number;
   totalDeposit?: number;
   totalMixed: number;
+  /** Cobros "Por definir" (método undefined); ausente en APIs anteriores al 3-nov-2026. */
+  totalUndefined?: number;
   totalRefunds: number;
   refundsCount: number;
   averageTicket: number;
@@ -999,7 +1001,7 @@ export const GLOBAL_DAY_STATUS_LABELS: Record<GlobalDayStatus, string> = {
 /** Motivos de bloqueo del día (GlobalDayStatusDto.blockReason). */
 export const GLOBAL_BLOCK_REASON_LABELS: Record<string, string> = {
   tickets:
-    'Hay tickets del día con bloqueos (p. ej. forma de pago sin clave SAT); revísalos en la vista previa.',
+    'Hay tickets del día con bloqueos (p. ej. producto sin regla de IVA o cobro sin clave SAT); revísalos en la vista previa.',
   terminals_off:
     'Alguna terminal de la sucursal tiene la facturación apagada; todas deben estar encendidas.',
   attempt_in_progress:
@@ -1008,6 +1010,8 @@ export const GLOBAL_BLOCK_REASON_LABELS: Record<string, string> = {
     'El último intento quedó en error; Contabilidad debe revisarlo desde el admin.',
   uncovered_tickets:
     'La global emitida no incluye todas las ventas del día; Contabilidad debe reexpedirla desde el admin.',
+  payment_pending:
+    'Solo hay tickets con cobro "Por definir": Contabilidad define su método de pago en el admin o los factura nominativos PPD.',
 };
 
 /** Motivos por los que un ticket queda FUERA de la global (excluded.reason). */
@@ -1016,6 +1020,9 @@ export const GLOBAL_EXCLUDED_REASON_LABELS: Record<string, string> = {
   zero_total: 'Ticket en $0',
   credit_sale: 'Venta a crédito (PPD)',
   already_in_global: 'Ya está en otra global',
+  // Contabilidad (3-nov-2026): el cobro "Por definir" ya no bloquea el día.
+  payment_pending:
+    'Cobro "Por definir": define su método de pago en el admin o factúralo nominativo PPD',
   // Contabilidad (20-oct-2026): estos cobros no se globalizan.
   cashback: 'Pagado con cashback (no se globaliza)',
   promotion: 'Pagado con promoción (no se globaliza)',

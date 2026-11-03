@@ -56,8 +56,10 @@ interface FiscalDataFieldsProps {
   catalogs?: { regimes: SatCatalogItem[]; cfdiUses: SatCatalogItem[] };
   paymentMethod: 'PUE' | 'PPD';
   onPaymentMethodChange: (pm: 'PUE' | 'PPD') => void;
-  /** false = PPD no se ofrece (venta sin pago a crédito): queda fijo PUE. */
+  /** false = PPD no se ofrece: queda fijo PUE. */
   allowPpd?: boolean;
+  /** true = la venta tiene un cobro a crédito o "Por definir": PUE deshabilitado. */
+  ppdRequired?: boolean;
   disabled?: boolean;
 }
 
@@ -68,6 +70,7 @@ export function FiscalDataFields({
   paymentMethod,
   onPaymentMethodChange,
   allowPpd = true,
+  ppdRequired = false,
   disabled = false,
 }: FiscalDataFieldsProps) {
   return (
@@ -148,24 +151,45 @@ export function FiscalDataFields({
       </FField>
       <FField label="Metodo de pago CFDI" full>
         {allowPpd ? (
-          <div className="flex gap-2">
-            {(['PUE', 'PPD'] as const).map((pm) => (
-              <Button
-                key={pm}
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => onPaymentMethodChange(pm)}
-                disabled={disabled}
-                className={cn(
-                  'flex-1',
-                  paymentMethod === pm &&
-                    'border-primary bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary',
-                )}
-              >
-                {pm}
-              </Button>
-            ))}
+          <div className="space-y-1">
+            <div
+              className="flex gap-2"
+              role="group"
+              aria-label="Metodo de pago CFDI"
+            >
+              {(['PUE', 'PPD'] as const).map((pm) => (
+                <Button
+                  key={pm}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onPaymentMethodChange(pm)}
+                  disabled={disabled || (ppdRequired && pm === 'PUE')}
+                  aria-pressed={paymentMethod === pm}
+                  title={
+                    ppdRequired && pm === 'PUE'
+                      ? 'La venta tiene un cobro "Por definir": debe timbrarse PPD'
+                      : undefined
+                  }
+                  className={cn(
+                    'flex-1',
+                    paymentMethod === pm &&
+                      'border-primary bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary',
+                  )}
+                >
+                  {pm}
+                  {pm === 'PUE' ? ' — una exhibicion' : ' — diferido'}
+                </Button>
+              ))}
+            </div>
+            {/* Contabilidad (3-nov-2026): PPD = forma 99 y complemento después. */}
+            <p className="text-xs text-muted-foreground">
+              {ppdRequired
+                ? 'Cobro "Por definir": la factura debe ser PPD (forma 99); Contabilidad emite despues el complemento de pago con el cobro real.'
+                : paymentMethod === 'PPD'
+                  ? 'PPD: forma de pago 99 "Por definir"; Contabilidad emite despues el complemento de pago con el cobro real.'
+                  : 'PUE: pago en una sola exhibicion con la forma de pago del cobro.'}
+            </p>
           </div>
         ) : (
           // Sin pago a crédito la factura es PUE (pago en una sola

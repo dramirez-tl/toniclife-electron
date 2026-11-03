@@ -68,7 +68,7 @@ const METHODS: Array<{ method: PosPaymentMethod; label: string }> = [
   { method: PosPaymentMethod.PROMOTION, label: 'Promocion' },
   { method: PosPaymentMethod.USD_CASH, label: 'USD Efectivo' },
   { method: PosPaymentMethod.DEPOSIT, label: 'Deposito' },
-  { method: PosPaymentMethod.UNDEFINED, label: 'Sin definir' },
+  { method: PosPaymentMethod.UNDEFINED, label: 'Por definir' },
 ];
 
 const QUICK_AMOUNTS = [50, 100, 200, 500, 1000];
@@ -167,6 +167,22 @@ export function PaymentModal({
   const fmt = (n: number) => posApi.formatCurrency(n, currencySymbol);
   const isCash =
     method === PosPaymentMethod.CASH || method === PosPaymentMethod.USD_CASH;
+  // Cobro "Por definir" (Contabilidad, 3-nov-2026): la factura sale PPD con
+  // forma 99 y el complemento de pago se emite al definir el cobro; el API
+  // rechaza PUE en ese caso.
+  const ppdRequired = splitMode
+    ? splitPayments.some(
+        (p) =>
+          p.method === PosPaymentMethod.UNDEFINED &&
+          (parseFloat(p.amount) || 0) > 0,
+      )
+    : method === PosPaymentMethod.UNDEFINED;
+  // Al poner o quitar "Por definir" el método CFDI sigue al cobro: PPD forzado
+  // mientras haya cobro por definir, PUE al quitarlo (el cajero puede volver a
+  // elegir PPD a mano después).
+  useEffect(() => {
+    setInvoicePaymentMethod(ppdRequired ? 'PPD' : 'PUE');
+  }, [ppdRequired]);
 
   const receivedNum = useMemo(() => {
     const n = parseFloat(received);
@@ -637,7 +653,11 @@ export function PaymentModal({
                     />
                   </FField>
                   <FField label="Metodo de pago CFDI" full>
-                    <div className="flex gap-2">
+                    <div
+                      className="flex gap-2"
+                      role="group"
+                      aria-label="Metodo de pago CFDI"
+                    >
                       {(['PUE', 'PPD'] as const).map((pm) => (
                         <Button
                           key={pm}
@@ -645,6 +665,13 @@ export function PaymentModal({
                           variant="outline"
                           size="sm"
                           onClick={() => setInvoicePaymentMethod(pm)}
+                          disabled={ppdRequired && pm === 'PUE'}
+                          aria-pressed={invoicePaymentMethod === pm}
+                          title={
+                            ppdRequired && pm === 'PUE'
+                              ? 'Cobro "Por definir": la factura debe ser PPD'
+                              : undefined
+                          }
                           className={cn(
                             'flex-1',
                             invoicePaymentMethod === pm &&
@@ -658,6 +685,13 @@ export function PaymentModal({
                         </Button>
                       ))}
                     </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {ppdRequired
+                        ? 'Cobro "Por definir": la factura debe ser PPD (forma 99); Contabilidad emite despues el complemento de pago con el cobro real.'
+                        : invoicePaymentMethod === 'PPD'
+                          ? 'PPD: forma de pago 99 "Por definir"; Contabilidad emite despues el complemento de pago.'
+                          : 'PUE: pago en una sola exhibicion con la forma de pago del cobro.'}
+                    </p>
                   </FField>
                 </div>
               )}

@@ -1038,6 +1038,7 @@ export function PosScreen({
         usd_cash: 'Efectivo USD',
         cashback: 'Monedero',
         promotion: 'Promoción',
+        undefined: 'Por definir',
       };
       const hadCash = payments.some((p) => p.paymentMethod === 'cash');
       const cashReceived = payments.reduce(
@@ -1164,6 +1165,12 @@ export function PosScreen({
             saleNumber: result.saleNumber,
             fiscalData: invoice.fiscalData,
             invoicePaymentMethod: invoice.invoicePaymentMethod,
+            // Cobro "Por definir" => el reintento no debe ofrecer PUE.
+            ppdRequired: payments.some(
+              (p) =>
+                String(p.paymentMethod) === 'undefined' &&
+                Number(p.amount) > 0,
+            ),
             error:
               se.response?.data?.message ??
               'No se pudo timbrar la factura automaticamente.',
@@ -1231,6 +1238,7 @@ export function PosScreen({
       usd_cash: 'Efectivo USD',
       cashback: 'Monedero',
       promotion: 'Promoción',
+      undefined: 'Por definir',
     };
     const cashReceived = payments.reduce((s, p) => s + (p.amountReceived ?? 0), 0);
     const cashPaid = payments

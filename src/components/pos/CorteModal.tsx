@@ -232,6 +232,8 @@ export function CorteModal({
         { label: 'USD efectivo', value: summary.totalUsdCash },
         { label: 'Deposito', value: summary.totalDeposit ?? 0 },
         { label: 'Mixto', value: summary.totalMixed },
+        // Cobros "Por definir": la forma real se captura después en el admin.
+        { label: 'Por definir', value: summary.totalUndefined ?? 0 },
       ].filter((r) => Number(r.value) > 0)
     : [];
 

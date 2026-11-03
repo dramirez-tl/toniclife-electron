@@ -8,6 +8,8 @@
 // factura global y que sea del mes natural en curso; el API lo vuelve a
 // validar (fail-closed) y aquí se refleja con invoiceEligibility. NUNCA se
 // manda acknowledgeGlobal desde el POS.
+// Método CFDI (Contabilidad, 3-nov-2026): quien factura elige PUE o PPD; con
+// un cobro "Por definir" el API exige PPD (forma 99, complemento después).
 
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -27,6 +29,7 @@ import { posApi } from '@/lib/posApi';
 import { getApiErrorMessage } from '@/lib/apiError';
 import { formatDateTime } from '@/lib/date';
 import { notifyInvoiceStamped } from '@/lib/invoiceEmail';
+import { PosPaymentMethod } from '@/types/pos';
 import {
   INVOICE_INELIGIBLE_LABELS,
   invoiceEligibility,
@@ -126,13 +129,24 @@ export function InvoiceSaleModal({
     };
   }, [open, saleId, customerId, saleRfc, prefilledFor]);
 
-  // Siempre PUE: en el POS "T. Credito" (método `credit`) es TARJETA de crédito,
-  // un cobro recibido en el momento (forma SAT 04), no una venta a crédito.
-  // El 13-oct-2026 se forzaba PPD por ese método y Naucalpan/327 no podían
-  // facturar; el API aplica la misma regla.
+  // PUE por defecto; PPD solo cuando la venta tiene un cobro "Por definir"
+  // (el API rechaza PUE ahí). OJO: "T. Credito" (método `credit`) es TARJETA
+  // de crédito, cobro recibido en el momento (forma SAT 04), no una venta a
+  // crédito: no obliga PPD (el 13-oct-2026 se forzaba y Naucalpan/327 no
+  // podían facturar). El cajero puede cambiar a PPD si Contabilidad lo pide.
+  // Misma regla que el API: componente "Por definir" con importe > 0; sin
+  // filas de cobro (ventas migradas) manda la cabecera de la venta.
+  const ppdRequired =
+    !!sale &&
+    ((sale.payments ?? []).some(
+      (p) =>
+        p.paymentMethod === PosPaymentMethod.UNDEFINED && Number(p.amount) > 0,
+    ) ||
+      ((sale.payments ?? []).length === 0 &&
+        sale.paymentMethod === PosPaymentMethod.UNDEFINED));
   useEffect(() => {
-    if (open) setPaymentMethod('PUE');
-  }, [open, saleId]);
+    if (open) setPaymentMethod(ppdRequired ? 'PPD' : 'PUE');
+  }, [open, saleId, ppdRequired]);
 
   const eligibility = sale
     ? invoiceEligibility({
@@ -156,7 +170,7 @@ export function InvoiceSaleModal({
         ...normalizeFiscalForm(fiscal),
         customerId: sale.customerId,
       });
-      const stamped = await posApi.stampSale(sale.id, 'PUE');
+      const stamped = await posApi.stampSale(sale.id, paymentMethod);
       // Avisa también si el correo salió o no (el API la manda al timbrar);
       // relee la venta porque la respuesta del timbrado no trae el envío.
       void notifyInvoiceStamped(sale.id, sale.saleNumber, stamped);
@@ -269,7 +283,7 @@ export function InvoiceSaleModal({
                   catalogs={catalogs}
                   paymentMethod={paymentMethod}
                   onPaymentMethodChange={setPaymentMethod}
-                  allowPpd={false}
+                  ppdRequired={ppdRequired}
                   disabled={stamping || !eligibility?.eligible}
                 />
               )}
