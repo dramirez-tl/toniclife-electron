@@ -3,6 +3,7 @@
 // `api` del Electron (Bearer = deviceToken de licencia).
 
 import axios from 'axios';
+import { CashierError } from '@/lib/apiError';
 import { api } from './api';
 import { parseMembershipOffersResponse } from '@/lib/membership';
 import type {
@@ -175,6 +176,65 @@ function mapApiProduct(p: any): QuickProduct {
   };
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
+
+/** Filtro de caja del corte (mismo contrato que GET pos/sales/summary). */
+export interface PosRegisterFilter {
+  posLicenseId?: string;
+  capturedVia?: 'terminal' | 'usuario';
+}
+
+/**
+ * Descarga un .xlsx del API: bytes + nombre del Content-Disposition (o uno
+ * estable). Con responseType 'arraybuffer' el cuerpo de un 4xx/5xx también
+ * llega como bytes: se decodifica el JSON del API para que el toast muestre
+ * su mensaje en español; un 404 = el servidor aún no tiene ese reporte.
+ */
+async function downloadXlsx(
+  path: string,
+  params: Record<string, string | undefined>,
+  fallbackName: string,
+): Promise<{ bytes: ArrayBuffer; filename: string }> {
+  let res;
+  try {
+    res = await api.get<ArrayBuffer>(path, {
+      params,
+      responseType: 'arraybuffer',
+      // El API arma el libro con exceljs: un rango de 31 días puede tardar.
+      timeout: SALE_WRITE_TIMEOUT_MS,
+    });
+  } catch (err) {
+    const e = err as { response?: { status?: number; data?: unknown } };
+    const d = e?.response?.data;
+    if (e?.response && (d instanceof ArrayBuffer || ArrayBuffer.isView(d))) {
+      try {
+        e.response.data = JSON.parse(
+          new TextDecoder('utf-8').decode(d as ArrayBuffer | ArrayBufferView),
+        );
+      } catch {
+        e.response.data = undefined;
+      }
+    }
+    if (e?.response?.status === 404) {
+      throw new CashierError(
+        'El servidor aún no tiene este reporte; pide a Sistemas actualizar el API.',
+      );
+    }
+    throw err;
+  }
+  const disposition = String(res.headers?.['content-disposition'] ?? '');
+  const m = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition);
+  const fromHeader = m?.[1] ? decodeURIComponent(m[1].trim()) : '';
+  return { bytes: res.data, filename: fromHeader || fallbackName };
+}
+
+/** Sello de hora para nombres de respaldo: el archivo en temporales debe ser
+ *  distinto en cada descarga (si Excel tiene abierto el anterior, main no lo
+ *  puede sobrescribir y abriría el viejo). */
+function xlsxStamp(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
 
 class PosApi {
   // --------------------------------------------------------------------------
@@ -885,6 +945,38 @@ class PosApi {
         fromHeader ||
         `VENTAS_POR_PRODUCTO_${startDate.replaceAll('-', '')}_${endDate.replaceAll('-', '')}.xlsx`,
     };
+  }
+
+  /** Excel del corte en el formato del sistema anterior
+   *  (REPORTE_CORTE_CAJA_SUCURSAL), de la sucursal de la terminal; con filtro
+   *  de caja el corte es de esa caja. Sustituye al CSV del corte. */
+  async getCashCutLegacyXlsx(
+    branchId: string,
+    startDate: string,
+    endDate: string,
+    filter: PosRegisterFilter = {},
+  ): Promise<{ bytes: ArrayBuffer; filename: string }> {
+    return downloadXlsx(
+      '/pos/reports/cash-cut/legacy-xlsx',
+      { startDate, endDate, branchId, ...filter },
+      `REPORTE_CORTE_CAJA_SUCURSAL_${xlsxStamp()}.xlsx`,
+    );
+  }
+
+  /** Excel TICKETS_POR_PRODUCTO: una fila por partida de cada ticket del
+   *  corte (ID venta, cliente, producto, precio, cantidad, IVA, subtotal,
+   *  total) con un color por ticket, como lo revisa Contabilidad. */
+  async getSalesItemsXlsx(
+    branchId: string,
+    startDate: string,
+    endDate: string,
+    filter: PosRegisterFilter = {},
+  ): Promise<{ bytes: ArrayBuffer; filename: string }> {
+    return downloadXlsx(
+      '/pos/reports/sales-items/xlsx',
+      { startDate, endDate, branchId, ...filter },
+      `TICKETS_POR_PRODUCTO_${xlsxStamp()}.xlsx`,
+    );
   }
 
   /** Estados/departamentos del país (endpoint público, catálogo tonic.states)

@@ -1,7 +1,10 @@
 // CorteModal - Resumen del corte (ventas + desglose por metodo de pago).
-// Portado de toniclife-next CorteDiaModal con dos acciones:
+// Portado de toniclife-next CorteDiaModal con estas acciones:
 //   - Imprimir corte en la impresora termica configurada (ESC/POS).
-//   - Descargar como CSV (Blob URL + anchor click).
+//   - Excel "formato anterior" (REPORTE_CORTE_CAJA_SUCURSAL, el mismo del
+//     admin) y Excel "tickets por producto" (una fila por partida, un color
+//     por ticket): los arma el API y se abren con Excel (invoice:openPdf).
+//     Sustituyen al CSV que se armaba en el renderer (3-nov-2026).
 // El corte respeta el MISMO rango De/Hasta y el MISMO filtro de caja que el
 // panel "Ventas recientes" (estado compartido en PosScreen): un solo día =
 // "Corte del día"; varios días = "Corte de ventas".
@@ -11,7 +14,6 @@ import {
   X,
   ClipboardList,
   Printer,
-  Download,
   Monitor,
   FileSpreadsheet,
 } from 'lucide-react';
@@ -47,6 +49,7 @@ import {
 } from '@/hooks/usePos';
 import { posApi } from '@/lib/posApi';
 import { formatTime, localDateOf } from '@/lib/date';
+import { openXlsxFromApi } from '@/lib/openXlsx';
 import { isCfdiCountry } from '@/lib/invoiceEligibility';
 import {
   ALL_TERMINALS,
@@ -135,7 +138,10 @@ export function CorteModal({
   );
 
   const [printing, setPrinting] = useState(false);
+  // Excel del corte en formato anterior (sustituye al CSV).
   const [exporting, setExporting] = useState(false);
+  // Excel de tickets por producto (una fila por partida, color por ticket).
+  const [exportingItems, setExportingItems] = useState(false);
   // Ventas por producto con folio (CEDEAS): lo que la tienda resurte.
   const [exportingProducts, setExportingProducts] = useState(false);
   const [expandedProducts, setExpandedProducts] = useState<Set<string>>(
@@ -150,31 +156,51 @@ export function CorteModal({
   const sales: Sale[] = salesResp?.data ?? [];
   const fmt = (n: number) => posApi.formatCurrency(n, currencySymbol);
 
-  const busy = printing || exporting || exportingProducts;
+  const busy = printing || exporting || exportingItems || exportingProducts;
   const hasData = !!summary && !loadingSummary;
+  // Filtro de caja efectivo para los Excel (el mismo que resumen y lista).
+  const xlsxFilter = terminalFilterParams(effectiveFilter);
 
   /** Excel VENTAS_POR_PRODUCTO de la sucursal: se guarda en temporales y se
    *  abre con Excel (mismo camino que el PDF de la factura). */
   async function handleDownloadProductsXlsx() {
     setExportingProducts(true);
     try {
-      const { bytes, filename } = await posApi.getSalesByProductXlsx(
-        branchId,
-        from,
-        to,
-      );
-      const r = await window.toniclife.invoice.openPdf(
-        filename,
-        new Uint8Array(bytes),
-      );
-      if (r.ok) toast.success('Excel de ventas por producto generado.');
-      else toast.error('No se pudo abrir el Excel', { description: r.error });
-    } catch (err) {
-      toast.error(
-        `No se pudo generar el Excel: ${err instanceof Error ? err.message : String(err)}`,
+      await openXlsxFromApi(
+        () => posApi.getSalesByProductXlsx(branchId, from, to),
+        'Excel de ventas por producto generado.',
       );
     } finally {
       setExportingProducts(false);
+    }
+  }
+
+  /** Excel del corte en el formato del sistema anterior
+   *  (REPORTE_CORTE_CAJA_SUCURSAL): el mismo que baja el admin en Reportes ›
+   *  Corte de Caja, acotado a la sucursal y a la caja seleccionada. */
+  async function handleDownloadCashCutXlsx() {
+    setExporting(true);
+    try {
+      await openXlsxFromApi(
+        () => posApi.getCashCutLegacyXlsx(branchId, from, to, xlsxFilter),
+        'Excel del corte (formato anterior) generado.',
+      );
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  /** Excel TICKETS_POR_PRODUCTO: cada ticket desglosado por producto con su
+   *  IVA, subtotal y total; un color por ticket (revisión de Contabilidad). */
+  async function handleDownloadItemsXlsx() {
+    setExportingItems(true);
+    try {
+      await openXlsxFromApi(
+        () => posApi.getSalesItemsXlsx(branchId, from, to, xlsxFilter),
+        'Excel de tickets por producto generado.',
+      );
+    } finally {
+      setExportingItems(false);
     }
   }
 
@@ -269,51 +295,6 @@ export function CorteModal({
       toast.success('Corte enviado a la impresora.');
     } else {
       toast.error(`Error de impresion: ${r.error}`);
-    }
-  }
-
-  function handleDownloadCsv() {
-    if (!summary) return;
-    setExporting(true);
-    try {
-      const csv = buildCorteCsv({
-        branchName,
-        from,
-        to,
-        terminalLabel: cajaLabel,
-        branchTz,
-        summary,
-        paymentRows,
-        terminalRows: multiTerminal ? terminalRows : [],
-        saleTerminal: multiTerminal ? saleTerminal : undefined,
-        sales,
-      });
-      // BOM UTF-8 para que Excel detecte acentos correctamente.
-      const blob = new Blob(['﻿' + csv], {
-        type: 'text/csv;charset=utf-8',
-      });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = corteCsvFilename({
-        branchName,
-        from,
-        to,
-        terminalLabel: cajaLabel,
-      });
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      toast.success('CSV descargado.');
-    } catch (err) {
-      toast.error(
-        `No se pudo generar el CSV: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
-    } finally {
-      setExporting(false);
     }
   }
 
@@ -537,9 +518,21 @@ export function CorteModal({
 
               {/* Tabla de ventas */}
               <div>
-                <h3 className="text-sm font-semibold text-foreground mb-2">
-                  Ventas ({sales.length})
-                </h3>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-semibold text-foreground">
+                    Ventas ({sales.length})
+                  </h3>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleDownloadItemsXlsx}
+                    disabled={busy || sales.length === 0}
+                    title="Excel TICKETS_POR_PRODUCTO: cada ticket desglosado por producto (precio, cantidad, IVA, subtotal, total), un color por ticket"
+                  >
+                    <FileSpreadsheet />
+                    {exportingItems ? 'Generando...' : 'Excel por ticket'}
+                  </Button>
+                </div>
                 {(salesResp?.total ?? 0) > sales.length && (
                   <p className="mb-2 rounded-md bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800">
                     Mostrando {sales.length} de {salesResp?.total} ventas — el
@@ -760,16 +753,17 @@ export function CorteModal({
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
-              onClick={handleDownloadCsv}
-              disabled={!hasData || exporting || printing}
+              onClick={handleDownloadCashCutXlsx}
+              disabled={!hasData || busy}
               size="sm"
+              title="Excel REPORTE_CORTE_CAJA_SUCURSAL: el mismo corte en formato anterior que baja Contabilidad del admin. Con 'Todas las cajas' incluye también los pedidos en línea asignados a la sucursal; con una caja, solo esa caja."
             >
-              <Download />
-              {exporting ? 'Generando...' : 'Descargar CSV'}
+              <FileSpreadsheet />
+              {exporting ? 'Generando...' : 'Excel (formato anterior)'}
             </Button>
             <Button
               onClick={handlePrint}
-              disabled={!hasData || printing || exporting}
+              disabled={!hasData || busy}
               size="sm"
             >
               <Printer />
@@ -783,142 +777,6 @@ export function CorteModal({
       </SheetContent>
     </Sheet>
   );
-}
-
-// ============================================================================
-// CSV
-// ============================================================================
-
-interface CsvInput {
-  branchName: string;
-  /** Rango (días locales); un solo día = from === to. */
-  from: string;
-  to: string;
-  /** Caja filtrada; undefined = todas las cajas. */
-  terminalLabel?: string;
-  branchTz?: string;
-  summary: {
-    totalSales: number;
-    totalAmount: number;
-    averageTicket: number;
-    itemsSold: number;
-    totalRefunds: number;
-    refundsCount: number;
-  };
-  paymentRows: Array<{ label: string; value: number }>;
-  /** Vacío cuando la sucursal cobró con una sola terminal (no se exporta). */
-  terminalRows: TerminalRow[];
-  /** Nombre de la terminal de cada venta (solo con varias terminales). */
-  saleTerminal?: (s: Sale) => string;
-  sales: Sale[];
-}
-
-/** Escapa un valor para CSV (RFC 4180): quote si contiene coma, comilla o LF. */
-function csvCell(v: string | number): string {
-  const s = String(v ?? '');
-  if (/[",\n\r]/.test(s)) {
-    return `"${s.replace(/"/g, '""')}"`;
-  }
-  return s;
-}
-
-/** Slug para nombres de archivo: minúsculas, sin acentos, guiones. */
-function fileSlug(s: string): string {
-  return s
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
-
-/** corte-{sucursal}-{desde}[-{hasta}][-{caja}].csv (fechas sin guiones). */
-export function corteCsvFilename(input: {
-  branchName: string;
-  from: string;
-  to: string;
-  terminalLabel?: string;
-}): string {
-  const parts = ['corte', fileSlug(input.branchName), input.from.replaceAll('-', '')];
-  if (input.to !== input.from) parts.push(input.to.replaceAll('-', ''));
-  if (input.terminalLabel) parts.push(fileSlug(input.terminalLabel));
-  return `${parts.join('-')}.csv`;
-}
-
-export function buildCorteCsv(input: CsvInput): string {
-  const { summary, paymentRows, sales } = input;
-  const singleDay = input.from === input.to;
-  const lines: string[] = [];
-
-  lines.push(singleDay ? 'Corte del dia' : 'Corte de ventas');
-  lines.push(`Sucursal,${csvCell(input.branchName)}`);
-  lines.push(`Desde,${csvCell(input.from)}`);
-  lines.push(`Hasta,${csvCell(input.to)}`);
-  lines.push(`Caja,${csvCell(input.terminalLabel ?? 'Todas las cajas')}`);
-  lines.push('');
-
-  lines.push('RESUMEN');
-  lines.push(`Ventas,${summary.totalSales}`);
-  lines.push(`Monto total,${Number(summary.totalAmount).toFixed(2)}`);
-  lines.push(`Ticket promedio,${Number(summary.averageTicket).toFixed(2)}`);
-  lines.push(`Items vendidos,${summary.itemsSold}`);
-  if (summary.refundsCount > 0) {
-    lines.push(`Reembolsos (count),${summary.refundsCount}`);
-    lines.push(
-      `Reembolsos (monto),-${Number(summary.totalRefunds).toFixed(2)}`,
-    );
-  }
-  lines.push('');
-
-  lines.push('DESGLOSE POR METODO DE PAGO');
-  lines.push('Metodo,Monto');
-  for (const row of paymentRows) {
-    lines.push(`${csvCell(row.label)},${Number(row.value).toFixed(2)}`);
-  }
-  lines.push('');
-
-  if (input.terminalRows.length > 0) {
-    lines.push('VENTAS POR TERMINAL');
-    lines.push('Terminal,Ventas,Canceladas,Monto');
-    for (const t of input.terminalRows) {
-      lines.push(
-        [
-          csvCell(t.label),
-          t.salesCount,
-          t.cancelledCount,
-          Number(t.amount).toFixed(2),
-        ].join(','),
-      );
-    }
-    lines.push('');
-  }
-
-  const withTerminal = !!input.saleTerminal;
-  lines.push(singleDay ? 'VENTAS DEL DIA' : 'VENTAS');
-  lines.push(
-    [
-      'Folio',
-      ...(singleDay ? [] : ['Fecha']),
-      'Hora',
-      'Cliente',
-      ...(withTerminal ? ['Terminal'] : []),
-      'Total',
-    ].join(','),
-  );
-  for (const s of sales) {
-    lines.push(
-      [
-        csvCell(s.saleNumber),
-        ...(singleDay ? [] : [csvCell(localDateOf(s.createdAt, input.branchTz))]),
-        csvCell(formatTime(s.createdAt, input.branchTz)),
-        csvCell(s.customerName ?? 'Publico'),
-        ...(withTerminal ? [csvCell(input.saleTerminal!(s))] : []),
-        Number(s.total).toFixed(2),
-      ].join(','),
-    );
-  }
-
-  return lines.join('\r\n');
 }
 
 function StatCard({
