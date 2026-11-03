@@ -28,6 +28,8 @@ import {
   X,
   FileText,
   Monitor,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -203,6 +205,23 @@ export function RecentSales({
     }
     onRangeChange(fixed);
   }
+  // Flechas ‹ › : recorren el rango completo un día atrás o adelante (con un
+  // solo día = día anterior / siguiente), como el navegador de periodos del
+  // Panel Principal. Nunca más allá de hoy en la sucursal.
+  const todayIso = todayLocal(branchTz);
+  const canShiftForward = range.to < todayIso;
+  function shiftRange(days: number) {
+    const from = addDaysIso(range.from, days);
+    const to = addDaysIso(range.to, days);
+    if (to > todayIso) return;
+    if (
+      !isSaneIsoDate(from, RANGE_MIN_YEAR, rangeMaxYear) ||
+      !isSaneIsoDate(to, RANGE_MIN_YEAR, rangeMaxYear)
+    ) {
+      return;
+    }
+    onRangeChange({ from, to });
+  }
 
   // Filtro por terminal ("caja"): la lista de cajas sale de las ventas
   // cargadas del rango (no hay catálogo de licencias en el POS). El valor
@@ -337,8 +356,20 @@ export function RecentSales({
           </div>
         </div>
 
-        {/* Rango De / Hasta (máx. 31 días) */}
-        <div className="grid grid-cols-2 gap-1.5">
+        {/* Rango De / Hasta (máx. 31 días) con flechas para recorrerlo un día */}
+        <div className="flex items-end gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={() => shiftRange(-1)}
+            className="size-7 shrink-0 text-muted-foreground hover:text-foreground"
+            title={singleDay ? 'Día anterior' : 'Recorrer el rango un día atrás'}
+            aria-label={singleDay ? 'Día anterior' : 'Recorrer el rango un día atrás'}
+          >
+            <ChevronLeft className="size-4" />
+          </Button>
+        <div className="grid flex-1 grid-cols-2 gap-1.5">
           <label className="block">
             <span className="mb-0.5 block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
               De
@@ -365,6 +396,25 @@ export function RecentSales({
               className="w-full px-2 py-1.5 text-xs bg-background text-foreground"
             />
           </label>
+        </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={() => shiftRange(1)}
+            disabled={!canShiftForward}
+            className="size-7 shrink-0 text-muted-foreground hover:text-foreground"
+            title={
+              !canShiftForward
+                ? 'Ya estás en el día de hoy'
+                : singleDay
+                  ? 'Día siguiente'
+                  : 'Recorrer el rango un día adelante'
+            }
+            aria-label={singleDay ? 'Día siguiente' : 'Recorrer el rango un día adelante'}
+          >
+            <ChevronRight className="size-4" />
+          </Button>
         </div>
 
         {/* Filtro por caja: solo tiene sentido con varias terminales */}
