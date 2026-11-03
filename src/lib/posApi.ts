@@ -963,6 +963,21 @@ class PosApi {
     );
   }
 
+  /** PDF del corte en el formato del sistema anterior (carta, una hoja
+   *  mientras quepa) para imprimirlo y archivarlo (Contabilidad, 3-nov-2026). */
+  async getCashCutLegacyPdf(
+    branchId: string,
+    startDate: string,
+    endDate: string,
+    filter: PosRegisterFilter = {},
+  ): Promise<{ bytes: ArrayBuffer; filename: string }> {
+    return downloadXlsx(
+      '/pos/reports/cash-cut/legacy-pdf',
+      { startDate, endDate, branchId, ...filter },
+      `REPORTE_CORTE_CAJA_SUCURSAL_${xlsxStamp()}.pdf`,
+    );
+  }
+
   /** Excel TICKETS_POR_PRODUCTO: una fila por partida de cada ticket del
    *  corte (ID venta, cliente, producto, precio, cantidad, IVA, subtotal,
    *  total) con un color por ticket, como lo revisa Contabilidad. */

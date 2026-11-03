@@ -16,6 +16,7 @@ import {
   Printer,
   Monitor,
   FileSpreadsheet,
+  FileText,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -49,7 +50,7 @@ import {
 } from '@/hooks/usePos';
 import { posApi } from '@/lib/posApi';
 import { formatTime, localDateOf } from '@/lib/date';
-import { openXlsxFromApi } from '@/lib/openXlsx';
+import { openFileFromApi, openXlsxFromApi } from '@/lib/openXlsx';
 import { isCfdiCountry } from '@/lib/invoiceEligibility';
 import {
   ALL_TERMINALS,
@@ -140,6 +141,7 @@ export function CorteModal({
   const [printing, setPrinting] = useState(false);
   // Excel del corte en formato anterior (sustituye al CSV).
   const [exporting, setExporting] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
   // Excel de tickets por producto (una fila por partida, color por ticket).
   const [exportingItems, setExportingItems] = useState(false);
   // Ventas por producto con folio (CEDEAS): lo que la tienda resurte.
@@ -156,7 +158,8 @@ export function CorteModal({
   const sales: Sale[] = salesResp?.data ?? [];
   const fmt = (n: number) => posApi.formatCurrency(n, currencySymbol);
 
-  const busy = printing || exporting || exportingItems || exportingProducts;
+  const busy =
+    printing || exporting || exportingPdf || exportingItems || exportingProducts;
   const hasData = !!summary && !loadingSummary;
   // Filtro de caja efectivo para los Excel (el mismo que resumen y lista).
   const xlsxFilter = terminalFilterParams(effectiveFilter);
@@ -187,6 +190,22 @@ export function CorteModal({
       );
     } finally {
       setExporting(false);
+    }
+  }
+
+  /** PDF del corte (formato anterior, carta, una hoja mientras quepa): se
+   *  guarda en Descargas y se abre con el visor del SO para imprimirlo o
+   *  llevarlo en una USB (Contabilidad, 3-nov-2026). */
+  async function handleDownloadCashCutPdf() {
+    setExportingPdf(true);
+    try {
+      await openFileFromApi(
+        () => posApi.getCashCutLegacyPdf(branchId, from, to, xlsxFilter),
+        'PDF del corte guardado en Descargas y abierto para imprimir.',
+        { noun: 'PDF', saveTo: 'downloads' },
+      );
+    } finally {
+      setExportingPdf(false);
     }
   }
 
@@ -762,6 +781,16 @@ export function CorteModal({
             >
               <FileSpreadsheet />
               {exporting ? 'Generando...' : 'Excel (formato anterior)'}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleDownloadCashCutPdf}
+              disabled={!hasData || busy}
+              size="sm"
+              title="PDF del corte con el mismo formato anterior, tamaño carta y en una sola hoja mientras quepa: se guarda en Descargas y se abre para imprimirlo o llevarlo en una USB."
+            >
+              <FileText />
+              {exportingPdf ? 'Generando...' : 'PDF (una hoja)'}
             </Button>
             <Button
               onClick={handlePrint}

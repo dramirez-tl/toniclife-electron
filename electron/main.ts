@@ -277,7 +277,10 @@ ipcMain.handle(
 // { ok:false } para que el toast muestre el motivo.
 ipcMain.handle(
   'invoice:openPdf',
-  async (_evt, payload: { filename: string; bytes: Uint8Array }) => {
+  async (
+    _evt,
+    payload: { filename: string; bytes: Uint8Array; saveTo?: 'downloads' },
+  ) => {
     try {
       // Sólo caracteres seguros: evita rutas relativas o nombres inválidos
       // en Windows si el Content-Disposition trajera algo raro.
@@ -289,9 +292,22 @@ ipcMain.handle(
       if (!bytes || !bytes.byteLength) {
         return { ok: false, error: 'El PDF llegó vacío' };
       }
-      const dir = path.join(app.getPath('temp'), 'toniclife-facturas');
+      // saveTo 'downloads' (PDF del corte, 3-nov-2026): el archivo queda en
+      // Descargas del usuario para imprimirlo o copiarlo a una USB; si ya
+      // existe uno con ese nombre se numera en vez de pisarlo.
+      const toDownloads = payload?.saveTo === 'downloads';
+      const dir = toDownloads
+        ? app.getPath('downloads')
+        : path.join(app.getPath('temp'), 'toniclife-facturas');
       fs.mkdirSync(dir, { recursive: true });
-      const file = path.join(dir, filename);
+      let file = path.join(dir, filename);
+      if (toDownloads && fs.existsSync(file)) {
+        const ext = path.extname(filename);
+        const base = filename.slice(0, filename.length - ext.length);
+        for (let i = 2; i < 100 && fs.existsSync(file); i += 1) {
+          file = path.join(dir, `${base} (${i})${ext}`);
+        }
+      }
       try {
         fs.writeFileSync(file, Buffer.from(bytes));
       } catch (writeErr) {

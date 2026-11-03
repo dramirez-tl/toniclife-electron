@@ -409,6 +409,8 @@ declare global {
         openPdf: (
           filename: string,
           bytes: Uint8Array,
+          /** saveTo 'downloads': lo guarda en Descargas (PDF del corte) en vez de temporales. */
+          options?: { saveTo?: 'downloads' },
         ) => Promise<PrinterOpResult>;
       };
     };

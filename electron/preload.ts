@@ -99,8 +99,12 @@ const api = {
   invoice: {
     /** Guarda el PDF de la factura en la carpeta temporal y lo abre con el
      *  visor del SO (desde ahí el cajero lo imprime o lo guarda). */
-    openPdf: (filename: string, bytes: Uint8Array): Promise<PrinterOpResult> =>
-      ipcRenderer.invoke('invoice:openPdf', { filename, bytes }),
+    openPdf: (
+      filename: string,
+      bytes: Uint8Array,
+      options?: { saveTo?: 'downloads' },
+    ): Promise<PrinterOpResult> =>
+      ipcRenderer.invoke('invoice:openPdf', { filename, bytes, ...options }),
   },
   shell: {
     /** Abre un enlace en el navegador del SO; el main solo admite WhatsApp y
