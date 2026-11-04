@@ -138,8 +138,9 @@ interface TransfersModalProps {
   /** Encabezado del ticket impreso. */
   branchName: string;
   ticketName?: string;
-  /** true = puede aceptar la entrada (la sucursal siempre; en modo staff
-   *  solo los roles de TRANSFER_RECEIVE_ROLES). Imprimir no depende de esto. */
+  /** true = puede aceptar la entrada. Desde el 4-nov-2026 (Operaciones) el
+   *  POS manda false: las entradas se aceptan solo desde el admin. Imprimir
+   *  no depende de esto. */
   canReceive: boolean;
 }
 
@@ -372,9 +373,9 @@ export function TransfersModal({
               <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                 <Lock className="mt-0.5 size-3.5 shrink-0" />
                 <p>
-                  Tu usuario de staff no puede aceptar entradas desde el POS;
-                  sal del modo staff para recibirlas como sucursal, o hazlo
-                  desde el admin en Inventario › Traspasos.
+                  Las entradas por traspaso se aceptan desde el admin
+                  (Inventario › Traspasos) por Operaciones, CEDEAS, Almacén o
+                  Administración. Aquí solo puedes consultarlas e imprimirlas.
                 </p>
               </div>
             )}
@@ -548,8 +549,9 @@ export function TransfersModal({
                         ) : (
                           <>
                             <span className="mr-auto text-xs text-muted-foreground">
-                              Imprime la lista para palomear mientras cuentas; luego
-                              captura lo recibido y acepta la entrada.
+                              {canReceive
+                                ? 'Imprime la lista para palomear mientras cuentas; luego captura lo recibido y acepta la entrada.'
+                                : 'Imprime la lista para palomear mientras cuentas; la entrada la acepta Operaciones desde el admin.'}
                             </span>
                             {printButtons(t)}
                             {canReceive && (

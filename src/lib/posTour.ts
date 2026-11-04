@@ -110,8 +110,9 @@ export function startPosTour(): void {
       popover: {
         title: 'Entradas de inventario',
         description:
-          'Recibe los traspasos de producto que llegan a tu sucursal. El globito ' +
-          'ámbar indica cuántos están pendientes por recibir.',
+          'Consulta e imprime los traspasos de producto que llegan a tu sucursal; ' +
+          'la entrada la acepta Operaciones desde el admin. El globito ámbar ' +
+          'indica cuántos están pendientes.',
       },
     },
     {

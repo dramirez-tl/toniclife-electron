@@ -38,10 +38,7 @@ import { AvailablePromotions } from '@/components/pos/AvailablePromotions';
 import { MembershipOfferBanner } from '@/components/pos/MembershipOfferBanner';
 import { Cart } from '@/components/pos/Cart';
 import { ResizeHandle } from '@/components/pos/ResizeHandle';
-import {
-  TransfersModal,
-  TRANSFER_RECEIVE_ROLES,
-} from '@/components/pos/TransfersModal';
+import { TransfersModal } from '@/components/pos/TransfersModal';
 import { OrderTabsBar } from '@/components/pos/OrderTabsBar';
 import {
   usePosOrderTabs,
@@ -1878,12 +1875,9 @@ export function PosScreen({
         branchId={branchId}
         branchName={branch.name}
         ticketName={branch.ticketName ?? undefined}
-        // La sucursal acepta sus propias entradas (Dirección, 26-oct-2026);
-        // en modo staff, los roles que el API admite.
-        canReceive={
-          !staffActive ||
-          TRANSFER_RECEIVE_ROLES.includes(staffUser?.roleCode ?? '')
-        }
+        // Operaciones (4-nov-2026): las entradas por traspaso se aceptan SOLO
+        // desde el admin (Inventario › Traspasos); el POS las consulta e imprime.
+        canReceive={false}
       />
 
       {/* Foto en grande de quien opera en modo staff (solo ver) */}
