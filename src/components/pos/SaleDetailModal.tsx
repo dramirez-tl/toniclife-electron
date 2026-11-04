@@ -67,6 +67,7 @@ import {
   toReceiptMembership,
 } from '@/lib/membership';
 import { toReceiptPromotions } from '@/lib/promoCart';
+import { toReceiptSeasonal } from '@/lib/seasonalReceipt';
 import { PosSaleStatus, type KitComponent } from '@/types/pos';
 
 interface SaleDetailModalProps {
@@ -101,7 +102,7 @@ interface SaleDetailModalProps {
  * explica el descuento. Sin descuento, el total guardado, como siempre.
  */
 function saleLineTotal(sale: Sale, it: SaleItem): number {
-  if (it.membershipGift === true) return 0;
+  if (it.membershipGift === true || it.promoRole === 'gift') return 0;
   if ((Number(sale.discountAmount) || 0) > 0) {
     return savedSaleItemGross(it, savedSaleItemTaxIncluded(it));
   }
@@ -115,7 +116,7 @@ function saleTotalsRows(sale: Sale): ReceiptTotalsRow[] {
     items: sale.items.map((it) => ({
       quantity: it.quantity,
       unitPrice: Number(it.unitPrice),
-      gift: it.membershipGift === true,
+      gift: it.membershipGift === true || it.promoRole === 'gift',
       taxIncluded: savedSaleItemTaxIncluded(it),
     })),
     subtotal: Number(sale.subtotal),
@@ -299,7 +300,7 @@ export function SaleDetailModal({
       items: current.items.map((it) => {
         const comps = componentsByProduct.get(it.productId);
         // Regalo de campaña de membresía: a $0 y con "Regalo" en el ticket.
-        const gift = it.membershipGift === true;
+        const gift = it.membershipGift === true || it.promoRole === 'gift';
         return {
           name: it.productName,
           sku: it.productSku,
@@ -343,6 +344,8 @@ export function SaleDetailModal({
         : undefined,
       // Bloque PROMOCIÓN (promo canjeada en la venta), igual que el original.
       promotions: toReceiptPromotions(current.promotions),
+      // Bloque PROMOCIONES DE TEMPORADA (mig 186), igual que el original.
+      seasonalPromotions: toReceiptSeasonal(current.seasonalPromotions),
     };
   }
 
@@ -734,7 +737,7 @@ export function SaleDetailModal({
                         <TableCell className="px-3 py-1.5">
                           <div className="text-foreground">
                             {it.productName}
-                            {it.membershipGift && (
+                            {(it.membershipGift || it.promoRole === 'gift') && (
                               <Badge className="ml-1.5 bg-emerald-100 text-emerald-700">
                                 Regalo
                               </Badge>

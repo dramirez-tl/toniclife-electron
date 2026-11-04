@@ -131,3 +131,30 @@ export function formatDateTime(iso: string, timeZone?: string): string {
     });
   }
 }
+
+/**
+ * Hora LOCAL 'YYYY-MM-DDTHH:mm:ss' de un instante en la zona dada (o la del
+ * equipo): el "ahora" con el que el motor de promociones de temporada
+ * (lib/seasonalPromotions.ts) compara las vigencias, igual que el API lo hace
+ * con la zona de la sucursal. Nunca lanza (zona inválida → equipo).
+ */
+export function nowLocalIso(timeZone?: string, at: Date = new Date()): string {
+  const opts: Intl.DateTimeFormatOptions = {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  };
+  let parts: Intl.DateTimeFormatPart[];
+  try {
+    parts = new Intl.DateTimeFormat('en-CA', timeZone ? { ...opts, timeZone } : opts).formatToParts(at);
+  } catch {
+    parts = new Intl.DateTimeFormat('en-CA', opts).formatToParts(at);
+  }
+  const get = (t: string) => parts.find((x) => x.type === t)?.value ?? '00';
+  const hour = get('hour') === '24' ? '00' : get('hour');
+  return `${get('year')}-${get('month')}-${get('day')}T${hour}:${get('minute')}:${get('second')}`;
+}

@@ -248,6 +248,9 @@ export interface SaleReceiptPayload {
     /** Regalo a $0 de una campaña de membresía: se imprime "Regalo" en vez
      *  del precio unitario. */
     gift?: boolean;
+    /** Promoción de temporada del renglón (mig 186): se imprime debajo
+     *  ("3x2: 1 pieza gratis", "Precio especial: -$789"). */
+    promoLabel?: string;
   }>;
   /** Base sin impuesto YA con el descuento prorrateado (regla 29-oct-2026). */
   subtotal: number;
@@ -272,9 +275,21 @@ export interface SaleReceiptPayload {
   membership?: SaleReceiptMembership;
   /** Promociones canjeadas en la venta: bloque PROMOCIÓN del ticket. */
   promotions?: SaleReceiptPromotion[];
+  /** Promociones de temporada aplicadas (mig 186): bloque PROMOCIONES DE
+   *  TEMPORADA del ticket. */
+  seasonalPromotions?: SaleReceiptSeasonalPromotion[];
   /** Venta guardada sin conexión (cola local): folio provisional; el ticket
    *  imprime "VENTA POR SINCRONIZAR". */
   pendingSync?: boolean;
+}
+
+/** Bloque PROMOCIONES DE TEMPORADA del ticket (espejo de electron/receipts.ts). */
+export interface SaleReceiptSeasonalPromotion {
+  code: string;
+  name: string;
+  typeLabel: string;
+  times: number;
+  discountAmount: number;
 }
 
 /** Bloque PROMOCIÓN del ticket (espejo de electron/receipts.ts

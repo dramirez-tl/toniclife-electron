@@ -10,8 +10,15 @@ import type {
   KitComponent,
   PosCart,
   PosCartItem,
+  PosSeasonalGift,
   QuickProduct,
 } from '@/types/pos';
+import {
+  applySeasonalPromotions,
+  seasonalPromoTypeLabel,
+  type SeasonalPromotionDef,
+} from '@/lib/seasonalPromotions';
+import { nowLocalIso } from '@/lib/date';
 import {
   applyGlobalDiscount,
   fixedDiscount,
@@ -25,8 +32,36 @@ import {
 // se re-exporta para quien lo tomaba del store.
 export { prorateDiscount } from '@/lib/saleDiscount';
 
+/**
+ * Contexto de promociones de temporada (mig 186) que la pantalla fija desde
+ * GET /pos/seasonal-promotions: definiciones del motor, país y zona de la
+ * sucursal (el "ahora" se calcula en hora local) y nombres de los regalos.
+ */
+export interface SeasonalContext {
+  defs: SeasonalPromotionDef[];
+  countryCode: string;
+  timezone: string;
+  giftProducts: Record<string, { sku: string; name: string }>;
+}
+
+export const EMPTY_SEASONAL: SeasonalContext = {
+  defs: [],
+  countryCode: 'MX',
+  timezone: 'America/Mexico_City',
+  giftProducts: {},
+};
+
+// Vive fuera del estado de React para que `calculateCartTotals` (función
+// pura exportada y usada por los specs) lo tome por default sin cambiar a
+// todos los que la llaman; `setSeasonalContext` lo actualiza y recalcula.
+let currentSeasonal: SeasonalContext = EMPTY_SEASONAL;
+
 interface PosCartStore {
   cart: PosCart;
+  /** Contexto de temporada vigente (para la UI); el motor lo lee al recalcular. */
+  seasonal: SeasonalContext;
+  /** Fija (o limpia con null) el contexto de temporada y recalcula el carrito. */
+  setSeasonalContext: (ctx: SeasonalContext | null) => void;
   addItem: (product: QuickProduct, quantity?: number) => void;
   updateItemQuantity: (productId: string, quantity: number) => void;
   removeItem: (productId: string) => void;
@@ -127,7 +162,11 @@ export const calculateItemTotal = (item: PosCartItem): PosCartItem => {
     lineDiscount = round2(item.discountAmount);
   }
 
-  const afterDiscount = lineAmount - lineDiscount;
+  // Descuento de temporada (mig 186): piezas gratis × precio o % / precio
+  // especial; entra como descuento de línea (igual que en el API) pero NO se
+  // mezcla con el manual (`discountAmount`), que es lo que viaja en el DTO.
+  const promoDiscount = item.promo?.discountAmount ?? 0;
+  const afterDiscount = Math.max(0, lineAmount - lineDiscount - promoDiscount);
   const taxRate = item.taxRate ?? DEFAULT_TAX_RATE;
 
   let subtotal: number;
@@ -160,7 +199,8 @@ export const calculateItemTotal = (item: PosCartItem): PosCartItem => {
  */
 export const toDiscountLine = (item: PosCartItem): SaleDiscountLine => ({
   amount: item.unitPrice * item.quantity,
-  lineDiscount: item.discountAmount ?? 0,
+  // Manual + promoción de temporada (el API suma ambos en su lineDiscount).
+  lineDiscount: (item.discountAmount ?? 0) + (item.promo?.discountAmount ?? 0),
   rate: item.taxRate ?? DEFAULT_TAX_RATE,
   taxIncluded: item.isIncludedInPrice,
 });
@@ -208,7 +248,103 @@ export const cartGrossTotal = (items: PosCartItem[]): number =>
  * Los `items` conservan sus importes brutos (son para la UI); al API viaja el
  * carrito + el código del cupón (o el descuento manual) y él recalcula.
  */
-export const calculateCartTotals = (cart: PosCart): PosCart => {
+/**
+ * Promociones de temporada (mig 186) sobre las líneas: corre el motor (el
+ * MISMO del API) a la hora local de la sucursal y anota cada línea con su
+ * promo (piezas gratis, descuento, puntos); devuelve también los usos y los
+ * regalos que el servidor agregará. Sin definiciones vigentes deja las líneas
+ * limpias. Las promocionales canjeables, boletos y líneas en $0 no entran.
+ */
+export const applySeasonalToItems = (
+  items: PosCartItem[],
+  seasonal: SeasonalContext,
+): {
+  items: PosCartItem[];
+  applied: PosCart['seasonalApplied'];
+  gifts: PosSeasonalGift[];
+  totalDiscount: number;
+} => {
+  // Sin promociones (ni antes ni ahora) las líneas se devuelven TAL CUAL
+  // (misma referencia): lo que viaja al API no cambia.
+  const hadPromo = items.some((it) => it.promo);
+  if (seasonal.defs.length === 0 || items.length === 0) {
+    return {
+      items: hadPromo
+        ? items.map((it) =>
+            it.promo ? calculateItemTotal({ ...it, promo: undefined }) : it,
+          )
+        : items,
+      applied: [],
+      gifts: [],
+      totalDiscount: 0,
+    };
+  }
+  const result = applySeasonalPromotions(
+    items.map((it) => ({
+      key: it.productId,
+      productId: it.productId,
+      quantity: it.quantity,
+      unitPrice: it.unitPrice,
+      unitPoints: it.points,
+      unitBusinessValue: it.businessVolume,
+      excluded:
+        it.productType === 'promotional' ||
+        !!it.event ||
+        !(it.unitPrice > 0),
+    })),
+    seasonal.defs,
+    {
+      channel: 'pos',
+      countryCode: seasonal.countryCode,
+      nowLocal: nowLocalIso(seasonal.timezone),
+    },
+  );
+  const byKey = new Map(result.lines.map((l) => [l.key, l]));
+  const defById = new Map(seasonal.defs.map((d) => [d.id, d]));
+  const anyPromo = hadPromo || result.lines.some((l) => l.promotionId);
+  const annotated = !anyPromo ? items : items.map((it) => {
+    const r = byKey.get(it.productId);
+    if (!r || !r.promotionId) {
+      return it.promo ? calculateItemTotal({ ...it, promo: undefined }) : it;
+    }
+    const def = defById.get(r.promotionId);
+    return calculateItemTotal({
+      ...it,
+      promo: {
+        promotionId: r.promotionId,
+        code: r.promoCode ?? '',
+        name: r.promoName ?? '',
+        type: r.promoType ?? 'nxm',
+        typeLabel: seasonalPromoTypeLabel(r.promoType ?? 'nxm', def?.config),
+        freeQuantity: r.freeQuantity,
+        discountAmount: r.discountAmount,
+        points: r.points,
+        businessValue: r.businessValue,
+        kitBonusExcluded: r.kitBonusExcluded && it.isEnrollmentKit === true,
+      },
+    });
+  });
+  const gifts: PosSeasonalGift[] = result.gifts.map((g) => ({
+    productId: g.productId,
+    sku: seasonal.giftProducts[g.productId]?.sku ?? '',
+    name: seasonal.giftProducts[g.productId]?.name ?? 'Regalo',
+    quantity: g.quantity,
+    promotionId: g.promotionId,
+    promoCode: g.promoCode,
+    promoName: g.promoName,
+  }));
+  return {
+    items: annotated,
+    applied: result.applied,
+    gifts,
+    totalDiscount: result.totalDiscount,
+  };
+};
+
+export const calculateCartTotals = (
+  cart: PosCart,
+  seasonal: SeasonalContext = currentSeasonal,
+): PosCart => {
   // Carrito vacío = venta nueva: ningún descuento/cupón debe sobrevivir (el
   // cupón de la venta anterior se colaba a la siguiente al quitar items).
   if (cart.items.length === 0) {
@@ -228,10 +364,17 @@ export const calculateCartTotals = (cart: PosCart): PosCart => {
       // Sin productos no hay puntos que cumplan una campaña de membresía.
       membershipCampaignId: null,
       applyMembership: true,
+      seasonalApplied: [],
+      seasonalGifts: [],
+      seasonalDiscount: 0,
     };
   }
 
-  const lines = cart.items.map(toDiscountLine);
+  // Promociones de temporada ANTES del descuento global: su descuento es de
+  // línea y el cupón (sobre T) va después, como en el API.
+  const seasonalResult = applySeasonalToItems(cart.items, seasonal);
+  const items = seasonalResult.items;
+  const lines = items.map(toDiscountLine);
   const grossTotal = saleGrossTotal(lines);
 
   // Cupón y descuento manual se excluyen (el API tampoco acepta ambos): con
@@ -257,22 +400,32 @@ export const calculateCartTotals = (cart: PosCart): PosCart => {
   const amounts = applyGlobalDiscount(lines, discount);
   const { subtotal, tax: taxAmount, total } = amounts;
 
-  const totalPoints = cart.items.reduce(
-    (sum, item) => sum + item.points * item.quantity,
+  // Las piezas gratis y las líneas "sin puntos" de una promo no suman (mig 186).
+  const totalPoints = items.reduce(
+    (sum, item) =>
+      sum + (item.promo ? item.promo.points : item.points * item.quantity),
     0,
   );
-  const totalBusinessVolume = cart.items.reduce(
-    (sum, item) => sum + item.businessVolume * item.quantity,
+  const totalBusinessVolume = items.reduce(
+    (sum, item) =>
+      sum +
+      (item.promo
+        ? item.promo.businessValue
+        : item.businessVolume * item.quantity),
     0,
   );
 
   return {
     ...cart,
+    items,
     subtotal,
     taxAmount,
     total,
     totalPoints,
     totalBusinessVolume,
+    seasonalApplied: seasonalResult.applied,
+    seasonalGifts: seasonalResult.gifts,
+    seasonalDiscount: seasonalResult.totalDiscount,
     ...(hasCoupon
       ? {
           couponDiscount: discount,
@@ -290,6 +443,15 @@ export const calculateCartTotals = (cart: PosCart): PosCart => {
 export const usePosCartStore = create<PosCartStore>()(
     (set) => ({
       cart: initialCart,
+      seasonal: EMPTY_SEASONAL,
+
+      setSeasonalContext: (ctx) => {
+        currentSeasonal = ctx ?? EMPTY_SEASONAL;
+        set((state) => ({
+          seasonal: currentSeasonal,
+          cart: calculateCartTotals(state.cart, currentSeasonal),
+        }));
+      },
 
       addItem: (product: QuickProduct, quantity = 1) => {
         set((state) => {

@@ -5,6 +5,14 @@
 // ENUMS
 // ============================================================================
 
+import type {
+  SeasonalEngineApplied,
+  SeasonalPromoChannel,
+  SeasonalPromoConfig,
+  SeasonalPromoType,
+  SeasonalPromotionDef,
+} from '@/lib/seasonalPromotions';
+
 export enum CashRegisterStatus {
   OPEN = 'open',
   CLOSED = 'closed',
@@ -149,6 +157,16 @@ export interface SaleItem {
   /** true = regalo a $0 de una campaña de membresía (lo agregó el servidor;
    *  descuenta existencia). Ausente en APIs anteriores. */
   membershipGift?: boolean;
+  /** Promoción de temporada que tocó el renglón (mig 186). Ausente en APIs
+   *  anteriores. */
+  seasonPromotionId?: string;
+  /** discount = cobrado con descuento de temporada; gift = pieza gratis (3x2)
+   *  o regalo: $0, 0 puntos, descuenta existencia. */
+  promoRole?: 'discount' | 'gift';
+  /** Lo que valía la promoción en el renglón. */
+  promoDiscountAmount?: number;
+  /** Kit vendido con promoción "sin bono". */
+  kitBonusExcluded?: boolean;
 }
 
 export interface SalePayment {
@@ -233,6 +251,9 @@ export interface Sale {
   membership?: SaleMembership | null;
   /** Promociones canjeadas en esta venta (bloque PROMOCIÓN del ticket). */
   promotions?: SalePromotion[] | null;
+  /** Promociones de temporada aplicadas (mig 186): bloque PROMOCIONES DE
+   *  TEMPORADA del ticket. Ausente en APIs anteriores. */
+  seasonalPromotions?: SaleSeasonalPromotion[] | null;
 }
 
 export interface CreateSaleItemInput {
@@ -449,6 +470,39 @@ export interface PosCartItem {
   promoMinPoints?: number;
   lotId?: string;
   notes?: string;
+  /** Promoción de temporada aplicada a la línea (mig 186): la fija el store
+   *  al recalcular con el motor local (lib/seasonalPromotions.ts). Las piezas
+   *  gratis van dentro de `quantity`; `discountAmount` de la promo ya está
+   *  restado de `total`. */
+  promo?: PosCartItemPromo;
+}
+
+/** Promoción de temporada sobre una línea del carrito. */
+export interface PosCartItemPromo {
+  promotionId: string;
+  code: string;
+  name: string;
+  type: SeasonalPromoType;
+  typeLabel: string;
+  /** Piezas gratis (3x2) dentro de la cantidad de la línea. */
+  freeQuantity: number;
+  /** Descuento de la promo en la línea (gratis × precio o % / precio especial). */
+  discountAmount: number;
+  /** Puntos y valor de negocio TOTALES de la línea ya con la regla de puntos. */
+  points: number;
+  businessValue: number;
+  kitBonusExcluded: boolean;
+}
+
+/** Regalo de temporada que el servidor agregará a $0 al crear la venta. */
+export interface PosSeasonalGift {
+  productId: string;
+  sku: string;
+  name: string;
+  quantity: number;
+  promotionId: string;
+  promoCode: string;
+  promoName: string;
 }
 
 export interface PosCart {
@@ -498,6 +552,12 @@ export interface PosCart {
    *  de campaña): guía el ticket hasta juntar los puntos y bloquea el cobro
    *  mientras no se cumpla. null = sin bolsa. Se limpia al vaciar el carrito. */
   membershipSelectedId: string | null;
+  /** Promociones de temporada aplicadas por el motor local (mig 186): usos,
+   *  regalos que agregará el servidor y ahorro total. Se recalculan en cada
+   *  cambio; el API los vuelve a calcular al crear la venta. */
+  seasonalApplied?: SeasonalEngineApplied[];
+  seasonalGifts?: PosSeasonalGift[];
+  seasonalDiscount?: number;
 }
 
 // ============================================================================
@@ -562,6 +622,92 @@ export interface SalePromotion {
   /** true = alcanzada y canjeada en esta misma compra. */
   grantedBySale: boolean;
   items: Array<{ code: string; name: string; quantity: number }>;
+}
+
+/** Promoción de temporada aplicada en una venta (`Sale.seasonalPromotions`, mig 186). */
+export interface SaleSeasonalPromotion {
+  promotionId: string;
+  code: string;
+  name: string;
+  type: SeasonalPromoType;
+  typeLabel: string;
+  seasonName: string;
+  times: number;
+  discountAmount: number;
+  freeUnits: number;
+  giftUnits: number;
+  status: 'pending' | 'applied' | 'reverted';
+}
+
+// ============================================================================
+// PROMOCIONES DE TEMPORADA (mig 186) — espejo de seasonal-promotions.dto.ts
+// ============================================================================
+
+export interface PosSeasonCountry {
+  id: string;
+  code: string;
+  name: string;
+}
+
+export interface PosSeasonPromotionProduct {
+  productId: string;
+  sku: string;
+  name: string;
+  slug?: string | null;
+  imageUrl?: string | null;
+  role: 'eligible' | 'gift';
+  quantity: number;
+  sortOrder: number;
+  productActive?: boolean;
+}
+
+export interface PosSeasonPromotion {
+  id: string;
+  seasonId: string;
+  code: string;
+  name: string;
+  description: string | null;
+  imageUrl: string | null;
+  imageThumbnailUrl: string | null;
+  type: SeasonalPromoType;
+  typeLabel: string;
+  config: SeasonalPromoConfig;
+  channels: SeasonalPromoChannel[];
+  countries: PosSeasonCountry[];
+  /** Ventana efectiva (propia o de la temporada), hora local 'YYYY-MM-DDTHH:mm:ss'. */
+  effectiveStartsAt: string;
+  effectiveEndsAt: string;
+  priority: number;
+  maxPerSale: number | null;
+  pointsMode: 'keep' | 'none';
+  excludesKitBonus: boolean;
+  isActive: boolean;
+  products: PosSeasonPromotionProduct[];
+}
+
+export interface PosSeason {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  imageUrl: string | null;
+  imageThumbnailUrl: string | null;
+  startsAt: string;
+  endsAt: string;
+  isActive: boolean;
+  status: 'upcoming' | 'active' | 'ended' | 'inactive';
+  countries: PosSeasonCountry[];
+  promotionsCount: number;
+  promotions?: PosSeasonPromotion[];
+}
+
+/** GET /pos/seasonal-promotions: temporadas para mostrar + definiciones del motor. */
+export interface PosSeasonalBundle {
+  nowLocal: string;
+  countryCode: string;
+  timezone: string;
+  seasons: PosSeason[];
+  defs: SeasonalPromotionDef[];
 }
 
 export type SaleMembershipStatus = 'pending' | 'applied' | 'reverted' | 'failed';

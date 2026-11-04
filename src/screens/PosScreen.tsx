@@ -95,6 +95,8 @@ import {
   toReceiptMembership,
 } from '@/lib/membership';
 import { toReceiptPromotions } from '@/lib/promoCart';
+import { localSeasonalGiftLines, seasonalLineLabel, toReceiptSeasonal } from '@/lib/seasonalReceipt';
+import { useSeasonalBundle } from '@/hooks/useSeasonalPromotions';
 import { cartGrossTotal, usePosCartStore } from '@/stores/pos-cart.store';
 import {
   useStaffSession,
@@ -500,6 +502,7 @@ export function PosScreen({
   const branchTz = branch.timezone;
   const currencyCode = branch.currencyCode ?? 'MXN';
   const currencySymbol = currencySymbolFor(branch.currencyCode);
+  const fmtMoney = (n: number) => posApi.formatCurrency(n, currencySymbol);
   // Facturación efectiva: en MODO STAFF las peticiones viajan con el JWT del
   // usuario (el candado de la terminal no aplica), igual que en el cobro.
   const effectiveInvoicingEnabled = staffActive ? true : invoicingEnabled;
@@ -625,6 +628,40 @@ export function PosScreen({
   // staff el API exige la sucursal (JWT de usuario); la terminal se
   // identifica sola. El país solo sirve para el fallback con API anterior.
   const branchCountryCode = branch.country?.code;
+
+  // Promociones de temporada (mig 186): definiciones para el motor local del
+  // carrito (3x2, precio especial, regalos) con el país y la zona de la
+  // sucursal; el paquete se refresca cada minuto y el carrito se recalcula
+  // cada minuto para que la promo del día entre y salga a su hora local.
+  const { data: seasonalBundle } = useSeasonalBundle(
+    staffActive ? branchId : undefined,
+  );
+  const setSeasonalContext = usePosCartStore((s) => s.setSeasonalContext);
+  useEffect(() => {
+    if (!seasonalBundle) return;
+    const giftProducts: Record<string, { sku: string; name: string }> = {};
+    for (const season of seasonalBundle.seasons) {
+      for (const promo of season.promotions ?? []) {
+        for (const x of promo.products) {
+          giftProducts[x.productId] = { sku: x.sku, name: x.name };
+        }
+      }
+    }
+    setSeasonalContext({
+      defs: seasonalBundle.defs,
+      countryCode: seasonalBundle.countryCode || branchCountryCode || 'MX',
+      timezone: seasonalBundle.timezone || branchTz || 'America/Mexico_City',
+      giftProducts,
+    });
+  }, [seasonalBundle, setSeasonalContext, branchCountryCode, branchTz]);
+  useEffect(() => {
+    if (!seasonalBundle || seasonalBundle.defs.length === 0) return;
+    const id = window.setInterval(
+      () => usePosCartStore.getState().recalculateTotals(),
+      60_000,
+    );
+    return () => window.clearInterval(id);
+  }, [seasonalBundle]);
   const componentsCtx = useMemo<ComponentsContext>(
     () => ({
       branchId: staffActive ? branchId : undefined,
@@ -766,6 +803,9 @@ export function PosScreen({
         // El monto del cupón y el total también invalidan el intento: una
         // re-validación puede cambiar el descuento sin cambiar el código.
         couponDiscount: cart.couponDiscount ?? null,
+        // Una promoción de temporada que entra o sale también es otro intento.
+        seasonalDiscount: cart.seasonalDiscount ?? 0,
+        seasonalGifts: (cart.seasonalGifts ?? []).map((g) => [g.productId, g.quantity]),
         total: cart.total,
         // Cambiar destinatario/domicilio también es otra venta.
         delivery: activeDelivery
@@ -969,7 +1009,15 @@ export function PosScreen({
       // misma compra, 27-oct-2026): el bloque PROMOCIÓN del ticket sale de la
       // venta ya cobrada. Tolerante: si falla la lectura, el ticket sale sin
       // el bloque (la línea a $0 sí va entre los artículos).
-      let promoSale: Sale | null = membershipSale;
+      // PROMOCIONES DE TEMPORADA (mig 186): el servidor separa las piezas
+      // gratis del 3x2 y los regalos en renglones $0; el ticket los toma de la
+      // venta cobrada (si no se puede leer, se arman desde el carrito).
+      let seasonalSale: Sale | null = membershipSale;
+      if ((cart.seasonalApplied?.length ?? 0) > 0 && !seasonalSale) {
+        seasonalSale = await posApi.getSaleById(saleId).catch(() => null);
+      }
+
+      let promoSale: Sale | null = seasonalSale;
       if (cart.items.some((it) => it.productType === 'promotional')) {
         if (!promoSale) {
           promoSale = await posApi.getSaleById(saleId).catch(() => null);
@@ -1072,27 +1120,41 @@ export function PosScreen({
             items: [
               ...cart.items.map((it) => {
                 const comps = componentsByProduct.get(it.productId);
+                // Promoción de temporada (mig 186): las piezas gratis del 3x2
+                // salen aparte como "Regalo"; aquí van solo las cobradas, y el
+                // descuento de % / precio especial como descuento de línea.
+                const free = it.promo?.freeQuantity ?? 0;
+                const paid = Math.max(0, it.quantity - free);
+                const promoDiscount = free > 0 ? 0 : (it.promo?.discountAmount ?? 0);
                 return {
                   name: it.productName,
                   sku: it.productSku,
-                  quantity: it.quantity,
+                  quantity: paid,
                   unitPrice: it.unitPrice,
                   total: it.total,
                   // Para el bloque de totales con cupón (lib/receiptTotals):
-                  // descuento manual de línea, si el precio incluye el IVA y
-                  // la tasa (solo los renglones con impuesto opinan).
-                  lineDiscount: it.discountAmount,
+                  // descuento manual de línea (+ el de temporada), si el precio
+                  // incluye el IVA y la tasa (solo los renglones con impuesto opinan).
+                  lineDiscount: (it.discountAmount ?? 0) + promoDiscount || undefined,
                   taxIncluded: it.isIncludedInPrice,
                   taxRate: it.taxRate,
+                  promoLabel: it.promo ? seasonalLineLabel(it.promo, fmtMoney) : undefined,
                   components: comps?.map((c) => ({
                     name: c.name,
                     quantity: c.quantity * it.quantity,
                   })),
                 };
               }),
-              // Regalos de la campaña de membresía: los agregó el servidor
-              // a $0 (no están en el carrito) y se imprimen como "Regalo".
-              ...giftReceiptLines(membershipSale?.items ?? []),
+              // Regalos: los de la campaña de membresía y los de temporada
+              // (piezas gratis y regalos por compra) los agregó el servidor a
+              // $0 y se imprimen como "Regalo". Si no se pudo leer la venta,
+              // los de temporada se arman desde el carrito.
+              ...(seasonalSale
+                ? giftReceiptLines(seasonalSale.items)
+                : [
+                    ...giftReceiptLines(membershipSale?.items ?? []),
+                    ...localSeasonalGiftLines(cart),
+                  ]),
             ],
             // Subtotal e IVA ya con el descuento prorrateado y Descuento = D
             // con impuesto (regla 29-oct-2026): mismo desglose que guarda el
@@ -1127,6 +1189,11 @@ export function PosScreen({
               : undefined,
             // Bloque PROMOCIÓN (promo canjeada, con qué puntos y qué incluye).
             promotions: toReceiptPromotions(promoSale?.promotions),
+            // Bloque PROMOCIONES DE TEMPORADA (qué aplicó y cuánto ahorró).
+            seasonalPromotions: toReceiptSeasonal(
+              seasonalSale?.seasonalPromotions,
+              cart.seasonalApplied,
+            ),
           },
           hadCash,
         )
@@ -1248,19 +1315,28 @@ export function PosScreen({
       customerName: cart.customerName,
       customerNumber: cart.customerNumber,
       currencySymbol,
-      items: cart.items.map((it) => ({
-        name: it.productName,
-        sku: it.productSku,
-        quantity: it.quantity,
-        unitPrice: it.unitPrice,
-        total: it.total,
-        // Bloque de totales con cupón (lib/receiptTotals): descuento manual
-        // de línea, si el precio incluye el IVA y la tasa (solo los renglones
-        // con impuesto opinan).
-        lineDiscount: it.discountAmount,
-        taxIncluded: it.isIncludedInPrice,
-        taxRate: it.taxRate,
-      })),
+      items: [
+        ...cart.items.map((it) => {
+          const free = it.promo?.freeQuantity ?? 0;
+          const promoDiscount = free > 0 ? 0 : (it.promo?.discountAmount ?? 0);
+          return {
+            name: it.productName,
+            sku: it.productSku,
+            quantity: Math.max(0, it.quantity - free),
+            unitPrice: it.unitPrice,
+            total: it.total,
+            // Bloque de totales con cupón (lib/receiptTotals): descuento manual
+            // de línea (+ el de temporada), si el precio incluye el IVA y la
+            // tasa (solo los renglones con impuesto opinan).
+            lineDiscount: (it.discountAmount ?? 0) + promoDiscount || undefined,
+            taxIncluded: it.isIncludedInPrice,
+            taxRate: it.taxRate,
+            promoLabel: it.promo ? seasonalLineLabel(it.promo, fmtMoney) : undefined,
+          };
+        }),
+        // Sin conexión no hay venta que leer: piezas gratis y regalos desde el carrito.
+        ...localSeasonalGiftLines(cart),
+      ],
       subtotal: cart.subtotal,
       discountAmount:
         (cart.couponCode ? cart.couponDiscount : cart.discountAmount) ?? 0,
@@ -1274,9 +1350,8 @@ export function PosScreen({
       amountReceived: cashReceived > 0 ? cashReceived : undefined,
       changeGiven: Math.max(0, cashReceived - cashPaid),
       currencyCode: branch.currencyCode,
-      salePoints: cart.customerId
-        ? cart.items.reduce((s, it) => s + it.points * it.quantity, 0)
-        : undefined,
+      salePoints: cart.customerId ? cart.totalPoints : undefined,
+      seasonalPromotions: toReceiptSeasonal(null, cart.seasonalApplied),
     };
   }
 

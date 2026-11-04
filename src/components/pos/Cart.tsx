@@ -18,6 +18,8 @@ import {
   History,
   Pencil,
   Store,
+  Sparkles,
+  Gift,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -27,6 +29,7 @@ import { buildReceiptTotalsRows } from '@/lib/receiptTotals';
 import { posApi } from '@/lib/posApi';
 import { formatIncludes, isKitLikeType } from '@/lib/kitComponents';
 import { eventLine } from '@/lib/eventInfo';
+import { seasonalLineLabel } from '@/lib/seasonalReceipt';
 import { useMembershipBag } from '@/hooks/useMembership';
 import { CustomerSelector } from './CustomerSelector';
 import { PosPointsBar } from './PosPointsBar';
@@ -444,6 +447,18 @@ export function Cart({
                           </span>
                         </p>
                       )}
+                      {item.promo && (
+                        <p
+                          className="mt-0.5 flex items-center gap-1 text-[11px] font-medium text-emerald-700"
+                          title={`${item.promo.name}${item.promo.kitBonusExcluded ? ' · sin bono de inscripción' : ''}`}
+                        >
+                          <Sparkles className="size-3 shrink-0" />
+                          <span className="truncate">
+                            {seasonalLineLabel(item.promo, fmt)}
+                            {item.promo.kitBonusExcluded ? ' · sin bono' : ''}
+                          </span>
+                        </p>
+                      )}
                     </div>
                     <Button
                       type="button"
@@ -530,6 +545,24 @@ export function Cart({
               </li>
             ))}
           </ul>
+        )}
+        {(cart.seasonalGifts?.length ?? 0) > 0 && (
+          <div className="border-t bg-emerald-50/60 p-3">
+            <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-800">
+              <Gift className="size-3" /> Regalos de temporada (se agregan al cobrar)
+            </p>
+            <ul className="mt-1 space-y-0.5 text-xs text-emerald-900">
+              {cart.seasonalGifts!.map((g) => (
+                <li key={`${g.promotionId}-${g.productId}`} className="flex justify-between gap-2">
+                  <span className="truncate">
+                    {g.quantity} × {g.name}
+                    <span className="ml-1 font-mono text-[10px] text-emerald-700">{g.promoCode}</span>
+                  </span>
+                  <span className="shrink-0 tabular-nums">{fmt(0)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
       </div>
 
@@ -679,6 +712,12 @@ export function Cart({
               );
           }
         })}
+        {(cart.seasonalDiscount ?? 0) > 0 && (
+          <div className="flex justify-between text-[11px] text-emerald-700">
+            <span>Ahorro por promociones de temporada</span>
+            <span className="tabular-nums">{fmt(cart.seasonalDiscount ?? 0)}</span>
+          </div>
+        )}
         {cart.totalPoints > 0 && (
           <div className="flex justify-between text-[11px] text-muted-foreground">
             <span>Puntos de la venta</span>

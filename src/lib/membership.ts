@@ -341,10 +341,12 @@ export function giftReceiptLines(
     productSku: string;
     quantity: number;
     membershipGift?: boolean;
+    /** Pieza gratis (3x2) o regalo de una promoción de temporada (mig 186). */
+    promoRole?: 'discount' | 'gift';
   }>,
 ): SaleReceiptPayload['items'] {
   return items
-    .filter((it) => it.membershipGift === true)
+    .filter((it) => it.membershipGift === true || it.promoRole === 'gift')
     .map((it) => ({
       name: it.productName,
       sku: it.productSku,
@@ -352,5 +354,8 @@ export function giftReceiptLines(
       unitPrice: 0,
       total: 0,
       gift: true,
+      ...(it.promoRole === 'gift' && it.membershipGift !== true
+        ? { promoLabel: 'Regalo de temporada' }
+        : {}),
     }));
 }

@@ -23,6 +23,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { usePosCatalog } from '@/hooks/usePos';
 import { useMembershipActive } from '@/hooks/useMembership';
+import { useSeasonalBundle } from '@/hooks/useSeasonalPromotions';
+import { SeasonalPromotionsPanel } from './SeasonalPromotionsPanel';
 import { usePosCartStore } from '@/stores/pos-cart.store';
 import { isAssembledKit, posApi } from '@/lib/posApi';
 import {
@@ -78,6 +80,9 @@ export function ProductGrid({
   // Banner de la campaña abierto en grande (clic en su imagen).
   const [lightboxOffer, setLightboxOffer] = useState<PosMembershipOffer | null>(null);
   const { data: membershipActive } = useMembershipActive(membershipBranchId);
+  // Promociones de temporada (mig 186): apartado con las temporadas en curso
+  // o próximas de la sucursal; el carrito las aplica solo.
+  const { data: seasonalBundle } = useSeasonalBundle(membershipBranchId);
   const campaigns = membershipActive?.offers ?? [];
   const selectedMembershipId = usePosCartStore(
     (s) => s.cart.membershipSelectedId,
@@ -439,6 +444,10 @@ export function ProductGrid({
 
       {/* Grid */}
       <div className="flex-1 overflow-y-auto p-4">
+        {/* Promociones de temporada (Buen Fin…): arte, promos del día y sus productos. */}
+        {!filter.trim() && (
+          <SeasonalPromotionsPanel bundle={seasonalBundle} catalog={catalog} onAdd={handleAdd} />
+        )}
         {/* Campañas de membresía que coinciden con la búsqueda (o todas, con
             el botón Membresías): tarjetas antes del catálogo. */}
         {campaignMatches.length > 0 && (

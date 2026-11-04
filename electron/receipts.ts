@@ -608,6 +608,17 @@ export interface SaleReceiptItemRow {
   /** Regalo a $0 de una campaña de membresía: se imprime "Regalo" en vez
    *  del precio unitario. */
   gift?: boolean;
+  /** Promoción de temporada del renglón (mig 186): se imprime debajo. */
+  promoLabel?: string;
+}
+
+/** Bloque PROMOCIONES DE TEMPORADA (mig 186). */
+export interface SaleReceiptSeasonalPromotion {
+  code: string;
+  name: string;
+  typeLabel: string;
+  times: number;
+  discountAmount: number;
 }
 
 export interface SaleReceiptPaymentRow {
@@ -689,6 +700,9 @@ export interface SaleReceiptInput {
   /** Promociones canjeadas en la venta: bloque PROMOCIÓN (la línea a $0 ya
    *  va entre los artículos; aquí se explica el canje y qué incluye). */
   promotions?: SaleReceiptPromotion[];
+  /** Promociones de temporada aplicadas (mig 186): bloque PROMOCIONES DE
+   *  TEMPORADA (las piezas gratis y regalos ya van entre los artículos). */
+  seasonalPromotions?: SaleReceiptSeasonalPromotion[];
   /** Venta guardada en la terminal sin conexión, aún no enviada al servidor:
    *  el folio es provisional y el ticket lo dice. */
   pendingSync?: boolean;
@@ -836,6 +850,8 @@ function renderSale(p: ReceiptWriter, input: SaleReceiptInput): void {
         cols,
       ),
     );
+    // Promoción de temporada del renglón (mig 186): "3x2: 1 pieza gratis".
+    if (it.promoLabel) p.line(`  ${it.promoLabel}`.slice(0, cols));
     // Contenido del kit/paquete/promo (paridad con el ticket del legacy):
     // la sucursal arma el kit con esta lista al entregarlo.
     if (it.components && it.components.length > 0) {
@@ -926,6 +942,13 @@ function renderSale(p: ReceiptWriter, input: SaleReceiptInput): void {
   // compra (canje en la misma compra) y qué incluye.
   if (input.promotions && input.promotions.length > 0) {
     renderPromotions(p, input.promotions, cols);
+  }
+
+  // --- PROMOCIONES DE TEMPORADA (Buen Fin…, mig 186) ---
+  // Qué promoción aplicó y cuánto se ahorró; las piezas gratis y los regalos
+  // ya salieron entre los artículos como "Regalo".
+  if (input.seasonalPromotions && input.seasonalPromotions.length > 0) {
+    renderSeasonalPromotions(p, input.seasonalPromotions, cols, fmt);
   }
 
   p.line(sep);
@@ -1019,6 +1042,24 @@ function renderPromotions(
       }
     }
   });
+}
+
+function renderSeasonalPromotions(
+  p: ReceiptWriter,
+  promos: readonly SaleReceiptSeasonalPromotion[],
+  cols: number,
+  fmt: (n: number) => string,
+): void {
+  const sep = '-'.repeat(cols);
+  p.line(sep);
+  p.align('left');
+  p.bold(true).line('PROMOCIONES DE TEMPORADA').bold(false);
+  for (const pr of promos) {
+    for (const line of wrapWords(`${pr.typeLabel} - ${pr.name}`, cols, 2)) p.line(line);
+    if (pr.discountAmount > 0) {
+      p.line(labelValue('  Ahorro', fmt(pr.discountAmount), cols));
+    }
+  }
 }
 
 // ============================================================================
