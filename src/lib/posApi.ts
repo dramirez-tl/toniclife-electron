@@ -184,6 +184,42 @@ export interface PosRegisterFilter {
 }
 
 /**
+ * Cuerpo del alta de distribuidor desde el POS: la petición base más el
+ * consentimiento de avisos y promociones por WhatsApp capturado en la casilla
+ * del alta. Sin marcar la casilla el campo NO viaja: no es una negativa, queda
+ * "sin respuesta" y el recorrido de preferencias podrá preguntárselo después.
+ */
+export type PosRegisterDistributorInput = PosRegisterDistributorRequest & {
+  /** true = aceptó avisos y promociones por WhatsApp; el API lo guarda con fuente 'pos'. */
+  whatsappMarketingOptIn?: boolean;
+};
+
+export type PosRegisterDistributorResult = KitEnrollmentResponse & {
+  /**
+   * true = el API todavía no conoce `whatsappMarketingOptIn` (400 del
+   * ValidationPipe): el alta se repitió sin el campo y quedó bien, pero el
+   * consentimiento de WhatsApp NO se guardó (capturarlo después en el admin).
+   */
+  whatsappConsentNotSaved?: boolean;
+};
+
+/**
+ * 400 del ValidationPipe de NestJS cuyo mensaje menciona el campo (p. ej.
+ * "property whatsappMarketingOptIn should not exist"). Ese rechazo ocurre
+ * ANTES de ejecutar el alta, así que no se creó nada y se puede reintentar.
+ */
+function isBadRequestAbout(err: unknown, field: string): boolean {
+  const e = err as {
+    response?: { status?: number; data?: { message?: string | string[] } | string };
+  };
+  if (e?.response?.status !== 400) return false;
+  const data = e.response.data;
+  const m = typeof data === 'string' ? data : data?.message;
+  const text = Array.isArray(m) ? m.join(' ') : typeof m === 'string' ? m : '';
+  return text.includes(field);
+}
+
+/**
  * Descarga un .xlsx del API: bytes + nombre del Content-Disposition (o uno
  * estable). Con responseType 'arraybuffer' el cuerpo de un 4xx/5xx también
  * llega como bytes: se decodifica el JSON del API para que el toast muestre
@@ -1020,12 +1056,33 @@ class PosApi {
     return data ?? [];
   }
 
-  /** Alta de distribuidor desde POS (patrocinador por numero, kit opcional). */
+  /** Alta de distribuidor desde POS (patrocinador por numero, kit opcional).
+   *  `whatsappMarketingOptIn` solo va en el cuerpo si el cajero marcó la casilla
+   *  de consentimiento. El API valida con `forbidNonWhitelisted`: contra un API
+   *  que aún no conozca el campo, responde 400 mencionándolo ANTES de crear
+   *  nada; en ese caso se reintenta sin el campo y el resultado trae
+   *  `whatsappConsentNotSaved: true` para avisar al cajero. */
   async registerDistributor(
-    input: PosRegisterDistributorRequest,
-  ): Promise<KitEnrollmentResponse> {
-    const { data } = await api.post('/customers/pos-register-distributor', input);
-    return data;
+    input: PosRegisterDistributorInput,
+  ): Promise<PosRegisterDistributorResult> {
+    try {
+      const { data } = await api.post('/customers/pos-register-distributor', input);
+      return data;
+    } catch (err) {
+      if (
+        input.whatsappMarketingOptIn === undefined ||
+        !isBadRequestAbout(err, 'whatsappMarketingOptIn')
+      ) {
+        throw err;
+      }
+      const sinConsentimiento: PosRegisterDistributorInput = { ...input };
+      delete sinConsentimiento.whatsappMarketingOptIn;
+      const { data } = await api.post(
+        '/customers/pos-register-distributor',
+        sinConsentimiento,
+      );
+      return { ...data, whatsappConsentNotSaved: true };
+    }
   }
 
   /** Alta de cliente preferente desde POS (patrocinador por numero, sin kit). */

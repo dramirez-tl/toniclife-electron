@@ -59,7 +59,7 @@ import {
   useSponsorSearch,
   useSponsorByNumber,
 } from '@/hooks/usePos';
-import { posApi } from '@/lib/posApi';
+import { posApi, type PosRegisterDistributorInput } from '@/lib/posApi';
 import { useMembershipActive } from '@/hooks/useMembership';
 import { membershipPositionLabel } from '@/lib/membership';
 import {
@@ -191,6 +191,10 @@ export function RegisterDistributorModal({
   const [form, setForm] = useState(EMPTY_FORM);
   const [countryId, setCountryId] = useState('');
   const [sendEmail, setSendEmail] = useState(true);
+  // Consentimiento de avisos y promociones por WhatsApp: casilla OPCIONAL, sin
+  // marcar por defecto; solo aplica al alta de distribuidor (el API lo guarda
+  // con fuente 'pos').
+  const [whatsappMarketingOptIn, setWhatsappMarketingOptIn] = useState(false);
   const [enroll, setEnroll] = useState<EnrollChoice>('none');
   const chargeKit = enroll === 'kit';
   const [kitId, setKitId] = useState<string>('');
@@ -236,6 +240,7 @@ export function RegisterDistributorModal({
       setForm(EMPTY_FORM);
       setCountryId('');
       setSendEmail(true);
+      setWhatsappMarketingOptIn(false);
       setEnroll('none');
       setKitId('');
       setMembershipId('');
@@ -354,22 +359,35 @@ export function RegisterDistributorModal({
       countryId: countryId || undefined,
       sendCredentialsByEmail: sendEmail,
     };
+    // Alta de distribuidor: datos base + opcionales + consentimiento de WhatsApp.
+    const distributorInput: PosRegisterDistributorInput = {
+      ...base,
+      birthDate: form.birthDate,
+      nationality: form.nationality.trim() || undefined,
+      curp: showCurp ? form.curp.trim().toUpperCase() || undefined : undefined,
+      maritalStatus: form.maritalStatus || undefined,
+      postalCode: form.postalCode.trim() || undefined,
+      identificationType: form.identificationType || undefined,
+      kitProductId: chargeKit && kitId ? kitId : undefined,
+      address: buildAddressPayload(address, addressStateName),
+      // El consentimiento SOLO viaja si la casilla se marcó: sin marcar no es
+      // una negativa (queda "sin respuesta" y se le podrá preguntar después).
+      ...(whatsappMarketingOptIn ? { whatsappMarketingOptIn: true } : {}),
+    };
     try {
       const resp = isDistribuidor
-        ? await registerDistributor.mutateAsync({
-            ...base,
-            birthDate: form.birthDate,
-            nationality: form.nationality.trim() || undefined,
-            curp: showCurp ? form.curp.trim().toUpperCase() || undefined : undefined,
-            maritalStatus: form.maritalStatus || undefined,
-            postalCode: form.postalCode.trim() || undefined,
-            identificationType: form.identificationType || undefined,
-            kitProductId: chargeKit && kitId ? kitId : undefined,
-            address: buildAddressPayload(address, addressStateName),
-          })
+        ? await registerDistributor.mutateAsync(distributorInput)
         : await registerPreferred.mutateAsync(base);
       setResult(resp);
       toast.success(`${tipoLabel} registrado: ${resp.customerNumber}`);
+      // El alta quedó bien, pero el API aún no conoce el campo del consentimiento
+      // (posApi reintentó sin él): avisar para capturarlo después en el admin.
+      if ('whatsappConsentNotSaved' in resp && resp.whatsappConsentNotSaved) {
+        toast.warning(
+          'El consentimiento de WhatsApp no se guardó (API sin actualizar); captúralo después desde el admin.',
+          { duration: 10_000 },
+        );
+      }
     } catch (err) {
       const msg = getApiErrorMessage(
         err,
@@ -1130,6 +1148,30 @@ export function RegisterDistributorModal({
               />
               Enviar credenciales por correo al distribuidor
             </Label>
+
+            {/* Consentimiento de WhatsApp (solo distribuidor): casilla opcional,
+                sin marcar por defecto. El cajero la marca solo si el nuevo
+                distribuidor lo autoriza; viaja como whatsappMarketingOptIn.
+                TEXTO PENDIENTE DE VALIDAR POR JURÍDICO (aviso de privacidad). */}
+            {isDistribuidor && (
+              <div className="space-y-1">
+                <Label className="flex items-center gap-2 text-sm text-foreground">
+                  <Checkbox
+                    checked={whatsappMarketingOptIn}
+                    onCheckedChange={(c) =>
+                      setWhatsappMarketingOptIn(c === true)
+                    }
+                  />
+                  Acepto recibir avisos y promociones de Tonic Life por WhatsApp
+                </Label>
+                <p className="pl-6 text-[11px] text-muted-foreground">
+                  Opcional: márcala solo si el nuevo distribuidor lo autoriza. Sin
+                  marcar no es una negativa: recibirá solo avisos de su cuenta y
+                  podrá aceptar las promociones después desde su WhatsApp o su
+                  panel.
+                </p>
+              </div>
+            )}
 
             <div className="flex items-center justify-end gap-2 pt-2">
               <Button variant="outline" onClick={onClose} disabled={isPending}>
