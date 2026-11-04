@@ -1,11 +1,13 @@
-// ComingSoonGate.tsx - Cuerpo bloqueado del POS durante el rollout.
+// ComingSoonGate.tsx - Cuerpo bloqueado del POS.
 //
-// Se muestra en el área de venta (NO en el header) cuando el interruptor global
-// pos.operations_enabled está en false. Deja el header vivo para que la sucursal
-// configure la impresora térmica; la pantalla se libera sola cuando el super
-// admin habilita (el App lo re-aplica en el siguiente heartbeat, ≤60s).
+// Se muestra en el área de venta (NO en el header) cuando la terminal no puede
+// operar: candado del POS de la sucursal (CEDEAS › Punto de venta, mig 183) o el
+// interruptor global pos.operations_enabled en false. Deja el header vivo para
+// que la sucursal configure la impresora térmica; la pantalla se libera sola en
+// el siguiente heartbeat (≤60 s). El texto "Próximamente / en preparación" era
+// del rollout inicial por sucursal, que ya no se usa (Diego, 3-nov-2026).
 
-import { Rocket, Printer } from 'lucide-react';
+import { Lock, Printer } from 'lucide-react';
 import { LogoMark } from '@/components/LogoMark';
 
 interface ComingSoonGateProps {
@@ -14,9 +16,8 @@ interface ComingSoonGateProps {
 }
 
 const DEFAULT_MESSAGE =
-  'El punto de venta se habilitará muy pronto. Mientras tanto puedes configurar ' +
-  'la impresora térmica desde el ícono de ajustes. En cuanto se libere, esta ' +
-  'pantalla se activará automáticamente.';
+  'El punto de venta de esta sucursal está bloqueado. Comunícate con Tonic Life ' +
+  'para liberarlo; en cuanto se libere, esta pantalla se activará automáticamente.';
 
 export function ComingSoonGate({ message, branchName }: ComingSoonGateProps) {
   return (
@@ -31,14 +32,14 @@ export function ComingSoonGate({ message, branchName }: ComingSoonGateProps) {
 
       <div className="relative z-10 flex h-full w-full flex-col items-center justify-center gap-6 p-8 text-center">
         <div className="flex size-20 items-center justify-center rounded-full bg-white/10 ring-1 ring-white/15">
-          <Rocket strokeWidth={1.5} className="size-10 text-white" />
+          <Lock strokeWidth={1.5} className="size-10 text-white" />
         </div>
 
         <div className="max-w-lg">
           <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
-            Próximamente
+            Acceso bloqueado
           </div>
-          <h1 className="mt-2 text-3xl font-bold">Punto de venta en preparación</h1>
+          <h1 className="mt-2 text-3xl font-bold">Terminal bloqueada</h1>
           {branchName && (
             <p className="mt-1 text-sm text-white/70">Sucursal {branchName}</p>
           )}
