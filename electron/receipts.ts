@@ -853,9 +853,11 @@ function renderSale(p: ReceiptWriter, input: SaleReceiptInput): void {
     // Promoción de temporada del renglón (mig 186): "3x2: 1 pieza gratis".
     if (it.promoLabel) p.line(`  ${it.promoLabel}`.slice(0, cols));
     // Contenido del kit/paquete/promo (paridad con el ticket del legacy):
-    // la sucursal arma el kit con esta lista al entregarlo.
+    // la sucursal arma el kit con esta lista al entregarlo. "Sin costo":
+    // lo cobrado es el kit (una línea, una tasa); los componentes se
+    // entregan sin cargo (Contabilidad 5-nov-2026).
     if (it.components && it.components.length > 0) {
-      p.line('  Incluye:'.slice(0, cols));
+      p.line('  Incluye sin costo:'.slice(0, cols));
       for (const c of it.components) {
         p.line(`   ${c.quantity} x ${c.name}`.slice(0, cols));
       }
