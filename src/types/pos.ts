@@ -234,6 +234,11 @@ export interface Sale {
    *  Con valor, la venta ya no admite CFDI nominativa. Ausente en APIs
    *  anteriores. */
   globalInvoiceId?: string | null;
+  /** Último día local (YYYY-MM-DD) en que la CAJA puede facturar este ticket
+   *  (billing.pos_stamp_max_days, 4-nov-2026); null = sin tope por días.
+   *  Pasado ese día se oculta "Facturar" (el API responde 422
+   *  SALE_STAMP_WINDOW_CLOSED). Ausente en APIs anteriores. */
+  posStampUntil?: string | null;
   notes?: string;
   cancelledAt?: string;
   cancelledByName?: string;

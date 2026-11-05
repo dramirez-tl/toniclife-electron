@@ -12,6 +12,10 @@
 //   - el día LOCAL de la venta (zona de la sucursal) cae en el MES NATURAL en
 //     curso: después se factura desde el admin (Contabilidad). Mes natural,
 //     NUNCA el periodo 26→25 del MLM;
+//   - y no más tarde de `sale.posStampUntil` (tope de días desde la venta,
+//     billing.pos_stamp_max_days, Contabilidad 4-nov-2026: pasado el plazo el
+//     ticket ya pudo entrar al cierre semanal y una nominativa tardía lo
+//     declararía dos veces). El API lo manda por venta; ausente = sin tope;
 //   - sin cobro en dólares, cashback ni promoción (Contabilidad, 22-oct-2026):
 //     basta UN cobro > 0 de esos métodos; el API responde
 //     CFDI_PAYMENT_NOT_INVOICEABLE y la global también los deja fuera.
@@ -29,7 +33,8 @@ export type InvoiceIneligibleReason =
   | 'non_invoiceable_payment'
   | 'country'
   | 'invoicing_disabled'
-  | 'out_of_month';
+  | 'out_of_month'
+  | 'stamp_window_closed';
 
 export type InvoiceEligibility =
   | { eligible: true }
@@ -46,6 +51,7 @@ export type InvoiceEligibilitySale = Pick<
   | 'globalInvoiceId'
   | 'createdAt'
   | 'paymentMethod'
+  | 'posStampUntil'
 > & {
   /** Cobros de la venta; la lista de ventas los trae, un detalle viejo puede no traerlos. */
   payments?: Array<Pick<SalePayment, 'paymentMethod' | 'amount'> & { status?: string }>;
@@ -156,6 +162,11 @@ export function invoiceEligibility(
   if (!sameCalendarMonth(localDateOf(sale.createdAt, input.branchTz), today)) {
     return { eligible: false, reason: 'out_of_month' };
   }
+  // Tope de días desde la venta (billing.pos_stamp_max_days): el API manda por
+  // venta el último día local permitido; null o ausente = sin tope.
+  if (sale.posStampUntil && today > sale.posStampUntil) {
+    return { eligible: false, reason: 'stamp_window_closed' };
+  }
   return { eligible: true };
 }
 
@@ -180,4 +191,6 @@ export const INVOICE_INELIGIBLE_LABELS: Record<InvoiceIneligibleReason, string> 
     invoicing_disabled: 'La facturación está deshabilitada en esta terminal.',
     out_of_month:
       'Desde el POS solo se factura dentro del mes natural de la venta; después se factura desde el admin (Contabilidad).',
+    stamp_window_closed:
+      'Pasó el plazo para facturar este ticket desde la caja; ahora se factura desde el admin (Contabilidad).',
   };
