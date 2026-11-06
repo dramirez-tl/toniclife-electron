@@ -21,6 +21,7 @@ import { computeHardwareFingerprint } from './hardware';
 import { setupAutoUpdater } from './updater';
 import { loadSession, saveSession, clearSession, type StoredSession } from './storage';
 import { loadOutbox, saveOutbox } from './outbox';
+import { startGoogleSignIn, cancelGoogleSignIn } from './google';
 import {
   loadPrinterConfig,
   savePrinterConfig,
@@ -267,6 +268,15 @@ ipcMain.handle(
     }
   },
 );
+
+// ----- Google Sign-In del modo staff (ver google.ts) -----
+
+// Abre el navegador del SO con Google y regresa el código PKCE; el renderer
+// lo manda al API (POST /auth/google/desktop). Nunca lanza.
+ipcMain.handle('google:signIn', (_evt, clientId: string) =>
+  startGoogleSignIn(clientId),
+);
+ipcMain.handle('google:cancel', () => cancelGoogleSignIn());
 
 // ----- Factura CFDI (PDF) -----
 

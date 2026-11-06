@@ -376,6 +376,16 @@ declare global {
         /** Abre un enlace en el navegador del SO (solo WhatsApp y toniclife.com). */
         openExternal: (url: string) => Promise<PrinterOpResult>;
       };
+      /** Google Sign-In del modo staff (electron/google.ts): navegador del SO + código PKCE. */
+      google: {
+        signIn: (
+          clientId: string,
+        ) => Promise<
+          | { ok: true; code: string; codeVerifier: string; redirectUri: string }
+          | { ok: false; error: string; cancelled?: boolean }
+        >;
+        cancel: () => Promise<void>;
+      };
       updater: {
         onUpdateDownloaded: (
           cb: (info: { version: string }) => void,

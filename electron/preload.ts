@@ -8,6 +8,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { HardwareFingerprint } from './hardware';
 import type { StoredSession } from './storage';
 import type { PrinterConfig, OsPrinterInfo } from './printer';
+import type { GoogleSignInResult } from './google';
 import type {
   CorteReceiptInput,
   SaleReceiptInput,
@@ -111,6 +112,14 @@ const api = {
      *  páginas de toniclife.com (boleto digital de un evento). */
     openExternal: (url: string): Promise<PrinterOpResult> =>
       ipcRenderer.invoke('shell:openExternal', url),
+  },
+  google: {
+    /** Modo staff: abre el navegador del SO con Google y regresa el código
+     *  (PKCE) para que el API lo cambie por la sesión. Nunca lanza. */
+    signIn: (clientId: string): Promise<GoogleSignInResult> =>
+      ipcRenderer.invoke('google:signIn', clientId),
+    /** Cancela el intento en curso (el operador cerró el modal). */
+    cancel: (): Promise<void> => ipcRenderer.invoke('google:cancel'),
   },
 };
 

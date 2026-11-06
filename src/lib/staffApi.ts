@@ -1,7 +1,9 @@
 // staffApi.ts — Autenticación del MODO STAFF (call center / corporativo).
-// El login usa /auth/login del API (misma cuenta del admin web); la
-// autorización real la decide el server: GET /pos/staff/branches responde 403
-// si el rol del usuario no está permitido para operar el POS.
+// El login usa /auth/login del API (misma cuenta del admin web) o Google
+// (/auth/google/desktop: el navegador del SO entrega un código PKCE y el API
+// lo cambia por la sesión); la autorización real la decide el server:
+// GET /pos/staff/branches responde 403 si el rol del usuario no está
+// permitido para operar el POS.
 
 import axios from 'axios';
 import { api, onStaffTokenExpired } from './api';
@@ -31,8 +33,9 @@ export class StaffLoginError extends Error {
   constructor(
     message: string,
     /** 'credentials' = usuario/contraseña; 'forbidden' = cuenta sin acceso al
-     *  modo staff; 'network' = sin conexión / server caído. */
-    public kind: 'credentials' | 'forbidden' | 'network',
+     *  modo staff; 'network' = sin conexión / server caído; 'cancelled' = el
+     *  operador cerró la ventana de Google (no es un error para mostrar). */
+    public kind: 'credentials' | 'forbidden' | 'network' | 'cancelled',
   ) {
     super(message);
   }
@@ -46,6 +49,13 @@ export interface StaffAuthResult {
   user: StaffUser;
   tokens: { accessToken: string; refreshToken: string };
   branches: StaffBranch[];
+}
+
+function apiMessage(err: unknown, fallback: string): string {
+  if (axios.isAxiosError(err) && err.response) {
+    return (err.response.data as { message?: string })?.message ?? fallback;
+  }
+  return fallback;
 }
 
 /** Autentica y valida acceso al POS (vía staff/branches). NO toca el store. */
@@ -62,14 +72,18 @@ export async function staffAuthenticate(
     login = data;
   } catch (err) {
     if (axios.isAxiosError(err) && err.response) {
-      const msg =
-        (err.response.data as { message?: string })?.message ??
-        'Usuario o contraseña incorrectos';
-      throw new StaffLoginError(msg, 'credentials');
+      throw new StaffLoginError(
+        apiMessage(err, 'Usuario o contraseña incorrectos'),
+        'credentials',
+      );
     }
     throw new StaffLoginError('Sin conexión con el servidor', 'network');
   }
+  return authorizeStaff(login);
+}
 
+/** Con la sesión del API ya creada: ¿puede operar el POS y en qué sucursales? */
+async function authorizeStaff(login: LoginResponse): Promise<StaffAuthResult> {
   // Autorización: la decide el server. 403 aquí = el rol no puede operar POS.
   let branches: StaffBranch[];
   try {
@@ -117,6 +131,106 @@ export async function staffAuthenticate(
     },
     branches,
   };
+}
+
+// ---- Google Sign-In (modo staff) ----
+// Google no permite iniciar sesión dentro de Electron: el main abre el
+// navegador del SO (electron/google.ts) y regresa un código PKCE; el API lo
+// cambia por la sesión con el secreto del cliente de escritorio. Si la cuenta
+// de Google no está vinculada a ningún usuario, el API pide confirmar UNA vez
+// con usuario + contraseña (/auth/google/link) y la deja vinculada.
+
+export interface StaffGoogleStatus {
+  enabled: boolean;
+  webClientId: string | null;
+  /** Client ID del cliente OAuth de escritorio; null = el POS no muestra el botón. */
+  desktopClientId: string | null;
+}
+
+/** null = sin conexión o API sin Google: el modal no muestra el botón. */
+export async function staffGoogleStatus(): Promise<StaffGoogleStatus | null> {
+  try {
+    const { data } = await api.get<StaffGoogleStatus>('/auth/google/status');
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+interface GoogleLinkRequired {
+  requiresAccountLink: true;
+  linkTicket: string;
+  email: string;
+  name: string | null;
+}
+
+export type StaffGoogleAuth =
+  | { kind: 'ok'; result: StaffAuthResult }
+  | { kind: 'link'; linkTicket: string; email: string; name: string | null };
+
+/** Abre Google en el navegador y entra; o pide vincular (kind 'link'). */
+export async function staffAuthenticateGoogle(
+  desktopClientId: string,
+): Promise<StaffGoogleAuth> {
+  const flow = await window.toniclife.google.signIn(desktopClientId);
+  if (!flow.ok) {
+    throw new StaffLoginError(flow.error, flow.cancelled ? 'cancelled' : 'credentials');
+  }
+  let data: LoginResponse | GoogleLinkRequired;
+  try {
+    const res = await api.post<LoginResponse | GoogleLinkRequired>(
+      '/auth/google/desktop',
+      {
+        code: flow.code,
+        codeVerifier: flow.codeVerifier,
+        redirectUri: flow.redirectUri,
+      },
+    );
+    data = res.data;
+  } catch (err) {
+    if (axios.isAxiosError(err) && err.response) {
+      throw new StaffLoginError(
+        apiMessage(err, 'No se pudo iniciar sesión con Google'),
+        'credentials',
+      );
+    }
+    throw new StaffLoginError('Sin conexión con el servidor', 'network');
+  }
+  if ('requiresAccountLink' in data && data.requiresAccountLink) {
+    return {
+      kind: 'link',
+      linkTicket: data.linkTicket,
+      email: data.email,
+      name: data.name,
+    };
+  }
+  return { kind: 'ok', result: await authorizeStaff(data as LoginResponse) };
+}
+
+/** Confirma con usuario + contraseña, vincula la cuenta de Google y entra. */
+export async function staffLinkGoogle(
+  linkTicket: string,
+  identifier: string,
+  password: string,
+): Promise<StaffAuthResult> {
+  let login: LoginResponse;
+  try {
+    const { data } = await api.post<LoginResponse>('/auth/google/link', {
+      linkTicket,
+      identifier,
+      password,
+    });
+    login = data;
+  } catch (err) {
+    if (axios.isAxiosError(err) && err.response) {
+      throw new StaffLoginError(
+        apiMessage(err, 'Usuario o contraseña incorrectos'),
+        'credentials',
+      );
+    }
+    throw new StaffLoginError('Sin conexión con el servidor', 'network');
+  }
+  return authorizeStaff(login);
 }
 
 /** Refresh del JWT de staff (registrado en api.ts para el retry de 401).
