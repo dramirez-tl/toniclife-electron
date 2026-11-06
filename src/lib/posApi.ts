@@ -124,6 +124,10 @@ function mapEventInfo(e: any): PosEventInfo | undefined {
     status: String(e.status ?? 'active'),
     label: e.label ?? null,
     ticketsPerUnit: Number(e.ticketsPerUnit) > 0 ? Number(e.ticketsPerUnit) : 1,
+    // Aforo (API fe63e80, 5-nov-2026): con soldOut el motivo del agotado es "aforo del evento lleno".
+    capacity: e.capacity == null ? null : Number(e.capacity),
+    ticketsIssued: Number(e.ticketsIssued) || 0,
+    soldOut: e.soldOut === true,
   };
 }
 
