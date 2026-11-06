@@ -778,6 +778,12 @@ export interface PosEventInfo {
   label?: string | null;
   /** Boletos que emite cada unidad vendida. */
   ticketsPerUnit: number;
+  /** Aforo del evento (personas); null = sin tope (API fe63e80, 5-nov-2026). */
+  capacity?: number | null;
+  /** Boletos vigentes del evento (titular + invitado). */
+  ticketsIssued?: number;
+  /** true = aforo lleno: el catálogo manda stock 0 y el API rechaza el cobro (EVENT_SOLD_OUT). */
+  soldOut?: boolean;
 }
 
 /** POST /pos/sales/:id/tickets/email */

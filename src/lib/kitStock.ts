@@ -15,7 +15,7 @@ import type { PosKitAvailability, QuickProduct } from '@/types/pos';
 
 type StockLike = Pick<
   QuickProduct,
-  'stock' | 'productType' | 'kitDeductsInventory' | 'limitingComponent'
+  'stock' | 'productType' | 'kitDeductsInventory' | 'limitingComponent' | 'event'
 >;
 
 /** Kit o paquete (se arme o no). */
@@ -43,6 +43,13 @@ function limitingText(p: StockLike): string | null {
  *  - prearmado / producto: sin existencia propia.
  */
 export function outOfStockReason(p: StockLike): string {
+  // Boleto de evento (5-nov-2026): su existencia son los boletos asignados a
+  // la sucursal, y con el aforo lleno el API manda 0 aunque sea un pack.
+  if (p.event) {
+    return p.event.soldOut
+      ? 'aforo del evento lleno'
+      : 'sin boletos asignados a esta sucursal';
+  }
   if (isAssembledKit(p)) {
     const limiting = limitingText(p);
     return limiting
@@ -81,6 +88,7 @@ export function missingComponentsText(
 /** Texto corto de existencia para tarjetas: "7 armables" / "3 disp.". */
 export function stockShortLabel(p: StockLike): string | null {
   if (p.stock == null) return null;
+  if (p.event) return `${p.stock} disp.`;
   if (isAssembledKit(p)) return `${p.stock} armables`;
   return `${p.stock} disp.`;
 }
