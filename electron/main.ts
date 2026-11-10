@@ -18,7 +18,8 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { computeHardwareFingerprint } from './hardware';
-import { setupAutoUpdater } from './updater';
+import { logUpdater, setupAutoUpdater } from './updater';
+import { repairVersionedShortcuts } from './shortcut';
 import { loadSession, saveSession, clearSession, type StoredSession } from './storage';
 import { loadOutbox, saveOutbox } from './outbox';
 import { startGoogleSignIn, cancelGoogleSignIn } from './google';
@@ -463,6 +464,10 @@ app.whenReady().then(() => {
 
   // Auto-actualización (solo empaquetado; en dev es no-op con log).
   setupAutoUpdater(() => mainWindow);
+
+  // El acceso directo lleva la versión en el nombre y el instalador a veces
+  // lo deja con una versión vieja: se corrige aquí, sin frenar el arranque.
+  setTimeout(() => repairVersionedShortcuts(logUpdater), 3000);
 
   // Impresora de sistema configurada: precalentar el worker RAW (arranque de
   // PowerShell + compilación del C#) para que el PRIMER ticket salga rápido.

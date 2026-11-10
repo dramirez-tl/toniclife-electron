@@ -20,7 +20,7 @@ const { autoUpdater } = electronUpdater;
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4h
 const FIRST_CHECK_DELAY_MS = 15_000; // dejar respirar el boot/licencia
 
-function logUpdater(line: string): void {
+export function logUpdater(line: string): void {
   try {
     const logsDir = path.join(app.getPath('userData'), 'logs');
     fs.mkdirSync(logsDir, { recursive: true });
