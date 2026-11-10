@@ -1829,6 +1829,9 @@ export function PosScreen({
             isProcessing={isProcessing}
             branchId={branch.id}
             membershipBranchId={staffActive ? branchId : undefined}
+            quoteBranchName={branch.ticketName || branch.name}
+            quoteTimezone={branch.timezone}
+            quoteAttendedBy={staffActive ? staffUser?.fullName : undefined}
             staffMode={staffActive}
             deliveryMode={deliveryModeActive}
             onDeliveryModeChange={(on) => {

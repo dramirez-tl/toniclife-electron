@@ -14,6 +14,7 @@ import type {
   SaleReceiptInput,
   TransferReceiptInput,
 } from './receipts';
+import type { QuotePayload } from '../src/lib/quoteHtml';
 
 type PrinterOpResult = { ok: true } | { ok: false; error: string };
 
@@ -96,6 +97,25 @@ const api = {
       transfer: Omit<TransferReceiptInput, 'paperWidth'>,
     ): Promise<{ ok: true; path: string } | { ok: false; error: string }> =>
       ipcRenderer.invoke('printer:saveTransferPdf', transfer),
+  },
+  // Cotización del carrito: imagen para pegar en el correo, PNG o PDF.
+  quote: {
+    preview: (
+      payload: QuotePayload,
+    ): Promise<
+      | { ok: true; dataUrl: string; width: number; height: number }
+      | { ok: false; error: string }
+    > => ipcRenderer.invoke('quote:preview', payload),
+    copyImage: (payload: QuotePayload): Promise<PrinterOpResult> =>
+      ipcRenderer.invoke('quote:copyImage', payload),
+    saveImage: (
+      payload: QuotePayload,
+    ): Promise<{ ok: true; path: string } | { ok: false; error: string }> =>
+      ipcRenderer.invoke('quote:saveImage', payload),
+    savePdf: (
+      payload: QuotePayload,
+    ): Promise<{ ok: true; path: string } | { ok: false; error: string }> =>
+      ipcRenderer.invoke('quote:savePdf', payload),
   },
   invoice: {
     /** Guarda el PDF de la factura en la carpeta temporal y lo abre con el

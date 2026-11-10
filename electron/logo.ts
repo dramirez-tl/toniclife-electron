@@ -14,6 +14,7 @@ import { nativeImage, app } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { visibleBounds } from '../src/lib/imageBounds';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -55,6 +56,34 @@ export function loadLogoDataUrl(
     return `data:image/png;base64,${fs.readFileSync(file).toString('base64')}`;
   } catch {
     return null;
+  }
+}
+
+// El recorte lee el PNG completo pixel a pixel; el resultado no cambia.
+const trimmedLogoCache = new Map<string, string>();
+
+/**
+ * Logo como data URL RECORTADO a lo que se ve. Los PNG de texto vienen en un
+ * lienzo cuadrado con margen transparente (logo-text-dark.png: 1280×1280 con
+ * el texto en una franja de 1044×212) y en una hoja salían diminutos. Si no
+ * se puede recortar, cae al PNG tal cual.
+ */
+export function loadTrimmedLogoDataUrl(filename: string): string | null {
+  const cached = trimmedLogoCache.get(filename);
+  if (cached) return cached;
+  const file = findLogoPath(filename);
+  if (!file) return null;
+  try {
+    const img = nativeImage.createFromPath(file);
+    if (img.isEmpty()) return loadLogoDataUrl(filename);
+    const { width, height } = img.getSize();
+    const bounds = visibleBounds(img.toBitmap(), width, height);
+    if (!bounds) return loadLogoDataUrl(filename);
+    const url = img.crop(bounds).toDataURL();
+    trimmedLogoCache.set(filename, url);
+    return url;
+  } catch {
+    return loadLogoDataUrl(filename);
   }
 }
 

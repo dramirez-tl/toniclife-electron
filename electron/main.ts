@@ -20,6 +20,13 @@ import { fileURLToPath } from 'node:url';
 import { computeHardwareFingerprint } from './hardware';
 import { logUpdater, setupAutoUpdater } from './updater';
 import { repairVersionedShortcuts } from './shortcut';
+import {
+  copyQuoteImage,
+  previewQuote,
+  saveQuoteImage,
+  saveQuotePdf,
+} from './quote';
+import type { QuotePayload } from '../src/lib/quoteHtml';
 import { loadSession, saveSession, clearSession, type StoredSession } from './storage';
 import { loadOutbox, saveOutbox } from './outbox';
 import { startGoogleSignIn, cancelGoogleSignIn } from './google';
@@ -433,6 +440,42 @@ ipcMain.handle(
     }
   },
 );
+
+// Cotización del carrito (electron/quote.ts): vista previa, copiar como imagen
+// (para pegarla en el correo) y guardar en PNG o PDF.
+const quoteError = (err: unknown) => ({
+  ok: false as const,
+  error: err instanceof Error ? err.message : String(err),
+});
+ipcMain.handle('quote:preview', async (_evt, payload: QuotePayload) => {
+  try {
+    return { ok: true, ...(await previewQuote(payload)) };
+  } catch (err) {
+    return quoteError(err);
+  }
+});
+ipcMain.handle('quote:copyImage', async (_evt, payload: QuotePayload) => {
+  try {
+    await copyQuoteImage(payload);
+    return { ok: true };
+  } catch (err) {
+    return quoteError(err);
+  }
+});
+ipcMain.handle('quote:saveImage', async (_evt, payload: QuotePayload) => {
+  try {
+    return { ok: true, path: await saveQuoteImage(payload) };
+  } catch (err) {
+    return quoteError(err);
+  }
+});
+ipcMain.handle('quote:savePdf', async (_evt, payload: QuotePayload) => {
+  try {
+    return { ok: true, path: await saveQuotePdf(payload) };
+  } catch (err) {
+    return quoteError(err);
+  }
+});
 
 // ============================================================================
 // APP LIFECYCLE

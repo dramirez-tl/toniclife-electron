@@ -1,5 +1,7 @@
 // Tipos compartidos por el renderer.
 
+import type { QuotePayload } from './lib/quoteHtml';
+
 export interface HardwareInfo {
   hostname: string;
   cpuModel: string;
@@ -426,6 +428,22 @@ declare global {
         /** La misma lista en PDF (histórico). */
         saveTransferPdf: (
           transfer: TransferReceiptPayload,
+        ) => Promise<{ ok: true; path: string } | { ok: false; error: string }>;
+      };
+      /** Cotización del carrito: imagen para pegar en el correo, PNG o PDF. */
+      quote: {
+        preview: (
+          payload: QuotePayload,
+        ) => Promise<
+          | { ok: true; dataUrl: string; width: number; height: number }
+          | { ok: false; error: string }
+        >;
+        copyImage: (payload: QuotePayload) => Promise<PrinterOpResult>;
+        saveImage: (
+          payload: QuotePayload,
+        ) => Promise<{ ok: true; path: string } | { ok: false; error: string }>;
+        savePdf: (
+          payload: QuotePayload,
         ) => Promise<{ ok: true; path: string } | { ok: false; error: string }>;
       };
       invoice: {

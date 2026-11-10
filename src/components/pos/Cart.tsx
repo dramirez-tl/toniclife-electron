@@ -20,6 +20,7 @@ import {
   Store,
   Sparkles,
   Gift,
+  FileText,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -34,6 +35,7 @@ import { useMembershipBag } from '@/hooks/useMembership';
 import { CustomerSelector } from './CustomerSelector';
 import { PosPointsBar } from './PosPointsBar';
 import { MembershipBagCard } from './MembershipBagCard';
+import { QuoteDialog } from './QuoteDialog';
 
 interface CartProps {
   currencySymbol: string;
@@ -67,6 +69,11 @@ interface CartProps {
   /** Sucursal para las campañas de membresía SOLO en modo staff (JWT de
    *  usuario); la terminal se identifica por su licencia. */
   membershipBranchId?: string;
+  /** Datos de la sucursal para la COTIZACIÓN (botón del encabezado): nombre,
+   *  zona horaria y quién atiende en modo staff. */
+  quoteBranchName?: string;
+  quoteTimezone?: string;
+  quoteAttendedBy?: string;
 }
 
 // Tope de cantidad del item (espejo del store): maxQuantity explícito o 1
@@ -93,6 +100,9 @@ export function Cart({
   onDeliveryClear,
   onShowPurchases,
   membershipBranchId,
+  quoteBranchName,
+  quoteTimezone,
+  quoteAttendedBy,
 }: CartProps) {
   const cart = usePosCartStore((s) => s.cart);
   const updateItemQuantity = usePosCartStore((s) => s.updateItemQuantity);
@@ -106,6 +116,8 @@ export function Cart({
   const [couponInput, setCouponInput] = useState('');
   const [couponError, setCouponError] = useState<string | null>(null);
   const [validatingCoupon, setValidatingCoupon] = useState(false);
+  // Cotización: la hoja completa del carrito para copiar como imagen o PDF.
+  const [quoteOpen, setQuoteOpen] = useState(false);
 
   // El panel del cupón se resetea cuando el carrito queda vacío (cobro
   // exitoso, Vaciar o quitar el último item): el Cart no se desmonta entre
@@ -205,16 +217,29 @@ export function Cart({
           )}
         </div>
         {cart.items.length > 0 && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={clearCart}
-            className="h-auto p-0 gap-1 text-xs text-muted-foreground hover:bg-transparent hover:text-destructive"
-          >
-            <Trash2 className="size-3.5" />
-            Vaciar
-          </Button>
+          <div className="flex items-center gap-3">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setQuoteOpen(true)}
+              className="h-auto p-0 gap-1 text-xs text-muted-foreground hover:bg-transparent hover:text-primary"
+              title="Ver el carrito completo como cotización: copiar como imagen para el correo o guardar en PDF"
+            >
+              <FileText className="size-3.5" />
+              Cotización
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={clearCart}
+              className="h-auto p-0 gap-1 text-xs text-muted-foreground hover:bg-transparent hover:text-destructive"
+            >
+              <Trash2 className="size-3.5" />
+              Vaciar
+            </Button>
+          </div>
         )}
       </div>
 
@@ -430,7 +455,10 @@ export function Cart({
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <div className="text-sm font-medium text-foreground truncate">
+                      <div
+                        className="text-sm font-medium text-foreground line-clamp-2 break-words"
+                        title={item.productName}
+                      >
                         {item.productName}
                       </div>
                       <div className="text-[11px] text-muted-foreground font-mono">
@@ -747,6 +775,18 @@ export function Cart({
           </p>
         )}
       </div>
+
+      <QuoteDialog
+        open={quoteOpen && cart.items.length > 0}
+        onClose={() => setQuoteOpen(false)}
+        context={{
+          branchName: quoteBranchName ?? '',
+          timezone: quoteTimezone,
+          attendedBy: quoteAttendedBy,
+          currencySymbol,
+          currencyCode,
+        }}
+      />
     </div>
   );
 }
