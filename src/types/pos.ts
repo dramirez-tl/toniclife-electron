@@ -887,6 +887,17 @@ export interface PosProductSaleLine {
   points: number;
   paymentMethod: string;
   sellerName: string;
+  /**
+   * true = las piezas del renglón salieron GRATIS por una promoción de
+   * temporada (la 3.ª de un 3x2, la 6.ª de un "compra 5 y llévate 1", un
+   * regalo por compra); el renglón va en $0.
+   */
+  freeByPromotion?: boolean;
+  /** Promoción de temporada del renglón (gratis o cobrado con ella). */
+  promotionCode?: string | null;
+  promotionName?: string | null;
+  /** Valor de lo regalado en el renglón, a precio de venta. */
+  giftedValue?: number;
 }
 
 export interface PosProductSalesSummary {
@@ -894,17 +905,42 @@ export interface PosProductSalesSummary {
   productSku: string;
   productName: string;
   salesCount: number;
+  /** Piezas que salieron (cobradas + gratis). */
   units: number;
+  /** De esas piezas, las que salieron gratis por promociones de temporada. */
+  freeUnits?: number;
   amount: number;
   points: number;
   lines: PosProductSaleLine[];
+}
+
+/** Piezas gratis de un producto por promoción de temporada. */
+export interface PosFreeByPromotionRow {
+  promotionCode: string;
+  promotionName: string;
+  productId: string;
+  productSku: string;
+  productName: string;
+  salesCount: number;
+  units: number;
+  giftedValue: number;
 }
 
 export interface PosSalesByProductResponse {
   startDate: string;
   endDate: string;
   branchLabel: string;
-  totals: { sales: number; lines: number; units: number; amount: number; points: number };
+  totals: {
+    sales: number;
+    lines: number;
+    units: number;
+    /** Piezas gratis por promociones de temporada (incluidas en `units`). */
+    freeUnits?: number;
+    amount: number;
+    points: number;
+  };
+  /** Lo que regaló cada promoción de temporada en el rango, por producto. */
+  freeByPromotion?: PosFreeByPromotionRow[];
   products: PosProductSalesSummary[];
 }
 

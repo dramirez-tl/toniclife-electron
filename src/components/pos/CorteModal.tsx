@@ -653,7 +653,14 @@ export function CorteModal({
                       Ventas por producto ({byProduct.products.length}
                       {byProduct.products.length === 1 ? ' producto' : ' productos'}
                       {' · '}
-                      {byProduct.totals.units} piezas)
+                      {byProduct.totals.units} piezas
+                      {(byProduct.totals.freeUnits ?? 0) > 0 && (
+                        <span className="text-emerald-700">
+                          {' · '}
+                          {byProduct.totals.freeUnits} gratis por promoción
+                        </span>
+                      )}
+                      )
                     </h3>
                     <Button
                       variant="outline"
@@ -689,6 +696,12 @@ export function CorteModal({
                             <TableHead className="text-right px-3 py-1.5 font-medium text-muted-foreground">
                               Piezas
                             </TableHead>
+                            <TableHead
+                              className="text-right px-3 py-1.5 font-medium text-muted-foreground"
+                              title="Piezas que salieron gratis por una promoción de temporada (ya incluidas en Piezas)"
+                            >
+                              Gratis
+                            </TableHead>
                             <TableHead className="text-right px-3 py-1.5 font-medium text-muted-foreground">
                               Importe
                             </TableHead>
@@ -718,6 +731,15 @@ export function CorteModal({
                                     {p.units}
                                   </TableCell>
                                   <TableCell className="px-3 py-1.5 text-right tabular-nums">
+                                    {(p.freeUnits ?? 0) > 0 ? (
+                                      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800">
+                                        {p.freeUnits}
+                                      </span>
+                                    ) : (
+                                      <span className="text-muted-foreground/50">—</span>
+                                    )}
+                                  </TableCell>
+                                  <TableCell className="px-3 py-1.5 text-right tabular-nums">
                                     {fmt(Number(p.amount))}
                                   </TableCell>
                                   <TableCell className="px-3 py-1.5 text-right text-xs text-primary">
@@ -726,7 +748,7 @@ export function CorteModal({
                                 </TableRow>
                                 {open && (
                                   <TableRow className="bg-muted/30 hover:bg-muted/30">
-                                    <TableCell colSpan={6} className="px-6 py-2">
+                                    <TableCell colSpan={7} className="px-6 py-2">
                                       <ul className="space-y-0.5 text-xs text-muted-foreground">
                                         {p.lines.map((l, i) => (
                                           <li
@@ -750,6 +772,16 @@ export function CorteModal({
                                               {l.quantity} × {fmt(Number(l.unitPrice))} ={' '}
                                               {fmt(Number(l.total))}
                                             </span>
+                                            {l.freeByPromotion && (
+                                              <span className="rounded bg-emerald-600 px-1.5 text-[10px] font-semibold uppercase leading-4 tracking-wide text-white">
+                                                Gratis
+                                              </span>
+                                            )}
+                                            {(l.promotionName || l.promotionCode) && (
+                                              <span className={l.freeByPromotion ? 'text-emerald-800' : undefined}>
+                                                {l.promotionName || l.promotionCode}
+                                              </span>
+                                            )}
                                           </li>
                                         ))}
                                       </ul>
