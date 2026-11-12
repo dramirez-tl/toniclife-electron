@@ -332,6 +332,52 @@ export interface TransferReceiptPayload {
   }>;
 }
 
+/** Hoja de surtido o comprobante de entrega de un pedido en línea para
+ *  recoger en sucursal (espejo de electron/receipts.ts PickupOrderReceiptInput
+ *  sin paperWidth — la elige el main desde la config). */
+export interface PickupOrderReceiptPayload {
+  branchName: string;
+  ticketName?: string;
+  /** 'picking' = hoja de surtido (casillas en blanco para palomear);
+   *  'handoff' = comprobante de entrega (con quién recogió y línea de firma). */
+  mode: 'picking' | 'handoff';
+  /** Folio del pedido (TL2611110001). */
+  orderNumber: string;
+  /** "Por surtir", "Listo para recoger", "Entregado"… */
+  statusLabel?: string;
+  customerName?: string;
+  /** Número de distribuidor. */
+  customerNumber?: string;
+  /** Quién recoge según el pedido, solo si no es el comprador. */
+  recipientName?: string;
+  phone?: string;
+  /** ISO: cuándo se pagó. */
+  paidAt?: string;
+  /** Nota que dejó el comprador. */
+  buyerNotes?: string;
+  items: Array<{
+    sku?: string;
+    name: string;
+    quantity: number;
+    /** Producto bajo pedido. */
+    madeToOrder?: boolean;
+    personalization?: string;
+    /** Piezas de un kit/paquete/promo; quantity = piezas a juntar (ya
+     *  multiplicada por la cantidad del renglón). */
+    components?: Array<{ sku?: string; name: string; quantity: number }>;
+  }>;
+  /** Total de piezas del pedido. */
+  totalUnits: number;
+  /** Solo en el comprobante de entrega. */
+  receivedByName?: string;
+  /** ISO. */
+  deliveredAt?: string;
+  deliveredByName?: string;
+  handoffTerminal?: string;
+  /** Nota de la sucursal. */
+  branchNotes?: string;
+}
+
 /** Bloque MEMBRESÍA del ticket (espejo de electron/receipts.ts
  *  SaleReceiptMembership). */
 export interface SaleReceiptMembership {
@@ -428,6 +474,14 @@ declare global {
         /** La misma lista en PDF (histórico). */
         saveTransferPdf: (
           transfer: TransferReceiptPayload,
+        ) => Promise<{ ok: true; path: string } | { ok: false; error: string }>;
+        /** Hoja de surtido o comprobante de entrega de un pedido en línea. */
+        printPickupOrder: (
+          order: PickupOrderReceiptPayload,
+        ) => Promise<PrinterOpResult>;
+        /** Lo mismo en PDF, sin importar el modo de impresora. */
+        savePickupOrderPdf: (
+          order: PickupOrderReceiptPayload,
         ) => Promise<{ ok: true; path: string } | { ok: false; error: string }>;
       };
       /** Cotización del carrito: imagen para pegar en el correo, PNG o PDF. */

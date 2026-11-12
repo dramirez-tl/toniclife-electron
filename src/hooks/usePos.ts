@@ -2,6 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { posApi } from '@/lib/posApi';
+import { applyPickupOrderUpdate } from '@/lib/pickupOrders';
 import type {
   CreateSaleInput,
   CancelSaleInput,
@@ -10,6 +11,10 @@ import type {
   KitEnrollmentRequest,
   PosRegisterDistributorRequest,
   PosRegisterPreferredRequest, ReceiveTransferPayload } from '@/types/pos';
+import type {
+  PickupOrdersResponse,
+  UpdatePickupOrderStatusBody,
+} from '@/types/pickupOrders';
 
 export const posKeys = {
   all: ['pos'] as const,
@@ -68,6 +73,12 @@ export const posKeys = {
     [...posKeys.all, 'incoming-transfers', branchId] as const,
   salesByProduct: (branchId: string, from: string, to: string, search: string) =>
     [...posKeys.all, 'sales-by-product', branchId, from, to, search] as const,
+  // Pedidos en línea para recoger: `branchId` solo en modo staff; la terminal
+  // va por su licencia ('terminal').
+  pickupOrders: (branchId?: string) =>
+    [...posKeys.all, 'pickup-orders', branchId ?? 'terminal'] as const,
+  pickupOrder: (branchId: string | undefined, id: string) =>
+    [...posKeys.all, 'pickup-order', branchId ?? 'terminal', id] as const,
 };
 
 /**
@@ -447,6 +458,77 @@ export const useReceiveTransfer = () => {
     onSuccess: () => {
       // El stock del destino cambió: refrescar entradas pendientes y catálogo.
       qc.invalidateQueries({ queryKey: posKeys.all });
+    },
+  });
+};
+
+// ============================================================================
+// PEDIDOS EN LÍNEA — RECOGER EN SUCURSAL
+// ============================================================================
+
+/**
+ * Pedidos de la tienda en línea que se recogen en la sucursal (por surtir,
+ * listos, entregados y sin pagar). `branchId` SOLO en modo staff (JWT de
+ * usuario): la terminal se identifica por su licencia.
+ *
+ * `data === null` = la sección no está disponible (API anterior a este cambio
+ * o cuenta sin acceso): posApi lo resuelve sin error, así que no hay
+ * reintentos ni avisos y el POS no muestra ni el botón ni la franja. Con
+ * cualquier otro error React Query conserva el último dato bueno.
+ *
+ * Se consulta cada minuto, también con la ventana tapada o minimizada, para
+ * que el aviso de "llegó un pedido" suene aunque el POS no esté al frente.
+ */
+export const usePickupOrders = (
+  branchId: string | undefined,
+  enabled = true,
+) =>
+  useQuery({
+    queryKey: posKeys.pickupOrders(branchId),
+    queryFn: () => posApi.getPickupOrders(branchId),
+    enabled,
+    staleTime: 30 * 1000,
+    refetchInterval: 60 * 1000,
+    refetchIntervalInBackground: true,
+  });
+
+/**
+ * Detalle de un pedido para recoger (renglones y piezas de los kits). Se
+ * vuelve a pedir cada vez que se elige y cada minuto mientras está a la
+ * vista, para notar si otra caja o el admin lo movieron.
+ */
+export const usePickupOrder = (
+  branchId: string | undefined,
+  id: string | null,
+  enabled = true,
+) =>
+  useQuery({
+    queryKey: posKeys.pickupOrder(branchId, id ?? ''),
+    queryFn: () => posApi.getPickupOrder(id!, branchId),
+    enabled: !!id && enabled,
+    staleTime: 0,
+    refetchInterval: 60 * 1000,
+  });
+
+/**
+ * Mueve un pedido para recoger: surtido (listo para recoger), entregado o de
+ * regreso a por surtir. Al terminar bien deja el detalle y la lista como
+ * respondió el API (globito, franja y pestañas cambian al instante) y vuelve
+ * a consultar la lista.
+ */
+export const useUpdatePickupOrderStatus = (branchId: string | undefined) => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; body: UpdatePickupOrderStatusBody }) =>
+      posApi.updatePickupOrderStatus(args.id, args.body, branchId),
+    onSuccess: (updated, args) => {
+      const order = { ...updated, id: updated.id || args.id };
+      qc.setQueryData(posKeys.pickupOrder(branchId, args.id), order);
+      qc.setQueryData<PickupOrdersResponse | null>(
+        posKeys.pickupOrders(branchId),
+        (old) => (old ? applyPickupOrderUpdate(old, order) : old),
+      );
+      void qc.invalidateQueries({ queryKey: posKeys.pickupOrders(branchId) });
     },
   });
 };

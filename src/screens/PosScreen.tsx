@@ -18,6 +18,7 @@ import {
   ShieldCheck,
   Fingerprint,
   Truck,
+  ShoppingBag,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
@@ -39,6 +40,8 @@ import { MembershipOfferBanner } from '@/components/pos/MembershipOfferBanner';
 import { Cart } from '@/components/pos/Cart';
 import { ResizeHandle } from '@/components/pos/ResizeHandle';
 import { TransfersModal } from '@/components/pos/TransfersModal';
+import { PickupOrdersSheet } from '@/components/pos/PickupOrdersSheet';
+import { PickupOrdersBanner } from '@/components/pos/PickupOrdersBanner';
 import { OrderTabsBar } from '@/components/pos/OrderTabsBar';
 import {
   usePosOrderTabs,
@@ -109,9 +112,16 @@ import {
   useProcessPayment,
   usePosActiveSession,
   useIncomingTransfers,
+  usePickupOrders,
   usePosCatalog,
   usePosSales,
 } from '@/hooks/usePos';
+import { usePickupOrdersAlert } from '@/hooks/usePickupOrdersAlert';
+import {
+  pickupBadgeText,
+  pickupButtonTitle,
+  pickupSummary,
+} from '@/lib/pickupOrders';
 import { posApi } from '@/lib/posApi';
 import {
   makeQueuedSale,
@@ -270,6 +280,8 @@ export function PosScreen({
   const [corteOpen, setCorteOpen] = useState(false);
   const [movementsOpen, setMovementsOpen] = useState(false);
   const [transfersOpen, setTransfersOpen] = useState(false);
+  // Pedidos en línea para recoger en la sucursal (hoja para surtir y entregar).
+  const [pickupOpen, setPickupOpen] = useState(false);
   // Promociones vigentes del país de la sucursal (modal informativo).
   const [promosOpen, setPromosOpen] = useState(false);
   const [printerSettingsOpen, setPrinterSettingsOpen] = useState(false);
@@ -562,6 +574,7 @@ export function PosScreen({
     setCorteOpen(false);
     setMovementsOpen(false);
     setTransfersOpen(false);
+    setPickupOpen(false);
     setPromosOpen(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [branchId]);
@@ -590,6 +603,17 @@ export function PosScreen({
   const { data: activeSession } = usePosActiveSession(branchId);
   const { data: incomingTransfers = [] } = useIncomingTransfers(branchId);
   const incomingCount = incomingTransfers.length;
+
+  // PEDIDOS EN LÍNEA para recoger en la sucursal (11-nov-2026): botón con
+  // globito en el encabezado, franja de aviso y hoja para surtir y entregar.
+  // En modo staff viaja la sucursal; la terminal va por su licencia. Con un
+  // API anterior a este cambio (o una cuenta sin acceso) `pickupInfo` queda
+  // en null y no se muestra nada.
+  const pickupBranchId = staffActive ? branchId : undefined;
+  const { data: pickupData } = usePickupOrders(pickupBranchId, !posLocked);
+  const pickupInfo = posLocked ? null : pickupSummary(pickupData);
+  // Toast y pitido cuando llega un pedido nuevo por surtir.
+  usePickupOrdersAlert(posLocked ? null : pickupData, () => setPickupOpen(true));
 
   // Kits de inscripcion del catalogo (para "Registrar distribuidor" + cobrar kit).
   const { data: catalogProducts = [] } = usePosCatalog(branchId);
@@ -1559,6 +1583,50 @@ export function PosScreen({
                 </span>
               )}
             </Button>
+            {/* Pedidos en línea para recoger en la sucursal: solo aparece si
+                el API ya tiene la sección. Con pedidos por surtir el botón se
+                pone ámbar; el globito suma por surtir + listos. El texto sale
+                cuando el encabezado tiene espacio (1400 px de ancho; 1600 px
+                si además está el botón del checador); en pantallas más
+                angostas queda el icono con su globito, porque el texto se
+                comía el nombre de la sucursal. */}
+            {pickupInfo && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setPickupOpen(true)}
+                className={`relative ${
+                  pickupInfo.toPrepare > 0
+                    ? 'bg-amber-400 text-amber-950 hover:bg-amber-300 hover:text-amber-950'
+                    : 'text-white/80 hover:text-white hover:bg-white/10'
+                }`}
+                title={pickupButtonTitle(pickupInfo)}
+                aria-label="Pedidos en línea"
+                data-tour="pos-pickup-orders"
+              >
+                <ShoppingBag />
+                <span
+                  className={
+                    attendanceEnabled || staffActive
+                      ? 'hidden min-[1600px]:inline'
+                      : 'hidden min-[1400px]:inline'
+                  }
+                >
+                  Pedidos en línea
+                </span>
+                {pickupInfo.badge > 0 && (
+                  <span
+                    className={`absolute -right-1 -top-1 flex min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold leading-4 ${
+                      pickupInfo.toPrepare > 0
+                        ? 'bg-red-600 text-white ring-2 ring-primary'
+                        : 'bg-amber-400 text-amber-950'
+                    }`}
+                  >
+                    {pickupBadgeText(pickupInfo.badge)}
+                  </span>
+                )}
+              </Button>
+            )}
           </>
         )}
         {onRefresh && (
@@ -1705,6 +1773,15 @@ export function PosScreen({
             </Button>
           </div>
         </div>
+      )}
+
+      {/* Franja de pedidos en línea por surtir o listos para entregar */}
+      {pickupInfo && (
+        <PickupOrdersBanner
+          key={pickupBranchId ?? 'terminal'}
+          summary={pickupInfo}
+          onView={() => setPickupOpen(true)}
+        />
       )}
 
       {/* Cuerpo: bloqueado durante el rollout, o la operación normal. */}
@@ -1956,6 +2033,17 @@ export function PosScreen({
         // Operaciones (4-nov-2026): las entradas por traspaso se aceptan SOLO
         // desde el admin (Inventario › Traspasos); el POS las consulta e imprime.
         canReceive={false}
+      />
+
+      {/* Pedidos en línea para recoger en la sucursal (surtir y entregar) */}
+      <PickupOrdersSheet
+        isOpen={pickupOpen && !posLocked}
+        onClose={() => setPickupOpen(false)}
+        branchId={pickupBranchId}
+        branchName={branch.name}
+        ticketName={branch.ticketName ?? undefined}
+        branchTz={branchTz}
+        currencySymbol={currencySymbol}
       />
 
       {/* Foto en grande de quien opera en modo staff (solo ver) */}

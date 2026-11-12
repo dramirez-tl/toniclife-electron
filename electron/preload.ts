@@ -13,6 +13,7 @@ import type {
   CorteReceiptInput,
   SaleReceiptInput,
   TransferReceiptInput,
+  PickupOrderReceiptInput,
 } from './receipts';
 import type { QuotePayload } from '../src/lib/quoteHtml';
 
@@ -97,6 +98,17 @@ const api = {
       transfer: Omit<TransferReceiptInput, 'paperWidth'>,
     ): Promise<{ ok: true; path: string } | { ok: false; error: string }> =>
       ipcRenderer.invoke('printer:saveTransferPdf', transfer),
+    /** Pedido en línea para recoger: hoja de surtido (casillas para palomear)
+     *  o comprobante de entrega, según order.mode. */
+    printPickupOrder: (
+      order: Omit<PickupOrderReceiptInput, 'paperWidth'>,
+    ): Promise<PrinterOpResult> =>
+      ipcRenderer.invoke('printer:printPickupOrder', order),
+    /** La misma hoja en PDF, sin importar el modo de impresora. */
+    savePickupOrderPdf: (
+      order: Omit<PickupOrderReceiptInput, 'paperWidth'>,
+    ): Promise<{ ok: true; path: string } | { ok: false; error: string }> =>
+      ipcRenderer.invoke('printer:savePickupOrderPdf', order),
   },
   // Cotización del carrito: imagen para pegar en el correo, PNG o PDF.
   quote: {

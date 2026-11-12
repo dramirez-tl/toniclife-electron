@@ -6,6 +6,10 @@ import axios from 'axios';
 import { CashierError } from '@/lib/apiError';
 import { api } from './api';
 import { parseMembershipOffersResponse } from '@/lib/membership';
+import {
+  parsePickupOrderDetail,
+  parsePickupOrdersResponse,
+} from '@/lib/pickupOrders';
 import type {
   CreateSaleDeliveryInput,
   CustomerAddress,
@@ -14,6 +18,11 @@ import type {
   PosDelivery,
   PosDeliveryList,
 } from '@/types/deliveries';
+import type {
+  PickupOrderDetail,
+  PickupOrdersResponse,
+  UpdatePickupOrderStatusBody,
+} from '@/types/pickupOrders';
 import type {
   CashRegister,
   KitComponent,
@@ -595,6 +604,67 @@ class PosApi {
       input,
     );
     return data;
+  }
+
+  // --------------------------------------------------------------------------
+  // PEDIDOS EN LÍNEA — RECOGER EN SUCURSAL (/pos/pickup-orders, 11-nov-2026)
+  // --------------------------------------------------------------------------
+  // La terminal se identifica por su licencia y solo ve y mueve lo de SU
+  // sucursal; `branchId` viaja solo en MODO STAFF (JWT de usuario).
+
+  /**
+   * Pedidos de la tienda en línea que se recogen en la sucursal: por surtir,
+   * listos, entregados/cancelados de los últimos 7 días y los que siguen sin
+   * pagar. null = la sección no está disponible: el API es anterior a este
+   * cambio (404) o la cuenta no tiene acceso (403); el POS la oculta sin
+   * avisos. Cualquier otro error sube tal cual.
+   */
+  async getPickupOrders(branchId?: string): Promise<PickupOrdersResponse | null> {
+    try {
+      const { data } = await api.get('/pos/pickup-orders', {
+        params: branchId ? { branchId } : undefined,
+      });
+      return parsePickupOrdersResponse(data);
+    } catch (err) {
+      const status = axios.isAxiosError(err) ? err.response?.status : undefined;
+      if (status === 404 || status === 403) return null;
+      throw err;
+    }
+  }
+
+  /** Detalle de un pedido para recoger: la fila más sus renglones (y las
+   *  piezas de los kits/paquetes/promos). */
+  async getPickupOrder(id: string, branchId?: string): Promise<PickupOrderDetail> {
+    const { data } = await api.get(`/pos/pickup-orders/${id}`, {
+      params: branchId ? { branchId } : undefined,
+    });
+    const detail = parsePickupOrderDetail(data);
+    // El id es el de la ruta: se usa para las acciones y el palomeo.
+    return detail.id ? detail : { ...detail, id };
+  }
+
+  /**
+   * Mueve un pedido para recoger: ready = surtido y apartado (el API avisa al
+   * comprador), delivered = entregado (`receivedByName` obligatorio; salen
+   * las existencias), pending = regresarlo a por surtir (solo desde ready).
+   * Espera 60 s como el cobro: entregar mueve existencias y, si el POS se
+   * rinde antes de la respuesta, el cajero no sabría si quedó entregado.
+   */
+  async updatePickupOrderStatus(
+    id: string,
+    body: UpdatePickupOrderStatusBody,
+    branchId?: string,
+  ): Promise<PickupOrderDetail> {
+    const { data } = await api.patch(`/pos/pickup-orders/${id}/status`, body, {
+      params: branchId ? { branchId } : undefined,
+      timeout: SALE_WRITE_TIMEOUT_MS,
+    });
+    // El contrato responde el detalle. Si no viniera, el cambio YA se guardó:
+    // se pide el detalle aparte en vez de reportar un error que no ocurrió.
+    if (data && typeof data === 'object' && !Array.isArray(data) && data.id) {
+      return parsePickupOrderDetail(data);
+    }
+    return this.getPickupOrder(id, branchId);
   }
 
   /** Boletos de evento emitidos por la venta (el API los emite al cobrar). */

@@ -39,6 +39,8 @@ import {
   saveSalePdf,
   printTransfer,
   saveTransferPdf,
+  printPickupOrder,
+  savePickupOrderPdf,
   openCashDrawer,
   listOsPrinters,
   type PrinterConfig,
@@ -48,6 +50,7 @@ import type {
   CorteReceiptInput,
   SaleReceiptInput,
   TransferReceiptInput,
+  PickupOrderReceiptInput,
 } from './receipts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -434,6 +437,30 @@ ipcMain.handle(
   async (_evt, transfer: Omit<TransferReceiptInput, 'paperWidth'>) => {
     try {
       const path = await saveTransferPdf(transfer);
+      return { ok: true, path };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+);
+// Pedido en línea para recoger en sucursal: hoja de surtido o comprobante de
+// entrega (según order.mode) y su PDF.
+ipcMain.handle(
+  'printer:printPickupOrder',
+  async (_evt, order: Omit<PickupOrderReceiptInput, 'paperWidth'>) => {
+    try {
+      await printPickupOrder(order);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+);
+ipcMain.handle(
+  'printer:savePickupOrderPdf',
+  async (_evt, order: Omit<PickupOrderReceiptInput, 'paperWidth'>) => {
+    try {
+      const path = await savePickupOrderPdf(order);
       return { ok: true, path };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };

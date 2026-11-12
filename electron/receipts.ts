@@ -1235,6 +1235,216 @@ function renderTransfer(p: ReceiptWriter, input: TransferReceiptInput): void {
   p.cut(true);
 }
 
+// ============================================================================
+// PEDIDO EN LÍNEA PARA RECOGER EN SUCURSAL (ESC/POS y PDF)
+// ============================================================================
+//
+// Dos hojas del mismo pedido (11-nov-2026): la HOJA DE SURTIDO, con una
+// casilla "[ ]" por producto para palomear con pluma al juntar y apartar las
+// piezas, y el COMPROBANTE DE ENTREGA, con quién lo recogió, la fecha, la
+// terminal y la línea de firma. Las piezas de un kit/paquete/promo salen
+// sangradas debajo de su renglón, cada una con su casilla.
+
+export interface PickupOrderReceiptItemRow {
+  sku?: string;
+  name: string;
+  quantity: number;
+  /** Producto bajo pedido. */
+  madeToOrder?: boolean;
+  /** Texto de personalización que pidió el comprador. */
+  personalization?: string;
+  /** Piezas del kit/paquete/promo; quantity = piezas a juntar (ya
+   *  multiplicada por la cantidad del renglón). */
+  components?: { sku?: string; name: string; quantity: number }[];
+}
+
+export interface PickupOrderReceiptInput {
+  branchName: string;
+  /** Nombre comercial para el encabezado (branch.ticketName). */
+  ticketName?: string;
+  /** 'picking' = hoja de surtido; 'handoff' = comprobante de entrega. */
+  mode: 'picking' | 'handoff';
+  /** Folio del pedido (TL2611110001). */
+  orderNumber: string;
+  /** "Por surtir", "Listo para recoger", "Entregado"… */
+  statusLabel?: string;
+  customerName?: string;
+  /** Número de distribuidor. */
+  customerNumber?: string;
+  /** Quién recoge según el pedido, solo si no es el comprador. */
+  recipientName?: string;
+  phone?: string;
+  /** ISO: cuándo se pagó. */
+  paidAt?: string;
+  /** Nota que dejó el comprador. */
+  buyerNotes?: string;
+  items: PickupOrderReceiptItemRow[];
+  /** Total de piezas del pedido. */
+  totalUnits: number;
+  /** Solo en el comprobante de entrega. */
+  receivedByName?: string;
+  /** ISO. */
+  deliveredAt?: string;
+  deliveredByName?: string;
+  handoffTerminal?: string;
+  /** Nota de la sucursal. */
+  branchNotes?: string;
+  paperWidth: 58 | 80;
+  /** Matriz de punto: logo en texto, sin gráficos. */
+  textLogo?: boolean;
+}
+
+export function buildPickupOrderReceiptBytes(
+  input: PickupOrderReceiptInput,
+): Buffer {
+  const p = new Escpos();
+  renderPickupOrder(p, input);
+  return p.bytes();
+}
+
+/** La misma hoja como HTML (modo "Impresora normal / PDF"). */
+export function buildPickupOrderReceiptHtml(
+  input: PickupOrderReceiptInput,
+): string {
+  const p = new HtmlReceipt();
+  renderPickupOrder(p, input);
+  return p.html({
+    cols: colsFor(input.paperWidth),
+    title: `Pedido ${input.orderNumber} - ${
+      input.mode === 'handoff' ? 'comprobante de entrega' : 'hoja de surtido'
+    }`,
+  });
+}
+
+function renderPickupOrder(
+  p: ReceiptWriter,
+  input: PickupOrderReceiptInput,
+): void {
+  const cols = colsFor(input.paperWidth);
+  const sep = '-'.repeat(cols);
+  const handoff = input.mode === 'handoff';
+  p.init();
+
+  printHeaderLogo(p, input.paperWidth, input.textLogo);
+
+  p.align('center');
+  if (input.ticketName) p.bold(true).line(input.ticketName.slice(0, cols)).bold(false);
+  p.line(input.branchName.slice(0, cols));
+  p.line(sep);
+  // El título va en dos renglones: en doble ancho solo caben 24 caracteres
+  // en 80 mm (16 en 58 mm).
+  p.size(2, 2).line('PEDIDO EN LÍNEA').size(1, 1);
+  p.bold(true)
+    .line(handoff ? 'COMPROBANTE DE ENTREGA' : 'HOJA DE SURTIDO')
+    .bold(false);
+  p.size(2, 2).line(input.orderNumber).size(1, 1);
+  if (input.statusLabel) {
+    p.bold(true).line(input.statusLabel.toUpperCase().slice(0, cols)).bold(false);
+  }
+  p.line(sep);
+
+  // --- COMPRADOR ---
+  p.align('left');
+  const buyer = [
+    input.customerNumber ? `#${input.customerNumber}` : '',
+    input.customerName ?? '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+  if (buyer) for (const line of wrapWords(`Comprador: ${buyer}`, cols, 3)) p.line(line);
+  if (input.recipientName) {
+    for (const line of wrapWords(`Recoge: ${input.recipientName}`, cols, 2)) p.line(line);
+  }
+  if (input.phone) p.line(`Teléfono: ${input.phone}`.slice(0, cols));
+  if (input.paidAt) p.line(`Pagado: ${formatDateTimeLocal(input.paidAt)}`.slice(0, cols));
+  p.line(sep);
+
+  // --- RENGLONES ---
+  // "[ ] cant x (clave) producto"; las piezas de un kit van sangradas con su
+  // propia casilla y la continuación del nombre, alineada con el nombre. En el
+  // comprobante de entrega las casillas salen marcadas "[x]".
+  const box = handoff ? '[x]' : '[ ]';
+  p.bold(true)
+    .line(handoff ? '    Cant  Producto' : '    Cant  Producto (palomear)')
+    .bold(false);
+  const printRow = (head: string, title: string, maxLines: number) => {
+    const indent = ' '.repeat(head.length);
+    const lines = wrapWords(title, Math.max(8, cols - head.length), maxLines);
+    p.line((head + lines[0]).slice(0, cols));
+    for (const extra of lines.slice(1)) p.line((indent + extra).slice(0, cols));
+  };
+  for (const it of input.items) {
+    const title =
+      (it.sku ? `(${it.sku}) ${it.name}` : it.name) +
+      (it.madeToOrder ? ' (BAJO PEDIDO)' : '');
+    // padStart y no padLeft: padLeft recorta las cantidades de 4 cifras.
+    printRow(`${box} ${String(it.quantity).padStart(3)} x `, title, 3);
+    if (it.personalization) {
+      for (const line of wrapWords(`Personalización: ${it.personalization}`, Math.max(8, cols - 4), 3)) {
+        p.line(('    ' + line).slice(0, cols));
+      }
+    }
+    for (const c of it.components ?? []) {
+      printRow(
+        `  ${box} ${String(c.quantity).padStart(2)} x `,
+        c.sku ? `(${c.sku}) ${c.name}` : c.name,
+        2,
+      );
+    }
+  }
+  p.line(sep);
+  p.line(labelValue('Productos', String(input.items.length), cols));
+  p.line(labelValue('Piezas', String(input.totalUnits), cols));
+  p.line(sep);
+
+  if (input.buyerNotes) {
+    p.bold(true).line('NOTA DEL COMPRADOR:').bold(false);
+    for (const line of wrapWords(input.buyerNotes, cols, 6)) p.line(line);
+    p.line(sep);
+  }
+
+  if (handoff) {
+    // --- ENTREGA ---
+    const who = input.receivedByName ?? '';
+    p.bold(true);
+    for (const line of wrapWords(`Entregado a: ${who}`, cols, 2)) p.line(line);
+    p.bold(false);
+    if (input.deliveredAt) {
+      p.line(`Fecha: ${formatDateTimeLocal(input.deliveredAt)}`.slice(0, cols));
+    }
+    if (input.handoffTerminal) {
+      for (const line of wrapWords(`Terminal: ${input.handoffTerminal}`, cols, 2)) p.line(line);
+    }
+    if (input.deliveredByName) {
+      for (const line of wrapWords(`Entregó: ${input.deliveredByName}`, cols, 2)) p.line(line);
+    }
+    if (input.branchNotes) {
+      for (const line of wrapWords(`Nota: ${input.branchNotes}`, cols, 4)) p.line(line);
+    }
+    p.line('');
+    p.line('Recibí de conformidad:');
+    p.line('');
+    p.line('');
+    p.align('center');
+    p.line('_'.repeat(Math.min(30, cols - 2)));
+    p.line('Firma de quien recibe');
+  } else {
+    // --- QUIÉN SURTIÓ ---
+    p.line('');
+    p.line('Surtió: ' + '_'.repeat(Math.min(22, cols - 9)));
+    if (input.branchNotes) {
+      p.line('');
+      for (const line of wrapWords(`Nota: ${input.branchNotes}`, cols, 4)) p.line(line);
+    }
+  }
+  p.feed(1);
+  p.align('center');
+  p.line(`Impreso ${formatDateTimeLocal(new Date().toISOString())}`);
+
+  p.feed(6);
+  p.cut(true);
+}
+
 /** 3-col row con anchos fijos: folio / hora / total (total right-aligned). */
 function itemLineFixed(
   folio: string,

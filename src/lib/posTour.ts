@@ -116,6 +116,16 @@ export function startPosTour(): void {
       },
     },
     {
+      element: '[data-tour="pos-pickup-orders"]',
+      popover: {
+        title: 'Pedidos en línea',
+        description:
+          'Las compras de la tienda en línea que el cliente recoge en tu ' +
+          'sucursal: aquí las surtes, las marcas listas para recoger y las ' +
+          'entregas. El botón se pone ámbar cuando hay pedidos por surtir.',
+      },
+    },
+    {
       element: '[data-tour="pos-sales-panel"]',
       popover: {
         title: 'Ventas del día',

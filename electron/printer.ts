@@ -27,9 +27,12 @@ import {
   buildSaleReceiptHtml,
   buildTransferReceiptBytes,
   buildTransferReceiptHtml,
+  buildPickupOrderReceiptBytes,
+  buildPickupOrderReceiptHtml,
   type CorteReceiptInput,
   type SaleReceiptInput,
   type TransferReceiptInput,
+  type PickupOrderReceiptInput,
 } from './receipts';
 import { sendRawToWindowsPrinter } from './printraw';
 
@@ -602,6 +605,80 @@ export async function saveTransferPdf(
     paperWidth: config?.paperWidth ?? 80,
   });
   return renderPdf(html, `traspaso-${transfer.movementNumber}.pdf`);
+}
+
+/** Nombre del PDF de un pedido en línea: uno por hoja para que el comprobante
+ *  de entrega no pise la hoja de surtido del mismo pedido. */
+function pickupOrderPdfName(
+  order: Pick<PickupOrderReceiptInput, 'orderNumber' | 'mode'>,
+): string {
+  return `pedido-${order.orderNumber}-${order.mode === 'handoff' ? 'entrega' : 'surtido'}.pdf`;
+}
+
+/**
+ * Imprime la hoja de surtido (casillas para palomear al apartar las piezas) o
+ * el comprobante de entrega de un pedido en línea para recoger en sucursal.
+ * Mismo pipeline que printTransfer, sin cajón.
+ */
+export async function printPickupOrder(
+  order: Omit<PickupOrderReceiptInput, 'paperWidth'>,
+): Promise<void> {
+  const config = loadPrinterConfig();
+  if (!config) {
+    throw new Error(
+      'No hay impresora configurada. Abre Configuracion de impresora primero.',
+    );
+  }
+
+  const bytes = buildPickupOrderReceiptBytes({
+    ...order,
+    paperWidth: config.paperWidth,
+    textLogo: config.dotMatrix ?? false,
+  });
+
+  if (config.connection === 'network') {
+    if (!config.host || !config.port) {
+      throw new Error('Faltan host y puerto de la impresora de red.');
+    }
+    await sendNetwork(config.host, config.port, bytes);
+    return;
+  }
+
+  if (config.connection === 'pdf') {
+    const html = buildPickupOrderReceiptHtml({
+      ...order,
+      paperWidth: config.paperWidth,
+    });
+    await renderPdf(html, pickupOrderPdfName(order));
+    return;
+  }
+
+  if (!config.deviceName) {
+    throw new Error('Selecciona una impresora del sistema.');
+  }
+  if (process.platform === 'win32') {
+    await sendRawToWindowsPrinter(config.deviceName, bytes);
+    return;
+  }
+  throw new Error(
+    'Impresion sistema solo soportada en Windows. Configura impresora de red.',
+  );
+}
+
+/**
+ * La misma hoja del pedido en PDF sin importar el modo de impresora. Queda en
+ * Documentos\Tonic Life\Tickets y se abre con el visor del SO. Devuelve la
+ * ruta.
+ */
+export async function savePickupOrderPdf(
+  order: Omit<PickupOrderReceiptInput, 'paperWidth'>,
+): Promise<string> {
+  const config = loadPrinterConfig();
+  const html = buildPickupOrderReceiptHtml({
+    ...order,
+    paperWidth: config?.paperWidth ?? 80,
+  });
+  return renderPdf(html, pickupOrderPdfName(order));
 }
 
 /** Envia el kick del cajon de dinero. Solo soportado en modo network. */
