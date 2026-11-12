@@ -162,6 +162,14 @@ function SeasonCard({
                 {p.excludesKitBonus && (
                   <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">Sin bono</span>
                 )}
+                {live && p.type === 'nxm' && (
+                  <span
+                    className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800"
+                    title="Al llegar a las piezas que se pagan, la pieza gratis se agrega sola al carrito"
+                  >
+                    La pieza gratis entra sola
+                  </span>
+                )}
               </div>
               {p.description && (
                 <p className="mt-0.5 whitespace-pre-line text-[11px] text-muted-foreground">{p.description}</p>

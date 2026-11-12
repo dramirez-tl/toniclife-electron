@@ -76,6 +76,10 @@ interface CartProps {
   quoteAttendedBy?: string;
 }
 
+// Último aviso de "pieza gratis automática" ya mostrado: el carrito no se
+// desmonta entre ventas, pero si se vuelve a montar no repite un aviso viejo.
+let lastAutoGiftShown = 0;
+
 // Tope de cantidad del item (espejo del store): maxQuantity explícito o 1
 // por default para promocionales — el canje está limitado por derechos.
 const itemMaxQty = (item: {
@@ -111,6 +115,22 @@ export function Cart({
   const setCoupon = usePosCartStore((s) => s.setCoupon);
   const clearCoupon = usePosCartStore((s) => s.clearCoupon);
   const setAttendeeEmail = usePosCartStore((s) => s.setAttendeeEmail);
+
+  // Pieza gratis automática (3x2, compra 5 y llévate 1): el cajero ve por qué
+  // la cantidad cambió sola, o que no hubo existencia para la gratis.
+  const autoGift = usePosCartStore((s) => s.autoGift);
+  useEffect(() => {
+    if (!autoGift || autoGift.seq <= lastAutoGiftShown) return;
+    lastAutoGiftShown = autoGift.seq;
+    if (autoGift.kind === 'added') {
+      toast.success(autoGift.text, { duration: 6000 });
+    } else if (autoGift.kind === 'missing') {
+      toast.warning(autoGift.text, { duration: 8000 });
+    } else {
+      // removed / claimed: informativos.
+      toast.info(autoGift.text);
+    }
+  }, [autoGift]);
 
   const [showCoupon, setShowCoupon] = useState(false);
   const [couponInput, setCouponInput] = useState('');

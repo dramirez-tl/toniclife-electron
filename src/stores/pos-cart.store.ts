@@ -20,6 +20,14 @@ import {
 } from '@/lib/seasonalPromotions';
 import { nowLocalIso } from '@/lib/date';
 import {
+  autoGiftMessage,
+  claimPendingGift,
+  claimedGiftText,
+  governingNxm,
+  resolveAutoGift,
+  type AutoGiftOutcome,
+} from '@/lib/seasonalAutoGift';
+import {
   applyGlobalDiscount,
   fixedDiscount,
   percentDiscount,
@@ -56,10 +64,25 @@ export const EMPTY_SEASONAL: SeasonalContext = {
 // todos los que la llaman; `setSeasonalContext` lo actualiza y recalcula.
 let currentSeasonal: SeasonalContext = EMPTY_SEASONAL;
 
+/**
+ * Aviso para el cajero cuando la pieza gratis de un "lleva N, paga M" entró
+ * sola, se fue al bajar la cantidad o no cupo por existencia
+ * (lib/seasonalAutoGift). `seq` crece con cada aviso: el carrito lo muestra una
+ * sola vez.
+ */
+export interface AutoGiftNotice {
+  seq: number;
+  /** claimed = la pieza que se pasó era la gratis que ya estaba en el carrito. */
+  kind: 'added' | 'removed' | 'missing' | 'claimed';
+  text: string;
+}
+
 interface PosCartStore {
   cart: PosCart;
   /** Contexto de temporada vigente (para la UI); el motor lo lee al recalcular. */
   seasonal: SeasonalContext;
+  /** Último aviso de pieza gratis automática (null = ninguno todavía). */
+  autoGift: AutoGiftNotice | null;
   /** Fija (o limpia con null) el contexto de temporada y recalcula el carrito. */
   setSeasonalContext: (ctx: SeasonalContext | null) => void;
   addItem: (product: QuickProduct, quantity?: number) => void;
@@ -437,6 +460,75 @@ export const calculateCartTotals = (
   };
 };
 
+let autoGiftSeq = 0;
+
+/**
+ * La pieza GRATIS entra sola (Diego, 12-nov-2026): cantidad con la que debe
+ * quedar el renglón `index` para que la pieza gratis de su promoción "lleva N,
+ * paga M" vaya incluida, partiendo de la cantidad que pidió el cajero (ya
+ * puesta en `items[index]`) y de la que había (`previous`). Reglas en
+ * lib/seasonalAutoGift: sube sola al llegar a las piezas que se pagan, baja
+ * junto con la gratis, respeta la existencia y solo agrega si el MOTOR confirma
+ * que lo agregado sale gratis. Sin promociones vigentes no hace nada.
+ */
+export const autoGiftForLine = (
+  items: PosCartItem[],
+  index: number,
+  previous: number,
+  seasonal: SeasonalContext = currentSeasonal,
+): AutoGiftOutcome => {
+  const item = items[index];
+  const none: AutoGiftOutcome = {
+    quantity: item.quantity,
+    added: 0,
+    removed: 0,
+    missing: 0,
+    promo: null,
+  };
+  if (seasonal.defs.length === 0) return none;
+  // Mismas exclusiones que el motor: canjeables, boletos y renglones en $0.
+  if (
+    item.productType === 'promotional' ||
+    !!item.event ||
+    !(item.unitPrice > 0)
+  ) {
+    return none;
+  }
+  const promo = governingNxm(item.productId, seasonal.defs, {
+    channel: 'pos',
+    countryCode: seasonal.countryCode,
+    nowLocal: nowLocalIso(seasonal.timezone),
+  });
+  if (!promo) return none;
+  const caps = [item.stock, itemMaxQuantity(item)].filter(
+    (n): n is number => n != null,
+  );
+  return resolveAutoGift({
+    wanted: item.quantity,
+    previous,
+    promo,
+    max: caps.length > 0 ? Math.min(...caps) : null,
+    // Piezas gratis que el motor le da al renglón con esa cantidad, con el
+    // resto del carrito igual (topes por venta, prioridades, etc.).
+    freeAt: (quantity) =>
+      applySeasonalToItems(
+        items.map((it, i) => (i === index ? { ...it, quantity } : it)),
+        seasonal,
+      ).items[index].promo?.freeQuantity ?? 0,
+  });
+};
+
+/** Aviso (o null) de lo que hizo la pieza gratis automática en un renglón. */
+const autoGiftNotice = (
+  outcome: AutoGiftOutcome,
+  productName: string,
+): AutoGiftNotice | null => {
+  const message = autoGiftMessage(outcome, productName);
+  if (!message) return null;
+  autoGiftSeq += 1;
+  return { seq: autoGiftSeq, ...message };
+};
+
 // SIN persistencia a propósito: el carrito y el distribuidor seleccionado NO
 // deben sobrevivir al cierre/reapertura del POS (cada arranque empieza limpio).
 // Antes usaba persist('pos-cart-storage') y conservaba carrito + cliente.
@@ -444,6 +536,7 @@ export const usePosCartStore = create<PosCartStore>()(
     (set) => ({
       cart: initialCart,
       seasonal: EMPTY_SEASONAL,
+      autoGift: null,
 
       setSeasonalContext: (ctx) => {
         currentSeasonal = ctx ?? EMPTY_SEASONAL;
@@ -460,11 +553,23 @@ export const usePosCartStore = create<PosCartStore>()(
           );
 
           let newItems: PosCartItem[];
+          // Piezas agregadas que eran la gratis que ya había entrado sola (el
+          // cajero pasó por el escáner la tercera pieza de un 3x2): no suman.
+          let claimed = 0;
 
           if (existingIndex >= 0) {
             newItems = state.cart.items.map((item, index) => {
               if (index === existingIndex) {
-                let newQty = item.quantity + quantity;
+                // Solo cuenta mientras el renglón sigue llevando piezas gratis
+                // (si la promoción terminó, ya no hay gratis que reconocer).
+                const claim = claimPendingGift(
+                  quantity,
+                  (item.promo?.freeQuantity ?? 0) > 0
+                    ? (item.autoGiftPending ?? 0)
+                    : 0,
+                );
+                claimed = claim.claimed;
+                let newQty = item.quantity + claim.add;
                 if (item.stock != null && newQty > item.stock) {
                   newQty = item.stock;
                 }
@@ -472,8 +577,12 @@ export const usePosCartStore = create<PosCartStore>()(
                 if (maxQty != null && newQty > maxQty) {
                   newQty = maxQty;
                 }
-                if (newQty === item.quantity) return item;
-                return calculateItemTotal({ ...item, quantity: newQty });
+                if (newQty === item.quantity && claimed === 0) return item;
+                return calculateItemTotal({
+                  ...item,
+                  quantity: newQty,
+                  autoGiftPending: claim.pending > 0 ? claim.pending : undefined,
+                });
               }
               return item;
             });
@@ -517,8 +626,42 @@ export const usePosCartStore = create<PosCartStore>()(
             newItems = [...state.cart.items, newItem];
           }
 
+          // La pieza gratis de un "lleva N, paga M" entra sola: con 2 de un
+          // 3x2 el renglón queda en 3 (lib/seasonalAutoGift).
+          const index =
+            existingIndex >= 0 ? existingIndex : newItems.length - 1;
+          const previous =
+            existingIndex >= 0 ? state.cart.items[existingIndex].quantity : 0;
+          let notice: AutoGiftNotice | null = null;
+          if (newItems[index].quantity !== previous) {
+            const outcome = autoGiftForLine(newItems, index, previous);
+            if (outcome.quantity !== newItems[index].quantity) {
+              newItems = newItems.map((it, i) =>
+                i === index
+                  ? calculateItemTotal({
+                      ...it,
+                      quantity: outcome.quantity,
+                      // La gratis entró sin pasar por el escáner: si el cajero
+                      // la pasa después, no se vuelve a contar.
+                      autoGiftPending:
+                        outcome.added > 0 ? outcome.added : undefined,
+                    })
+                  : it,
+              );
+            }
+            notice = autoGiftNotice(outcome, newItems[index].productName);
+          } else if (claimed > 0) {
+            autoGiftSeq += 1;
+            notice = {
+              seq: autoGiftSeq,
+              kind: 'claimed',
+              text: claimedGiftText(newItems[index].productName),
+            };
+          }
+
           return {
             cart: calculateCartTotals({ ...state.cart, items: newItems }),
+            ...(notice ? { autoGift: notice } : {}),
           };
         });
       },
@@ -534,7 +677,7 @@ export const usePosCartStore = create<PosCartStore>()(
             };
           }
 
-          const newItems = state.cart.items.map((item) => {
+          let newItems = state.cart.items.map((item) => {
             if (item.productId === productId) {
               let cappedQty =
                 item.stock != null && quantity > item.stock
@@ -544,13 +687,48 @@ export const usePosCartStore = create<PosCartStore>()(
               if (maxQty != null && cappedQty > maxQty) {
                 cappedQty = maxQty;
               }
-              return calculateItemTotal({ ...item, quantity: cappedQty });
+              // Los botones + y − son explícitos: lo que el cajero deja es lo
+              // que hay (ya no queda una gratis "sin pasar" de antes).
+              return calculateItemTotal({
+                ...item,
+                quantity: cappedQty,
+                autoGiftPending: undefined,
+              });
             }
             return item;
           });
 
+          // La pieza gratis de un "lleva N, paga M" va con las que se pagan:
+          // al subir a 2 de un 3x2 entra la tercera; al bajar de 3 queda en 1
+          // (lib/seasonalAutoGift).
+          const index = newItems.findIndex(
+            (item) => item.productId === productId,
+          );
+          let notice: AutoGiftNotice | null = null;
+          if (index >= 0) {
+            const before = state.cart.items[index];
+            const outcome = autoGiftForLine(newItems, index, before.quantity);
+            if (outcome.quantity !== newItems[index].quantity) {
+              newItems =
+                outcome.quantity <= 0
+                  ? newItems.filter((_, i) => i !== index)
+                  : newItems.map((it, i) =>
+                      i === index
+                        ? calculateItemTotal({
+                            ...it,
+                            quantity: outcome.quantity,
+                            autoGiftPending:
+                              outcome.added > 0 ? outcome.added : undefined,
+                          })
+                        : it,
+                    );
+            }
+            notice = autoGiftNotice(outcome, before.productName);
+          }
+
           return {
             cart: calculateCartTotals({ ...state.cart, items: newItems }),
+            ...(notice ? { autoGift: notice } : {}),
           };
         });
       },

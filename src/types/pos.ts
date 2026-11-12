@@ -480,6 +480,10 @@ export interface PosCartItem {
    *  gratis van dentro de `quantity`; `discountAmount` de la promo ya está
    *  restado de `total`. */
   promo?: PosCartItemPromo;
+  /** Piezas gratis que entraron SOLAS al renglón (3x2, compra 5 y llévate 1)
+   *  y que el cajero aún no ha pasado por el escáner: si después agrega esa
+   *  pieza no se cuenta otra vez (lib/seasonalAutoGift). No viaja al API. */
+  autoGiftPending?: number;
 }
 
 /** Promoción de temporada sobre una línea del carrito. */
