@@ -26,13 +26,6 @@ import { LogoMark } from '@/components/LogoMark';
 import { LiveClock } from '@/components/LiveClock';
 import { ConnectionStatus } from '@/components/ConnectionStatus';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { DeactivateConfirmDialog } from '@/components/DeactivateConfirmDialog';
 import { ProductGrid } from '@/components/pos/ProductGrid';
 import { AvailablePromotions } from '@/components/pos/AvailablePromotions';
@@ -60,6 +53,7 @@ import { RecentSales, type SalesRange } from '@/components/pos/RecentSales';
 import { CorteModal } from '@/components/pos/CorteModal';
 import { InvoiceSaleModal } from '@/components/pos/InvoiceSaleModal';
 import { CashMovementModal } from '@/components/pos/CashMovementModal';
+import { KitDestinationSheet } from '@/components/pos/KitDestinationSheet';
 import { KitProspectModal } from '@/components/pos/KitProspectModal';
 import { RegisterDistributorModal } from '@/components/pos/RegisterDistributorModal';
 import { SaleDetailModal } from '@/components/pos/SaleDetailModal';
@@ -1414,6 +1408,31 @@ export function PosScreen({
     setKitChoice(product);
   }
 
+  /** Panel "¿Para quién es el kit?": es para el cliente de la venta (recompra / reactivación). */
+  function handleKitForCustomer(kit: QuickProduct) {
+    // Recompra = venta normal: agotado se trata igual que un producto (no se
+    // agrega; el API lo rechazaría).
+    if (isOutOfStock(kit)) {
+      toast.error(
+        `El kit ${kit.sku} está agotado en esta sucursal: ${outOfStockReason(kit)}. Pide traspaso antes de venderlo.`,
+        { duration: 10_000 },
+      );
+      setKitChoice(null);
+      return;
+    }
+    addItem(kit, 1);
+    toast.success(
+      `Kit ${kit.sku} agregado para ${cart.customerName} — sus puntos se acreditan al cobrar.`,
+    );
+    setKitChoice(null);
+  }
+
+  /** Panel "¿Para quién es el kit?": inscribir a un NUEVO distribuidor patrocinado por el cliente. */
+  function handleKitEnrollNew(kit: QuickProduct) {
+    setPendingKit(kit);
+    setKitChoice(null);
+  }
+
   function handleKitEnrolled(
     result: KitEnrollmentResponse,
     kit: QuickProduct,
@@ -2165,54 +2184,17 @@ export function PosScreen({
         branchName={branch.name}
       />
 
-      {/* Kit con cliente asignado: ¿recompra para él o inscripción de un nuevo? */}
-      <Dialog open={!!kitChoice} onOpenChange={(o) => !o && setKitChoice(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>¿Para quién es el kit {kitChoice?.sku}?</DialogTitle>
-            <DialogDescription>
-              {cart.customerName} está asignado a la venta. El kit puede ser su
-              recompra o reactivación, o la inscripción de un nuevo
-              distribuidor patrocinado por él.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col gap-2">
-            <Button
-              onClick={() => {
-                const kit = kitChoice;
-                if (kit) {
-                  // Recompra = venta normal: agotado se trata igual que un
-                  // producto (no se agrega; el API lo rechazaría).
-                  if (isOutOfStock(kit)) {
-                    toast.error(
-                      `El kit ${kit.sku} está agotado en esta sucursal: ${outOfStockReason(kit)}. Pide traspaso antes de venderlo.`,
-                      { duration: 10_000 },
-                    );
-                    setKitChoice(null);
-                    return;
-                  }
-                  addItem(kit, 1);
-                  toast.success(
-                    `Kit ${kit.sku} agregado para ${cart.customerName} — sus puntos se acreditan al cobrar.`,
-                  );
-                }
-                setKitChoice(null);
-              }}
-            >
-              Es para {cart.customerName} (recompra / reactivación)
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setPendingKit(kitChoice);
-                setKitChoice(null);
-              }}
-            >
-              Inscribir a un NUEVO distribuidor (patrocina {cart.customerName})
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* Kit con cliente asignado: ¿recompra para él o inscripción de un nuevo?
+          Panel lateral al 50 % (antes un diálogo chico cuyos botones se salían). */}
+      <KitDestinationSheet
+        kit={kitChoice}
+        customerName={cart.customerName}
+        customerNumber={cart.customerNumber}
+        currencySymbol={currencySymbol}
+        onClose={() => setKitChoice(null)}
+        onForCustomer={handleKitForCustomer}
+        onEnrollNew={handleKitEnrollNew}
+      />
 
       {/* Modal de inscripcion por kit */}
       <KitProspectModal
