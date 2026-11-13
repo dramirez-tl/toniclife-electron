@@ -92,7 +92,12 @@ import {
   toReceiptMembership,
 } from '@/lib/membership';
 import { toReceiptPromotions } from '@/lib/promoCart';
-import { localSeasonalGiftLines, seasonalLineLabel, toReceiptSeasonal } from '@/lib/seasonalReceipt';
+import {
+  localSeasonalGiftLines,
+  receiptSalePoints,
+  seasonalLineLabel,
+  toReceiptSeasonal,
+} from '@/lib/seasonalReceipt';
 import { useSeasonalBundle } from '@/hooks/useSeasonalPromotions';
 import { cartGrossTotal, usePosCartStore } from '@/stores/pos-cart.store';
 import {
@@ -1193,13 +1198,10 @@ export function PosScreen({
             amountReceived: cashReceived > 0 ? cashReceived : undefined,
             changeGiven: result.changeGiven,
             currencyCode: branch.currencyCode,
-            // Puntos de ESTA venta (API nuevo; fallback: suma del carrito) y
-            // saldo del periodo con la compra incluida.
-            salePoints:
-              result.salePoints ??
-              (cart.customerId
-                ? cart.items.reduce((s, it) => s + it.points * it.quantity, 0)
-                : undefined),
+            // Puntos de ESTA venta: los que dice el servidor (también 0); si no
+            // viajan, los del carrito ya con las promociones de temporada (una
+            // línea "sin puntos" no suma). Y el saldo del periodo con la compra.
+            salePoints: receiptSalePoints(result.salePoints, cart),
             periodPoints: result.accumulatedPoints,
             // Bloque MEMBRESÍA (posición, regalos entregados o no, cupón).
             membership: membershipSale?.membership
@@ -1368,7 +1370,7 @@ export function PosScreen({
       amountReceived: cashReceived > 0 ? cashReceived : undefined,
       changeGiven: Math.max(0, cashReceived - cashPaid),
       currencyCode: branch.currencyCode,
-      salePoints: cart.customerId ? cart.totalPoints : undefined,
+      salePoints: receiptSalePoints(undefined, cart),
       seasonalPromotions: toReceiptSeasonal(null, cart.seasonalApplied),
     };
   }

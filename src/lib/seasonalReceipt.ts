@@ -59,6 +59,25 @@ export function localSeasonalGiftLines(
   return rows;
 }
 
+/**
+ * "Puntos de la compra" del ticket: los que reportó el servidor al cobrar
+ * (también 0) y, si no viajaron (sin conexión, API anterior o reintento del
+ * cobro), los del carrito YA con las promociones de temporada aplicadas
+ * (`cart.totalPoints`): una línea "sin puntos" y la pieza gratis de un 3x2 no
+ * suman. Sin cliente no hay puntos que imprimir.
+ *
+ * 13-nov-2026 (Buen Fin): el respaldo sumaba los puntos de LISTA del carrito y
+ * el kit Tonic Center Premium, que con la promoción no da puntos, imprimía
+ * "Puntos de la compra 3300" aunque el sistema no acreditó nada.
+ */
+export function receiptSalePoints(
+  serverPoints: number | null | undefined,
+  cart: Pick<PosCart, 'customerId' | 'totalPoints'>,
+): number | undefined {
+  if (serverPoints != null) return serverPoints;
+  return cart.customerId ? cart.totalPoints : undefined;
+}
+
 /** Bloque PROMOCIONES DE TEMPORADA: desde la venta cobrada o desde el carrito. */
 export function toReceiptSeasonal(
   fromSale: ReadonlyArray<SaleSeasonalPromotion> | null | undefined,
