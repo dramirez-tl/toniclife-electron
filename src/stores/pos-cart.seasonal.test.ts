@@ -368,6 +368,348 @@ describe('carrito del POS con promociones de temporada', () => {
     });
   });
 
+  describe('sabores que se combinan: el grupo cuenta junto (14-nov-2026)', () => {
+    // "Compra 5 y llévate 1": 24 Shake en 3 sabores (mismo precio) que se
+    // combinan; el 12 Mix va en la misma promoción pero cuenta solo.
+    const shakes = (over: Partial<SeasonalPromotionDef> = {}): SeasonalPromotionDef => ({
+      ...base('c5', 'nxm'),
+      config: {
+        buy: 6,
+        pay: 5,
+        sameProductOnly: true,
+        groups: [{ name: '24 Shake', productIds: ['van', 'choc', 'fresa'] }],
+      },
+      eligibleProductIds: ['van', 'choc', 'fresa', 'mix'],
+      ...over,
+    });
+    const P = 363;
+    const van = (extra: Partial<QuickProduct> = {}) => ({ ...product('van', P), ...extra }) as QuickProduct;
+    const choc = (extra: Partial<QuickProduct> = {}) => ({ ...product('choc', P), ...extra }) as QuickProduct;
+    const fresa = () => product('fresa', P);
+    const cart = () => usePosCartStore.getState().cart;
+    /** [producto, piezas, gratis según el motor, gratis "sin pasar"] por renglón. */
+    const lines = () =>
+      cart().items.map((i) => [i.productId, i.quantity, i.promo?.freeQuantity ?? 0, i.autoGiftPending ?? 0]);
+    const qty = () => Object.fromEntries(cart().items.map((i) => [i.productId, i.quantity]));
+    const notice = () => usePosCartStore.getState().autoGift;
+    const start = (def = shakes()) => {
+      const store = usePosCartStore.getState();
+      store.setSeasonalContext(ctx([def]));
+      return store;
+    };
+
+    it('3 de vainilla + 2 de chocolate: al llegar a 5 del grupo entra sola la sexta, del último sabor capturado', () => {
+      const store = start();
+      store.addItem(van(), 3);
+      store.addItem(choc(), 1);
+      expect(qty()).toEqual({ van: 3, choc: 1 });
+      expect(cart().seasonalDiscount ?? 0).toBe(0);
+      store.addItem(choc(), 1);
+      expect(qty()).toEqual({ van: 3, choc: 3 });
+      expect(cart().items[1].autoGiftPending).toBe(1);
+      // Se cobran 5 y la sexta va gratis; los dos renglones quedan en la promoción.
+      expect(cart().total).toBe(5 * P);
+      expect(cart().seasonalDiscount).toBe(P);
+      expect(cart().items.every((i) => i.promo?.typeLabel === '6x5')).toBe(true);
+      expect(cart().items.reduce((s, i) => s + (i.promo?.freeQuantity ?? 0), 0)).toBe(1);
+      expect(cart().totalPoints).toBe(50);
+      expect(notice()).toMatchObject({
+        kind: 'added',
+        text: '6x5: se agregó 1 pieza gratis de Producto choc',
+      });
+    });
+
+    it('con el grupo en 4 no entra nada; capturar las 6 de golpe tampoco deja gratis "sin pasar"', () => {
+      const store = start();
+      store.addItem(van(), 2);
+      store.addItem(choc(), 2);
+      expect(qty()).toEqual({ van: 2, choc: 2 });
+      expect(cart().total).toBe(4 * P);
+      store.clearCart();
+      store.addItem(van(), 3);
+      store.addItem(choc(), 3);
+      expect(qty()).toEqual({ van: 3, choc: 3 });
+      expect(cart().items.every((i) => !i.autoGiftPending)).toBe(true);
+      expect(cart().total).toBe(5 * P);
+    });
+
+    it('escáner: el cliente trae la sexta del MISMO sabor → al pasarla no deja 7', () => {
+      const store = start();
+      store.addItem(van(), 3);
+      store.addItem(choc(), 2); // entra sola la tercera de chocolate
+      const seq = notice()!.seq;
+      store.addItem(choc(), 1);
+      expect(qty()).toEqual({ van: 3, choc: 3 });
+      expect(cart().items[1].autoGiftPending).toBeUndefined();
+      expect(notice()).toMatchObject({ kind: 'claimed' });
+      expect(notice()!.seq).toBeGreaterThan(seq);
+      expect(notice()!.text).toContain('es la gratis que ya estaba en el carrito');
+      expect(cart().total).toBe(5 * P);
+      // La siguiente pasada ya sí suma.
+      store.addItem(choc(), 1);
+      expect(qty()).toEqual({ van: 3, choc: 4 });
+    });
+
+    it('escáner: el cliente trae la sexta de OTRO sabor → toma el lugar de la que había entrado sola', () => {
+      const store = start();
+      store.addItem(van(), 3);
+      store.addItem(choc(), 2); // chocolate queda en 3 (1 entró sola)
+      store.addItem(fresa(), 1);
+      expect(lines().map((l) => [l[0], l[1], l[3]])).toEqual([
+        ['van', 3, 0],
+        ['choc', 2, 0],
+        ['fresa', 1, 0],
+      ]);
+      expect(cart().total).toBe(5 * P);
+      expect(notice()).toMatchObject({
+        kind: 'claimed',
+        text: '6x5: Producto fresa entra en lugar de la pieza gratis de Producto choc que se había agregado sola',
+      });
+    });
+
+    it('un solo sabor del grupo se comporta como siempre: con 5 entra la sexta', () => {
+      const store = start();
+      store.addItem(van(), 5);
+      expect(lines()).toEqual([['van', 6, 1, 1]]);
+      expect(cart().total).toBe(5 * P);
+    });
+
+    it('botón −: la gratis que entró sola se va primero, esté en el sabor que esté', () => {
+      const store = start();
+      store.addItem(van(), 3);
+      store.addItem(choc(), 2); // van 3, choc 3 (1 sin pasar)
+      store.updateItemQuantity('van', 2);
+      // El cliente tiene 2 de vainilla y 2 de chocolate: la gratis ya no se gana.
+      expect(lines()).toEqual([
+        ['van', 2, 0, 0],
+        ['choc', 2, 0, 0],
+      ]);
+      expect(cart().total).toBe(4 * P);
+      expect(notice()).toMatchObject({
+        kind: 'removed',
+        text: '6x5: también se quitó la pieza gratis de Producto choc',
+      });
+    });
+
+    it('botón − sin gratis "sin pasar" en el grupo: baja una más del renglón que se movió', () => {
+      const store = start();
+      store.addItem(van(), 3);
+      store.addItem(choc(), 3); // las 6 pasadas
+      store.updateItemQuantity('choc', 2);
+      expect(qty()).toEqual({ van: 3, choc: 1 });
+      expect(cart().total).toBe(4 * P);
+      expect(notice()).toMatchObject({ kind: 'removed' });
+      // Y con + vuelve a completar el grupo.
+      store.updateItemQuantity('choc', 2);
+      expect(qty()).toEqual({ van: 3, choc: 3 });
+      expect(cart().total).toBe(5 * P);
+    });
+
+    it('al QUITAR un renglón, si el grupo queda en 5, la gratis entra en otro sabor (no se pierde)', () => {
+      const store = start();
+      store.addItem(van(), 5); // 6: entra sola la sexta de vainilla
+      store.updateItemQuantity('van', 5); // explícito: 6 → 4 (se va con su gratis)
+      expect(qty()).toEqual({ van: 4 });
+      store.addItem(choc(), 2); // 4 + 2 = 6 pasadas
+      expect(qty()).toEqual({ van: 4, choc: 2 });
+      store.updateItemQuantity('van', 5); // 7: nada que hacer
+      store.removeItem('choc'); // quedan 5 de vainilla
+      expect(lines()).toEqual([['van', 6, 1, 1]]);
+      expect(cart().total).toBe(5 * P);
+      expect(notice()).toMatchObject({
+        kind: 'added',
+        text: '6x5: se agregó 1 pieza gratis de Producto van',
+      });
+      // Bajar a 0 con el botón hace lo mismo que el bote de basura.
+      store.clearCart();
+      store.addItem(van(), 4);
+      store.addItem(choc(), 2);
+      store.addItem(fresa(), 1); // 7
+      store.updateItemQuantity('choc', 0); // quedan 5
+      expect(qty()).toEqual({ van: 4, fresa: 2 });
+      expect(cart().total).toBe(5 * P);
+    });
+
+    it('quitar un renglón que no deja al grupo "pagando sin regalo" no agrega nada', () => {
+      const store = start();
+      store.addItem(van(), 3);
+      store.addItem(choc(), 3);
+      const seq = notice()?.seq ?? 0;
+      store.removeItem('choc');
+      expect(qty()).toEqual({ van: 3 });
+      expect(cart().total).toBe(3 * P);
+      expect(notice()?.seq ?? 0).toBe(seq);
+    });
+
+    it('precios distintos en el grupo: la gratis es la más barata, así que entra del más barato y el cliente paga lo mismo', () => {
+      const store = start();
+      store.addItem(product('van', 300), 4);
+      expect(cart().total).toBe(1200);
+      store.addItem(product('choc', 400), 1);
+      // Agregar otra de chocolate ($400) le costaría $100 más: entra una de vainilla.
+      expect(qty()).toEqual({ van: 5, choc: 1 });
+      expect(cart().total).toBe(1600);
+      expect(notice()).toMatchObject({
+        kind: 'added',
+        text: '6x5: se agregó 1 pieza gratis de Producto van',
+      });
+    });
+
+    it('sin existencia del último sabor, la gratis entra de otro sabor del grupo; si ninguno tiene, avisa', () => {
+      const store = start();
+      store.addItem(van(), 3);
+      store.addItem(choc({ stock: 2 }), 2);
+      expect(qty()).toEqual({ van: 4, choc: 2 });
+      expect(cart().total).toBe(5 * P);
+      store.clearCart();
+      store.addItem(van({ stock: 3 }), 3);
+      store.addItem(choc({ stock: 2 }), 2);
+      expect(qty()).toEqual({ van: 3, choc: 2 });
+      expect(cart().total).toBe(5 * P);
+      expect(notice()).toMatchObject({ kind: 'missing' });
+      expect(notice()!.text).toContain('no hay existencia para la pieza gratis de 24 Shake');
+    });
+
+    it('lo que está fuera del grupo cuenta solo: 5 del grupo + 1 del 12 Mix no completan; 5 del 12 Mix sí traen su sexta', () => {
+      const store = start();
+      store.addItem(van(), 2);
+      store.addItem(product('mix', P), 1);
+      store.addItem(choc(), 2);
+      expect(qty()).toEqual({ van: 2, mix: 1, choc: 2 });
+      expect(cart().total).toBe(5 * P);
+      expect(cart().seasonalDiscount ?? 0).toBe(0);
+      store.clearCart();
+      store.addItem(product('mix', 471), 5);
+      expect(lines()).toEqual([['mix', 6, 1, 1]]);
+    });
+
+    it('12 piezas del grupo: dos gratis; el tope por venta se respeta (no entra una pieza que se cobraría)', () => {
+      const store = start();
+      store.addItem(van(), 6);
+      store.addItem(choc(), 5);
+      expect(qty()).toEqual({ van: 6, choc: 6 });
+      expect(cart().total).toBe(10 * P);
+      store.clearCart();
+      start(shakes({ maxPerSale: 1 }));
+      usePosCartStore.getState().addItem(van(), 6);
+      const seq = notice()?.seq ?? 0;
+      usePosCartStore.getState().addItem(choc(), 5);
+      expect(qty()).toEqual({ van: 6, choc: 5 });
+      expect(cart().total).toBe(10 * P);
+      // No es falta de existencia: la promoción ya dio su único grupo. Sin aviso.
+      expect(notice()?.seq ?? 0).toBe(seq);
+    });
+
+    it('lo que viaja al API son las cantidades por producto; el servidor decide cuál sale gratis', () => {
+      const store = start();
+      store.addItem(van(), 3);
+      store.addItem(choc(), 2);
+      expect(cart().items.map((i) => [i.productId, i.quantity, i.unitPrice, i.discountAmount ?? 0])).toEqual([
+        ['van', 3, P, 0],
+        ['choc', 3, P, 0],
+      ]);
+    });
+
+    it('una promoción sin grupos sigue igual: 3 + 2 de dos productos no completan', () => {
+      const store = start({
+        ...shakes(),
+        config: { buy: 6, pay: 5, sameProductOnly: true },
+      });
+      store.addItem(van(), 3);
+      store.addItem(choc(), 2);
+      expect(qty()).toEqual({ van: 3, choc: 2 });
+      expect(cart().total).toBe(5 * P);
+      expect(cart().seasonalDiscount ?? 0).toBe(0);
+    });
+  });
+
+  describe('sabores que se combinan: la gratis que entró sola nunca se queda para cobrarse', () => {
+    const P = 363;
+    const shakes: SeasonalPromotionDef = {
+      ...base('c5', 'nxm'),
+      config: {
+        buy: 6,
+        pay: 5,
+        sameProductOnly: true,
+        groups: [{ name: '24 Shake', productIds: ['van', 'choc', 'fresa'] }],
+      },
+      eligibleProductIds: ['van', 'choc', 'fresa'],
+    };
+    const cart = () => usePosCartStore.getState().cart;
+    const lines = () => cart().items.map((i) => [i.productId, i.quantity, i.autoGiftPending ?? 0]);
+    const notice = () => usePosCartStore.getState().autoGift;
+    /** 3 de vainilla + 2 de chocolate pasadas: el chocolate queda en 3 (1 entró sola). */
+    const fiveScanned = () => {
+      const store = usePosCartStore.getState();
+      store.setSeasonalContext(ctx([shakes]));
+      store.addItem(product('van', P), 3);
+      store.addItem(product('choc', P), 2);
+      expect(lines()).toEqual([
+        ['van', 3, 0],
+        ['choc', 3, 1],
+      ]);
+      return store;
+    };
+
+    it('al QUITAR el renglón de vainilla, la de chocolate que entró sola se va: quedan las 2 que trae el cliente', () => {
+      const store = fiveScanned();
+      store.removeItem('van');
+      expect(lines()).toEqual([['choc', 2, 0]]);
+      expect(cart().total).toBe(2 * P);
+      expect(cart().seasonalDiscount ?? 0).toBe(0);
+      expect(notice()).toMatchObject({
+        kind: 'removed',
+        text: '6x5: también se quitó la pieza gratis de Producto choc',
+      });
+    });
+
+    it('al teclear 1 en vainilla (de 3), igual: el grupo ya no gana la gratis', () => {
+      const store = fiveScanned();
+      store.updateItemQuantity('van', 1);
+      expect(lines()).toEqual([
+        ['van', 1, 0],
+        ['choc', 2, 0],
+      ]);
+      expect(cart().total).toBe(3 * P);
+    });
+
+    it('con 12 piezas (2 gratis) y una sin pasar: al bajar una, se va esa y quedan 10 con 1 gratis', () => {
+      const store = usePosCartStore.getState();
+      store.setSeasonalContext(ctx([shakes]));
+      store.addItem(product('van', P), 6);
+      store.addItem(product('choc', P), 5); // 11 → entra la doceava de chocolate
+      expect(lines()).toEqual([
+        ['van', 6, 0],
+        ['choc', 6, 1],
+      ]);
+      store.updateItemQuantity('van', 5);
+      expect(lines()).toEqual([
+        ['van', 5, 0],
+        ['choc', 5, 0],
+      ]);
+      expect(cart().total).toBe(9 * P);
+    });
+
+    it('si el cliente ya pasó la sexta, quitar el otro sabor deja las 3 pasadas (no hay nada que se haya agregado solo)', () => {
+      const store = fiveScanned();
+      store.addItem(product('choc', P), 1); // pasa la sexta: ya no hay gratis sin pasar
+      store.removeItem('van');
+      expect(lines()).toEqual([['choc', 3, 0]]);
+      expect(cart().total).toBe(3 * P);
+    });
+  });
+
+  it('el aviso "esa pieza es la gratis que ya estaba" solo sale si la cantidad no cambió', () => {
+    const store = usePosCartStore.getState();
+    store.setSeasonalContext(ctx([base('bf-3x2', 'nxm')]));
+    store.addItem(product('te', 120), 2); // 3, con 1 gratis sin pasar
+    const seq = usePosCartStore.getState().autoGift!.seq;
+    store.addItem(product('te', 120), 2); // 1 era la gratis, la otra sí suma → 4
+    expect(usePosCartStore.getState().cart.items[0].quantity).toBe(4);
+    // Sin aviso nuevo: decir "la cantidad no cambia" sería falso.
+    expect(usePosCartStore.getState().autoGift!.seq).toBe(seq);
+  });
+
   it('calculateCartTotals sin contexto deja las líneas tal cual (misma referencia)', () => {
     const cart = calculateCartTotals(
       {

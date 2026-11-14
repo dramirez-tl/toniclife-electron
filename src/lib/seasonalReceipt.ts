@@ -13,13 +13,18 @@ export function seasonalLineLabel(
   promo: NonNullable<PosCartItem['promo']>,
   fmt: (n: number) => string,
 ): string {
+  // Sabores que se combinan: "6x5 · 24 Shake" explica por qué dos productos
+  // distintos van en la misma promoción (y cuál de ellos lleva la gratis).
+  const label = promo.groupName
+    ? `${promo.typeLabel} · ${promo.groupName}`
+    : promo.typeLabel;
   if (promo.freeQuantity > 0) {
-    return `${promo.typeLabel}: ${promo.freeQuantity} ${promo.freeQuantity === 1 ? 'pieza gratis' : 'piezas gratis'}`;
+    return `${label}: ${promo.freeQuantity} ${promo.freeQuantity === 1 ? 'pieza gratis' : 'piezas gratis'}`;
   }
   if (promo.discountAmount > 0) {
-    return `${promo.typeLabel}: -${fmt(promo.discountAmount)}`;
+    return `${label}: -${fmt(promo.discountAmount)}`;
   }
-  return promo.typeLabel;
+  return label;
 }
 
 /**

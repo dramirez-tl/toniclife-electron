@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { posApi } from '@/lib/posApi';
 import { applyPickupOrderUpdate } from '@/lib/pickupOrders';
+import { SEASONAL_ENGINE_LEVEL } from '@/lib/seasonalPromotions';
 import type {
   CreateSaleInput,
   CancelSaleInput,
@@ -372,7 +373,9 @@ export const usePosCustomerFiscalData = (
 
 export const useCreateSale = () =>
   useMutation({
-    mutationFn: (input: CreateSaleInput) => posApi.createSale(input),
+    // Venta que se cobra ahora: calculada con el motor de esta versión.
+    mutationFn: (input: CreateSaleInput) =>
+      posApi.createSale(input, SEASONAL_ENGINE_LEVEL),
   });
 
 export const useCancelSale = () => {

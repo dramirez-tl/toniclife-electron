@@ -3,11 +3,11 @@
 // promociones de temporada, nunca los puntos de lista.
 
 import { beforeEach, describe, expect, it } from 'vitest';
-import type { QuickProduct } from '@/types/pos';
+import type { PosCartItemPromo, QuickProduct } from '@/types/pos';
 import { nowLocalIso } from '@/lib/date';
 import { usePosCartStore, type SeasonalContext } from '@/stores/pos-cart.store';
 import type { SeasonalPromotionDef } from './seasonalPromotions';
-import { receiptSalePoints } from './seasonalReceipt';
+import { localSeasonalGiftLines, receiptSalePoints, seasonalLineLabel } from './seasonalReceipt';
 
 const TZ = 'America/Mexico_City';
 
@@ -121,5 +121,102 @@ describe('receiptSalePoints', () => {
       expect(receiptSalePoints(undefined, cart)).toBe(20);
       expect(receiptSalePoints(undefined, cart)).toBe(listPoints());
     });
+  });
+});
+
+describe('renglones con sabores que se combinan (14-nov-2026)', () => {
+  const fmt = (n: number) => `$${n.toFixed(2)}`;
+  const promo = (over: Partial<PosCartItemPromo> = {}): PosCartItemPromo => ({
+    promotionId: 'promo',
+    code: 'PROMO',
+    name: 'Compra 5 y llévate 1',
+    type: 'nxm',
+    typeLabel: '6x5',
+    freeQuantity: 0,
+    discountAmount: 0,
+    points: 0,
+    businessValue: 0,
+    kitBonusExcluded: false,
+    ...over,
+  });
+
+  it('la etiqueta del renglón dice el grupo: se entiende por qué dos sabores van juntos', () => {
+    expect(seasonalLineLabel(promo({ groupName: '24 Shake' }), fmt)).toBe('6x5 · 24 Shake');
+    expect(seasonalLineLabel(promo({ groupName: '24 Shake', freeQuantity: 1, discountAmount: 363 }), fmt)).toBe(
+      '6x5 · 24 Shake: 1 pieza gratis',
+    );
+    expect(seasonalLineLabel(promo({ groupName: '24 Shake', freeQuantity: 2 }), fmt)).toBe(
+      '6x5 · 24 Shake: 2 piezas gratis',
+    );
+  });
+
+  it('sin grupo la etiqueta es la de siempre', () => {
+    expect(seasonalLineLabel(promo(), fmt)).toBe('6x5');
+    expect(seasonalLineLabel(promo({ typeLabel: '3x2', freeQuantity: 1 }), fmt)).toBe('3x2: 1 pieza gratis');
+    expect(
+      seasonalLineLabel(promo({ type: 'percent_off', typeLabel: '20% de descuento', discountAmount: 40 }), fmt),
+    ).toBe('20% de descuento: -$40.00');
+  });
+
+  it('el carrito anota el grupo en cada renglón, y el renglón que sale gratis completo va como regalo en el ticket', () => {
+    const store = usePosCartStore.getState();
+    store.setSeasonalContext(null);
+    store.clearCart();
+    store.setSeasonalContext(
+      ctx([
+        def({
+          config: {
+            buy: 6,
+            pay: 5,
+            sameProductOnly: true,
+            groups: [{ name: '24 Shake', productIds: ['van', 'choc'] }],
+          },
+          eligibleProductIds: ['van', 'choc', 'mix'],
+        }),
+      ]),
+    );
+    // 1 de chocolate ($300) + 5 de vainilla ($363): el grupo completa las 6 y
+    // la gratis es la más barata, que es la ÚNICA pieza de su renglón.
+    store.addItem(product('choc', 300, 10), 1);
+    store.addItem(product('van', 363, 10), 5);
+    const cart = usePosCartStore.getState().cart;
+    expect(cart.items.map((i) => [i.productId, i.quantity, i.promo?.freeQuantity])).toEqual([
+      ['choc', 1, 1],
+      ['van', 5, 0],
+    ]);
+    expect(cart.total).toBe(5 * 363);
+    expect(cart.items.every((i) => i.promo?.groupName === '24 Shake')).toBe(true);
+    const gifts = localSeasonalGiftLines(cart);
+    expect(gifts).toHaveLength(1);
+    expect(gifts[0]).toMatchObject({ quantity: 1, unitPrice: 0, total: 0, gift: true, promoLabel: 'Regalo 6x5' });
+    // La gratis es la más barata del grupo.
+    expect(gifts[0].name).toBe('Producto choc');
+    store.setSeasonalContext(null);
+    store.clearCart();
+  });
+
+  it('un producto fuera de grupo no lleva nombre de grupo', () => {
+    const store = usePosCartStore.getState();
+    store.setSeasonalContext(null);
+    store.clearCart();
+    store.setSeasonalContext(
+      ctx([
+        def({
+          config: {
+            buy: 6,
+            pay: 5,
+            sameProductOnly: true,
+            groups: [{ name: '24 Shake', productIds: ['van', 'choc'] }],
+          },
+          eligibleProductIds: ['van', 'choc', 'mix'],
+        }),
+      ]),
+    );
+    store.addItem(product('mix', 471, 10), 6);
+    const [line] = usePosCartStore.getState().cart.items;
+    expect(line.promo?.freeQuantity).toBe(1);
+    expect(line.promo?.groupName).toBeUndefined();
+    store.setSeasonalContext(null);
+    store.clearCart();
   });
 });

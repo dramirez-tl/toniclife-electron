@@ -13,6 +13,13 @@
 //   - El kit vendido con "precio especial … sin bono" se marca para que el
 //     reporte Bono de Inscripción lo excluya (kitBonusExcluded).
 //
+// Combinar por grupo (Diego, 14-nov-2026: "el 24 Shake tiene diferentes sabores
+// pero es el mismo producto"): en un "lleva N, paga M" de piezas idénticas, los
+// productos de un mismo GRUPO cuentan juntos (5 de vainilla + 1 de chocolate
+// completan el 6x5). Lo que no está en un grupo sigue contando solo. Las piezas
+// gratis son las más baratas del grupo, así que un renglón puede salir GRATIS
+// COMPLETO (paidQuantity = 0): quien guarda la venta lo trata como regalo.
+//
 // Sin BD, sin Nest, sin fechas con zona horaria: las vigencias y el "ahora"
 // llegan como marcas de hora LOCAL de la sucursal/país ('YYYY-MM-DDTHH:mm:ss')
 // y se comparan como texto. Dinero a centavos, mitad hacia arriba.
@@ -21,6 +28,14 @@
 // seasonal-promotions.engine.ts): si cambia aquel archivo, cambia este y sus
 // pruebas. La terminal lo usa para reflejar la promoción en vivo y en la cola
 // local; el API vuelve a aplicarlo al crear la venta y su resultado manda.
+
+/**
+ * Nivel de reglas de este motor. Sube cuando el motor aprende una regla que
+ * cambia lo que se cobra: la caja declara su nivel al crear la venta y el
+ * servidor la valúa con esas mismas reglas (API: lib/seasonal-client).
+ *   1 = motor original (mig 186) · 2 = combinar por grupo (NxmConfig.groups).
+ */
+export const SEASONAL_ENGINE_LEVEL = 2;
 
 export type SeasonalPromoChannel = 'pos' | 'online';
 export type SeasonalPromoType =
@@ -41,12 +56,30 @@ export const SEASONAL_PROMO_CHANNELS: readonly SeasonalPromoChannel[] = [
   'online',
 ];
 
-/** "Lleva N, paga M" (3x2 = buy 3, pay 2). sameProductOnly: solo piezas idénticas. */
+/** Productos que se combinan entre sí en un "lleva N, paga M": sabores o presentaciones de lo mismo. */
+export interface NxmGroup {
+  /** Nombre corto que ven el cajero y el comprador ("24 Shake"). */
+  name: string;
+  productIds: string[];
+}
+
+/**
+ * "Lleva N, paga M" (3x2 = buy 3, pay 2).
+ *   - sameProductOnly = false: se combinan TODOS los productos de la promoción.
+ *   - sameProductOnly = true: solo piezas idénticas… salvo los productos de un
+ *     mismo `groups[i]`, que cuentan juntos. Un producto fuera de todo grupo
+ *     sigue contando solo. Sin `groups` (o vacío) = solo piezas idénticas.
+ */
 export interface NxmConfig {
   buy: number;
   pay: number;
   sameProductOnly: boolean;
+  groups?: NxmGroup[];
 }
+
+/** Topes de la captura de grupos (admin). */
+export const NXM_MAX_GROUPS = 30;
+export const NXM_GROUP_NAME_MAX = 60;
 /** Porcentaje de descuento sobre el precio del renglón. */
 export interface PercentOffConfig {
   percent: number;
@@ -260,6 +293,108 @@ function pushApplied(
   });
 }
 
+/**
+ * Grupos que el motor respeta en un "lleva N, paga M": solo con piezas
+ * idénticas (sameProductOnly), de 2 o más productos, y cada producto en el
+ * PRIMER grupo que lo nombra. Vacío = sin grupos. Tolera config vieja o sucia.
+ */
+export function nxmGroups(
+  config: SeasonalPromoConfig | null | undefined,
+): NxmGroup[] {
+  const cfg = (config ?? {}) as Partial<NxmConfig>;
+  if (!cfg.sameProductOnly || !Array.isArray(cfg.groups)) return [];
+  const taken = new Set<string>();
+  const out: NxmGroup[] = [];
+  for (const item of cfg.groups as unknown[]) {
+    const g = (item && typeof item === 'object' ? item : {}) as Record<
+      string,
+      unknown
+    >;
+    const ids: string[] = [];
+    for (const raw of Array.isArray(g.productIds) ? g.productIds : []) {
+      const id = typeof raw === 'string' ? raw.trim() : '';
+      if (id && !taken.has(id) && !ids.includes(id)) ids.push(id);
+    }
+    if (ids.length < 2) continue;
+    ids.forEach((id) => taken.add(id));
+    out.push({
+      name: typeof g.name === 'string' ? g.name.trim() : '',
+      productIds: ids,
+    });
+  }
+  return out;
+}
+
+/** Grupo (o null) en el que un producto se combina con otros dentro de la promoción. */
+export function nxmGroupOf(
+  productId: string,
+  config: SeasonalPromoConfig | null | undefined,
+): NxmGroup | null {
+  return (
+    nxmGroups(config).find((g) => g.productIds.includes(productId)) ?? null
+  );
+}
+
+/**
+ * Conjuntos de renglones que cuentan JUNTOS en un "lleva N, paga M" de piezas
+ * idénticas: cada grupo configurado y, fuera de grupos, cada renglón por
+ * separado. En el orden en que aparecen en el carrito.
+ */
+function nxmPools(candidates: Work[], groups: NxmGroup[]): Work[][] {
+  if (groups.length === 0) return candidates.map((w) => [w]);
+  const groupOf = new Map<string, number>();
+  groups.forEach((g, i) => g.productIds.forEach((id) => groupOf.set(id, i)));
+  const pools: Work[][] = [];
+  const poolOfGroup = new Map<number, Work[]>();
+  for (const w of candidates) {
+    const g = groupOf.get(w.line.productId);
+    if (g === undefined) {
+      pools.push([w]);
+      continue;
+    }
+    let pool = poolOfGroup.get(g);
+    if (!pool) {
+      pool = [];
+      poolOfGroup.set(g, pool);
+      pools.push(pool);
+    }
+    pool.push(w);
+  }
+  return pools;
+}
+
+/**
+ * El conjunto entra a la promoción y sus `toFree` piezas MÁS BARATAS salen
+ * gratis (a igual precio, por id de producto: mismo resultado en la terminal y
+ * en el servidor). Regresa las piezas liberadas y lo que valían.
+ */
+function freeCheapest(
+  pool: Work[],
+  toFree: number,
+  promo: SeasonalPromotionDef,
+): { units: number; discount: number } {
+  let left = toFree;
+  let units = 0;
+  let discount = 0;
+  const byPrice = [...pool].sort(
+    (a, b) =>
+      a.line.unitPrice - b.line.unitPrice ||
+      a.line.productId.localeCompare(b.line.productId),
+  );
+  for (const w of byPrice) {
+    w.consumed = true;
+    w.promo = promo;
+    if (left <= 0) continue;
+    const f = Math.min(left, w.line.quantity);
+    left -= f;
+    w.free = f;
+    w.discount = roundMoney(f * w.line.unitPrice);
+    units += f;
+    discount += w.discount;
+  }
+  return { units, discount };
+}
+
 // --- motor ------------------------------------------------------------------
 
 /**
@@ -379,46 +514,24 @@ export function applySeasonalPromotions(
       let freeUnits = 0;
       let discount = 0;
       let groupsTotal = 0;
-      if (cfg.sameProductOnly) {
-        for (const w of candidates) {
-          if (groupsLeft <= 0) break;
-          const groups = Math.min(
-            Math.floor(w.line.quantity / buy),
-            groupsLeft,
-          );
-          if (groups <= 0) continue;
-          groupsLeft -= groups;
-          groupsTotal += groups;
-          w.free = groups * freePerGroup;
-          w.discount = roundMoney(w.free * w.line.unitPrice);
-          w.consumed = true;
-          w.promo = promo;
-          freeUnits += w.free;
-          discount += w.discount;
-        }
-      } else {
-        const totalUnits = candidates.reduce((s, w) => s + w.line.quantity, 0);
-        const groups = Math.min(Math.floor(totalUnits / buy), groupsLeft);
+      // Qué cuenta junto: con piezas idénticas, cada renglón por separado y
+      // cada GRUPO configurado como un solo conjunto; si no, todos los
+      // renglones. Un conjunto que no completa N piezas no se consume (queda
+      // libre para una promoción de menor prioridad).
+      const pools = cfg.sameProductOnly
+        ? nxmPools(candidates, nxmGroups(cfg))
+        : [candidates];
+      for (const pool of pools) {
+        if (groupsLeft <= 0) break;
+        const units = pool.reduce((s, w) => s + w.line.quantity, 0);
+        const groups = Math.min(Math.floor(units / buy), groupsLeft);
         if (groups <= 0) continue;
-        groupsTotal = groups;
+        groupsLeft -= groups;
+        groupsTotal += groups;
         // Las piezas gratis son las MÁS BARATAS del conjunto.
-        let toFree = groups * freePerGroup;
-        const byPrice = [...candidates].sort(
-          (a, b) =>
-            a.line.unitPrice - b.line.unitPrice ||
-            a.line.productId.localeCompare(b.line.productId),
-        );
-        for (const w of byPrice) {
-          w.consumed = true;
-          w.promo = promo;
-          if (toFree <= 0) continue;
-          const f = Math.min(toFree, w.line.quantity);
-          toFree -= f;
-          w.free = f;
-          w.discount = roundMoney(f * w.line.unitPrice);
-          freeUnits += f;
-          discount += w.discount;
-        }
+        const freed = freeCheapest(pool, groups * freePerGroup, promo);
+        freeUnits += freed.units;
+        discount += freed.discount;
       }
       if (groupsTotal > 0) {
         pushApplied(applied, promo, {
@@ -527,6 +640,53 @@ export function seasonalPromoTypeLabel(
 }
 
 /**
+ * Grupos capturados en el admin, limpios: nombre recortado (obligatorio), ids
+ * sin repetir y solo grupos de 2 o más productos (uno solo no combina nada).
+ * Lanza si un producto está en dos grupos, si falta el nombre o si se repite.
+ */
+function normalizeNxmGroups(raw: unknown): NxmGroup[] {
+  if (raw == null) return [];
+  if (!Array.isArray(raw))
+    throw new Error('nxm: "groups" debe ser una lista de grupos');
+  const out: NxmGroup[] = [];
+  const taken = new Map<string, string>();
+  const names = new Set<string>();
+  for (const item of raw as unknown[]) {
+    const g = (item && typeof item === 'object' ? item : {}) as Record<
+      string,
+      unknown
+    >;
+    const ids: string[] = [];
+    for (const v of Array.isArray(g.productIds) ? g.productIds : []) {
+      const id = typeof v === 'string' ? v.trim() : '';
+      if (id && !ids.includes(id)) ids.push(id);
+    }
+    if (ids.length < 2) continue;
+    const name = (typeof g.name === 'string' ? g.name : '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, NXM_GROUP_NAME_MAX);
+    if (!name) throw new Error('nxm: ponle nombre a cada grupo de productos');
+    const nameKey = name.toLowerCase();
+    if (names.has(nameKey))
+      throw new Error(`nxm: hay dos grupos con el nombre "${name}"`);
+    names.add(nameKey);
+    for (const id of ids) {
+      const other = taken.get(id);
+      if (other)
+        throw new Error(
+          `nxm: un producto no puede estar en dos grupos ("${other}" y "${name}")`,
+        );
+      taken.set(id, name);
+    }
+    out.push({ name, productIds: ids });
+  }
+  if (out.length > NXM_MAX_GROUPS)
+    throw new Error(`nxm: máximo ${NXM_MAX_GROUPS} grupos por promoción`);
+  return out;
+}
+
+/**
  * Normaliza y valida la config según el tipo. Regresa la config limpia o lanza
  * Error con el motivo (el controlador lo convierte en 400).
  */
@@ -546,7 +706,12 @@ export function normalizeSeasonalPromoConfig(
         throw new Error('nxm: "buy" debe ser entre 2 y 50');
       if (pay < 1 || pay >= buy)
         throw new Error('nxm: "pay" debe ser al menos 1 y menor que "buy"');
-      return { buy, pay, sameProductOnly: cfg.sameProductOnly !== false };
+      const sameProductOnly = cfg.sameProductOnly !== false;
+      const groups = sameProductOnly ? normalizeNxmGroups(cfg.groups) : [];
+      // Sin grupos la config queda como siempre (sin la llave `groups`).
+      return groups.length > 0
+        ? { buy, pay, sameProductOnly, groups }
+        : { buy, pay, sameProductOnly };
     }
     case 'percent_off': {
       const percent = Number(cfg.percent);

@@ -9,11 +9,17 @@ import {
 import {
   autoGiftMessage,
   autoGiftTarget,
+  claimGroupPending,
   claimPendingGift,
   claimedGiftText,
   governingNxm,
+  groupGiftMessage,
+  movedGiftText,
+  planGroupGift,
   resolveAutoGift,
   type AutoGiftPromo,
+  type GroupGiftLine,
+  type GroupGiftPlan,
 } from './seasonalAutoGift';
 
 const X3X2 = { buy: 3, pay: 2 };
@@ -264,5 +270,275 @@ describe('resolveAutoGift (cantidad final con existencia y candado del motor)', 
     expect(autoGiftMessage(out({ removed: 1 }), name)?.kind).toBe('removed');
     expect(autoGiftMessage(out({}), name)).toBeNull();
     expect(autoGiftMessage(out({ added: 1, promo: null }), name)).toBeNull();
+  });
+});
+
+describe('grupos de productos que se combinan (14-nov-2026)', () => {
+  const GROUP_DEF = def('C5', {
+    config: {
+      buy: 6,
+      pay: 5,
+      sameProductOnly: true,
+      groups: [{ name: '24 Shake', productIds: ['van', 'choc', 'fresa', 'descontinuado'] }],
+    },
+    eligibleProductIds: ['van', 'choc', 'fresa', 'mix'],
+  });
+  const PROMO: AutoGiftPromo = {
+    id: 'id-C5',
+    code: 'C5',
+    name: 'Promo C5',
+    buy: 6,
+    pay: 5,
+    label: '6x5',
+    group: { name: '24 Shake', productIds: ['van', 'choc', 'fresa'] },
+  };
+
+  const gl = (productId: string, quantity: number, over: Partial<GroupGiftLine> = {}): GroupGiftLine => ({
+    productId,
+    name: `24 Shake ${productId}`,
+    quantity,
+    unitPrice: 363,
+    max: 50,
+    pending: 0,
+    ...over,
+  });
+
+  /** Lo que paga el cliente por esas piezas según el MOTOR real. */
+  const payableOf =
+    (lines: readonly GroupGiftLine[], defs: SeasonalPromotionDef[] = [GROUP_DEF]) =>
+    (quantities: ReadonlyMap<string, number>) => {
+      const cart = lines
+        .map((l) => ({
+          key: l.productId,
+          productId: l.productId,
+          quantity: quantities.get(l.productId) ?? l.quantity,
+          unitPrice: l.unitPrice,
+          unitPoints: 10,
+          unitBusinessValue: 100,
+        }))
+        .filter((l) => l.quantity > 0);
+      const r = applySeasonalPromotions(cart, defs, CTX);
+      return cart.reduce((s, l) => s + l.unitPrice * l.quantity, 0) - r.totalDiscount;
+    };
+  const plan = (
+    lines: GroupGiftLine[],
+    touched: string | null,
+    previousTotal: number,
+    defs: SeasonalPromotionDef[] = [GROUP_DEF],
+  ) => planGroupGift({ lines, touched, previousTotal, promo: PROMO, payable: payableOf(lines, defs) });
+  const shape = (p: GroupGiftPlan) => ({
+    quantities: Object.fromEntries(p.quantities),
+    pending: Object.fromEntries(p.pending),
+    added: p.added?.productId ?? null,
+    removed: p.removed.map((r) => [r.productId, r.pieces]),
+    missing: p.missing,
+  });
+  const NOTHING = { quantities: {}, pending: {}, added: null, removed: [], missing: 0 };
+
+  it('governingNxm trae el grupo del producto, solo con los productos que la promoción vende hoy', () => {
+    expect(governingNxm('choc', [GROUP_DEF], CTX)).toEqual(PROMO);
+    // Fuera de grupo, el producto cuenta solo: sin la llave `group`.
+    expect(governingNxm('mix', [GROUP_DEF], CTX)).toEqual({
+      id: 'id-C5',
+      code: 'C5',
+      name: 'Promo C5',
+      buy: 6,
+      pay: 5,
+      label: '6x5',
+    });
+    // Un grupo que hoy solo tiene un producto vendible no combina nada.
+    const solo = def('SOLO', {
+      config: { buy: 6, pay: 5, sameProductOnly: true, groups: [{ name: 'G', productIds: ['van', 'baja'] }] },
+      eligibleProductIds: ['van'],
+    });
+    expect(governingNxm('van', [solo], CTX)?.group).toBeUndefined();
+  });
+
+  it('sube: con el grupo en 5 entra la sexta en el último sabor capturado', () => {
+    const lines = [gl('van', 3), gl('choc', 2)];
+    expect(shape(plan(lines, 'choc', 4))).toEqual({
+      quantities: { choc: 3 },
+      pending: { choc: 1 },
+      added: 'choc',
+      removed: [],
+      missing: 0,
+    });
+    // 11 piezas → la doceava.
+    expect(shape(plan([gl('van', 6), gl('fresa', 5)], 'fresa', 10)).quantities).toEqual({ fresa: 6 });
+  });
+
+  it('con 4, con 6 o con 7 no hay nada que hacer', () => {
+    for (const [a, b] of [
+      [2, 2],
+      [3, 3],
+      [4, 3],
+    ]) {
+      expect(shape(plan([gl('van', a), gl('choc', b)], 'choc', a + b - 1))).toEqual(NOTHING);
+    }
+    expect(plan([], 'van', 0).quantities.size).toBe(0);
+  });
+
+  it('precios distintos: si en el último sabor le costaría más al cliente, entra del más barato', () => {
+    const lines = [gl('van', 4, { unitPrice: 300 }), gl('choc', 1, { unitPrice: 400 })];
+    expect(shape(plan(lines, 'choc', 4))).toMatchObject({ quantities: { van: 5 }, added: 'van' });
+    const pay = payableOf(lines);
+    // Con la pieza que entró sola el cliente paga lo mismo que sin ella.
+    expect(pay(new Map([['van', 5]]))).toBe(pay(new Map()));
+    expect(pay(new Map([['choc', 2]]))).toBeGreaterThan(pay(new Map()));
+  });
+
+  it('sin existencia en el último sabor entra de otro; sin existencia en ninguno, avisa', () => {
+    expect(shape(plan([gl('van', 3), gl('choc', 2, { max: 2 })], 'choc', 4))).toMatchObject({
+      quantities: { van: 4 },
+      added: 'van',
+      missing: 0,
+    });
+    expect(shape(plan([gl('van', 3, { max: 3 }), gl('choc', 2, { max: 2 })], 'choc', 4))).toEqual({
+      ...NOTHING,
+      missing: 1,
+    });
+  });
+
+  it('candado: si la promoción ya no regala más (tope por venta), no entra nada y no se avisa', () => {
+    const capped = [{ ...GROUP_DEF, maxPerSale: 1 }];
+    expect(shape(plan([gl('van', 6), gl('choc', 5)], 'choc', 10, capped))).toEqual(NOTHING);
+  });
+
+  it('baja: primero se va la gratis que entró sola y nadie pasó, esté en el sabor que esté', () => {
+    const lines = [gl('van', 2), gl('choc', 3, { pending: 1 })];
+    expect(shape(plan(lines, 'van', 6))).toEqual({
+      quantities: { choc: 2 },
+      pending: { choc: 0 },
+      added: null,
+      removed: [['choc', 1]],
+      missing: 0,
+    });
+  });
+
+  it('baja sin gratis pendientes: una más del renglón que se movió', () => {
+    expect(shape(plan([gl('van', 3), gl('choc', 2)], 'choc', 6))).toEqual({
+      quantities: { choc: 1 },
+      pending: { choc: 0 },
+      added: null,
+      removed: [['choc', 1]],
+      missing: 0,
+    });
+    // El renglón movido se queda sin piezas: se quita.
+    expect(shape(plan([gl('van', 4), gl('choc', 1)], 'choc', 6)).quantities).toEqual({ choc: 0 });
+  });
+
+  it('se quitó el renglón completo y el grupo queda en 5: la gratis entra en otro (el más barato; a igual precio, el último del carrito)', () => {
+    expect(shape(plan([gl('van', 4), gl('fresa', 1)], null, 7))).toMatchObject({
+      quantities: { fresa: 2 },
+      pending: { fresa: 1 },
+      added: 'fresa',
+    });
+    expect(shape(plan([gl('van', 5)], null, 6))).toMatchObject({ quantities: { van: 6 }, added: 'van' });
+  });
+
+  it('claimGroupPending: la pieza que se pasa toma el lugar de la gratis que entró sola en otro sabor', () => {
+    const others = [gl('van', 3), gl('choc', 3, { pending: 1 })];
+    expect(claimGroupPending(1, others)).toEqual([{ productId: 'choc', name: '24 Shake choc', pieces: 1 }]);
+    expect(claimGroupPending(3, others)).toEqual([{ productId: 'choc', name: '24 Shake choc', pieces: 1 }]);
+    expect(claimGroupPending(1, [gl('van', 3)])).toEqual([]);
+    expect(claimGroupPending(0, others)).toEqual([]);
+    expect(claimGroupPending(Number.NaN, others)).toEqual([]);
+    // Dos sabores con gratis sin pasar: se toman en orden.
+    expect(
+      claimGroupPending(2, [gl('van', 6, { pending: 1 }), gl('choc', 6, { pending: 1 })]).map((m) => m.productId),
+    ).toEqual(['van', 'choc']);
+  });
+
+  it('avisos al cajero', () => {
+    expect(groupGiftMessage(plan([gl('van', 3), gl('choc', 2)], 'choc', 4), PROMO)).toEqual({
+      kind: 'added',
+      text: '6x5: se agregó 1 pieza gratis de 24 Shake choc',
+    });
+    expect(groupGiftMessage(plan([gl('van', 3), gl('choc', 2)], 'choc', 6), PROMO)).toEqual({
+      kind: 'removed',
+      text: '6x5: también se quitó la pieza gratis de 24 Shake choc',
+    });
+    expect(
+      groupGiftMessage(plan([gl('van', 3, { max: 3 }), gl('choc', 2, { max: 2 })], 'choc', 4), PROMO),
+    ).toEqual({
+      kind: 'missing',
+      text: '6x5: no hay existencia para la pieza gratis de 24 Shake. Agrega otra pieza del grupo y sale gratis',
+    });
+    expect(groupGiftMessage(plan([gl('van', 2), gl('choc', 2)], 'choc', 3), PROMO)).toBeNull();
+    expect(movedGiftText(PROMO, '24 Shake Fresa', ['24 Shake Chocolate'])).toBe(
+      '6x5: 24 Shake Fresa entra en lugar de la pieza gratis de 24 Shake Chocolate que se había agregado sola',
+    );
+  });
+});
+
+describe('grupos: al bajar, la gratis que entró sola y ya no se gana se va siempre', () => {
+  const PROMO = { buy: 6, pay: 5 };
+  const gl = (productId: string, quantity: number, pending = 0): GroupGiftLine => ({
+    productId,
+    name: `24 Shake ${productId}`,
+    quantity,
+    unitPrice: 363,
+    max: 50,
+    pending,
+  });
+  // Mismo precio en todo el grupo: paga las piezas menos las gratis del 6x5.
+  const payable = (lines: readonly GroupGiftLine[]) => (q: ReadonlyMap<string, number>) => {
+    const total = lines.reduce((s, l) => s + (q.get(l.productId) ?? l.quantity), 0);
+    return (total - Math.floor(total / 6)) * 363;
+  };
+  const run = (lines: GroupGiftLine[], touched: string | null, previousTotal: number) => {
+    const p = planGroupGift({ lines, touched, previousTotal, promo: PROMO, payable: payable(lines) });
+    return {
+      quantities: Object.fromEntries(p.quantities),
+      pending: Object.fromEntries(p.pending),
+      added: p.added?.productId ?? null,
+      removed: p.removed.map((r) => [r.productId, r.pieces]),
+    };
+  };
+
+  it('se quitó el renglón de otro sabor y el grupo ya no llega a 6: la que entró sola se va (si no, se cobraría)', () => {
+    expect(run([gl('choc', 3, 1)], null, 6)).toEqual({
+      quantities: { choc: 2 },
+      pending: { choc: 0 },
+      added: null,
+      removed: [['choc', 1]],
+    });
+  });
+
+  it('se tecleó una cantidad menor en otro sabor: igual', () => {
+    expect(run([gl('van', 1), gl('choc', 3, 1)], 'van', 6)).toEqual({
+      quantities: { choc: 2 },
+      pending: { choc: 0 },
+      added: null,
+      removed: [['choc', 1]],
+    });
+  });
+
+  it('con 12 piezas y una sin pasar: al bajar una se va la que entró sola y el grupo queda en 10', () => {
+    expect(run([gl('van', 5), gl('choc', 6, 1)], 'van', 12)).toEqual({
+      quantities: { choc: 5 },
+      pending: { choc: 0 },
+      added: null,
+      removed: [['choc', 1]],
+    });
+  });
+
+  it('si el grupo sigue ganando sus gratis, las que entraron solas se quedan', () => {
+    // 13 → 12: siguen siendo 2 gratis; nada cambia.
+    expect(run([gl('van', 6), gl('choc', 6, 1)], 'van', 13)).toEqual({
+      quantities: {},
+      pending: {},
+      added: null,
+      removed: [],
+    });
+  });
+
+  it('al SUBIR nunca se quita nada', () => {
+    expect(run([gl('van', 4), gl('choc', 3, 1)], 'van', 6)).toEqual({
+      quantities: {},
+      pending: {},
+      added: null,
+      removed: [],
+    });
   });
 });

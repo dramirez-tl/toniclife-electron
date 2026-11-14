@@ -4,7 +4,10 @@ import {
   isPromotionActive,
   normalizeLocalStamp,
   normalizeSeasonalPromoConfig,
+  nxmGroupOf,
+  nxmGroups,
   seasonalPromoTypeLabel,
+  type NxmConfig,
   type SeasonalEngineLine,
   type SeasonalPromotionDef,
 } from './seasonalPromotions';
@@ -167,6 +170,220 @@ describe('nxm (3x2) en productos idénticos', () => {
       'bf-3x2',
     ]);
     expect(r.totalDiscount).toBe(100);
+  });
+});
+
+describe('nxm con grupos: sabores del mismo producto cuentan juntos', () => {
+  // "Compra 5 y llévate 1" del 14-nov-2026: 24 Shake en 3 sabores (mismo
+  // precio), Gubi Shake en 2 y el 12 Mix solo.
+  const p6x5 = promo({
+    id: 'bf-6x5',
+    type: 'nxm',
+    config: {
+      buy: 6,
+      pay: 5,
+      sameProductOnly: true,
+      groups: [
+        { name: '24 Shake', productIds: ['sh-van', 'sh-choc', 'sh-fresa'] },
+        { name: 'Gubi Shake', productIds: ['gubi-a', 'gubi-b'] },
+      ],
+    },
+    eligibleProductIds: [
+      'sh-van',
+      'sh-choc',
+      'sh-fresa',
+      'gubi-a',
+      'gubi-b',
+      'mix-12',
+    ],
+  });
+  const free = (r: ReturnType<typeof applySeasonalPromotions>) =>
+    Object.fromEntries(r.lines.map((l) => [l.productId, l.freeQuantity]));
+
+  it('3 + 2 + 1 de tres sabores completan el grupo: 1 gratis y los tres renglones quedan en la promoción', () => {
+    const r = applySeasonalPromotions(
+      [
+        line('sh-van', 3, 363),
+        line('sh-choc', 2, 363),
+        line('sh-fresa', 1, 363),
+      ],
+      [p6x5],
+      CTX,
+    );
+    expect(r.totalDiscount).toBe(363);
+    expect(r.lines.reduce((s, l) => s + l.freeQuantity, 0)).toBe(1);
+    expect(r.lines.every((l) => l.promotionId === 'bf-6x5')).toBe(true);
+    // A igual precio, la gratis es del producto con el id menor (determinista).
+    expect(free(r)).toEqual({ 'sh-van': 0, 'sh-choc': 1, 'sh-fresa': 0 });
+    expect(r.applied).toEqual([
+      expect.objectContaining({ times: 1, freeUnits: 1, discountAmount: 363 }),
+    ]);
+    // Puntos solo de las piezas cobradas (10 por pieza): 5 cobradas.
+    expect(r.lines.reduce((s, l) => s + l.points, 0)).toBe(50);
+  });
+
+  it('con 5 piezas del grupo todavía no hay gratis y los renglones quedan libres', () => {
+    const r = applySeasonalPromotions(
+      [line('sh-van', 3, 363), line('sh-choc', 2, 363)],
+      [p6x5],
+      CTX,
+    );
+    expect(r.applied).toEqual([]);
+    expect(r.lines.every((l) => l.promotionId === null)).toBe(true);
+  });
+
+  it('dos grupos no se mezclan entre sí, y lo que está fuera de grupo cuenta solo', () => {
+    const none = applySeasonalPromotions(
+      [line('sh-van', 3, 363), line('gubi-a', 3, 513), line('mix-12', 5, 471)],
+      [p6x5],
+      CTX,
+    );
+    expect(none.applied).toEqual([]);
+    // 5 de un grupo + 1 suelto del mismo precio: el suelto NO completa el grupo.
+    const loose = applySeasonalPromotions(
+      [line('sh-van', 5, 363), line('mix-12', 1, 363)],
+      [p6x5],
+      CTX,
+    );
+    expect(loose.applied).toEqual([]);
+    const each = applySeasonalPromotions(
+      [
+        line('sh-van', 4, 363),
+        line('gubi-a', 2, 513),
+        line('sh-fresa', 2, 363),
+        line('gubi-b', 4, 513),
+        line('mix-12', 6, 471),
+      ],
+      [p6x5],
+      CTX,
+    );
+    expect(each.applied[0]).toEqual(
+      expect.objectContaining({ times: 3, freeUnits: 3 }),
+    );
+    expect(each.totalDiscount).toBe(363 + 513 + 471);
+    expect(free(each)['mix-12']).toBe(1);
+  });
+
+  it('la gratis es la MÁS BARATA del grupo, y un renglón puede salir gratis completo', () => {
+    const r = applySeasonalPromotions(
+      [line('sh-van', 5, 363), line('sh-fresa', 1, 300)],
+      [p6x5],
+      CTX,
+    );
+    const cheap = r.lines.find((l) => l.productId === 'sh-fresa')!;
+    expect([
+      cheap.paidQuantity,
+      cheap.freeQuantity,
+      cheap.discountAmount,
+      cheap.points,
+    ]).toEqual([0, 1, 300, 0]);
+    const dear = r.lines.find((l) => l.productId === 'sh-van')!;
+    expect([dear.paidQuantity, dear.freeQuantity, dear.promotionId]).toEqual([
+      5,
+      0,
+      'bf-6x5',
+    ]);
+    expect(r.totalDiscount).toBe(300);
+  });
+
+  it('12 piezas del grupo dan 2 gratis; maxPerSale las acota entre todos los conjuntos', () => {
+    const cart = [
+      line('sh-van', 7, 363),
+      line('sh-choc', 5, 363),
+      line('mix-12', 6, 471),
+    ];
+    const open = applySeasonalPromotions(cart, [p6x5], CTX);
+    expect(open.applied[0]).toEqual(
+      expect.objectContaining({ times: 3, freeUnits: 3 }),
+    );
+    const capped = applySeasonalPromotions(
+      cart,
+      [{ ...p6x5, maxPerSale: 2 }],
+      CTX,
+    );
+    expect(capped.applied[0]).toEqual(
+      expect.objectContaining({ times: 2, freeUnits: 2 }),
+    );
+    // El tope se gasta en orden del carrito: el 12 Mix ya no alcanza.
+    expect(free(capped)['mix-12']).toBe(0);
+    expect(
+      capped.lines.find((l) => l.productId === 'mix-12')!.promotionId,
+    ).toBe(null);
+  });
+
+  it('dos renglones del mismo producto dentro de un grupo también cuentan juntos', () => {
+    const r = applySeasonalPromotions(
+      [
+        line('sh-van', 3, 363, { key: 'a' }),
+        line('sh-van', 3, 363, { key: 'b' }),
+      ],
+      [p6x5],
+      CTX,
+    );
+    expect(r.lines.reduce((s, l) => s + l.freeQuantity, 0)).toBe(1);
+  });
+
+  it('un grupo incompleto no consume: sus renglones quedan para la siguiente promoción', () => {
+    const pct = promo({
+      id: 'p10',
+      type: 'percent_off',
+      config: { percent: 10 },
+      eligibleProductIds: ['sh-van', 'sh-choc'],
+      priority: 5,
+    });
+    const r = applySeasonalPromotions(
+      [line('sh-van', 2, 100), line('sh-choc', 2, 100)],
+      [p6x5, pct],
+      CTX,
+    );
+    expect(r.applied.map((a) => a.promotionId)).toEqual(['p10']);
+    expect(r.totalDiscount).toBe(40);
+  });
+
+  it('sin grupos el resultado es el de siempre; con "combinar todo" los grupos no cuentan', () => {
+    const cart = [line('sh-van', 3, 363), line('sh-choc', 3, 363)];
+    const plain = {
+      ...p6x5,
+      config: { buy: 6, pay: 5, sameProductOnly: true },
+    };
+    expect(applySeasonalPromotions(cart, [plain], CTX).applied).toEqual([]);
+    const all = {
+      ...p6x5,
+      config: { ...(p6x5.config as NxmConfig), sameProductOnly: false },
+    };
+    expect(nxmGroups(all.config)).toEqual([]);
+    // Combinar todo: 3 del 24 Shake + 3 del 12 Mix sí completan.
+    expect(
+      applySeasonalPromotions(
+        [line('sh-van', 3, 363), line('mix-12', 3, 471)],
+        [all],
+        CTX,
+      ).applied[0],
+    ).toEqual(expect.objectContaining({ times: 1, discountAmount: 363 }));
+  });
+
+  it('nxmGroups / nxmGroupOf toleran config sucia: 2+ productos y cada uno en su primer grupo', () => {
+    const dirty = {
+      buy: 3,
+      pay: 2,
+      sameProductOnly: true,
+      groups: [
+        { name: ' A ', productIds: ['x', 'y', 'x', '', 7] },
+        { name: 'B', productIds: ['y', 'z'] },
+        { name: 'C', productIds: ['z', 'w'] },
+        null,
+        { name: 'D' },
+      ],
+    } as unknown as NxmConfig;
+    expect(nxmGroups(dirty)).toEqual([
+      { name: 'A', productIds: ['x', 'y'] },
+      { name: 'C', productIds: ['z', 'w'] },
+    ]);
+    expect(nxmGroupOf('y', dirty)?.name).toBe('A');
+    expect(nxmGroupOf('w', dirty)?.name).toBe('C');
+    expect(nxmGroupOf('q', dirty)).toBeNull();
+    expect(nxmGroups(null)).toEqual([]);
+    expect(nxmGroups({ percent: 10 })).toEqual([]);
   });
 });
 
@@ -384,6 +601,80 @@ describe('normalizeSeasonalPromoConfig / etiquetas', () => {
     expect(() =>
       normalizeSeasonalPromoConfig('gift_with_purchase', {}),
     ).toThrow();
+  });
+
+  it('nxm: los grupos se guardan limpios y solo con piezas idénticas', () => {
+    expect(
+      normalizeSeasonalPromoConfig('nxm', {
+        buy: 6,
+        pay: 5,
+        sameProductOnly: true,
+        groups: [
+          { name: '  24   Shake ', productIds: ['a', 'b', 'a', ' c '] },
+          { name: 'Uno solo', productIds: ['z'] },
+          { name: 'Gubi', productIds: ['d', 'e'] },
+        ],
+      }),
+    ).toEqual({
+      buy: 6,
+      pay: 5,
+      sameProductOnly: true,
+      groups: [
+        { name: '24 Shake', productIds: ['a', 'b', 'c'] },
+        { name: 'Gubi', productIds: ['d', 'e'] },
+      ],
+    });
+    // Sin grupos útiles la config queda igual que antes (sin la llave).
+    expect(
+      normalizeSeasonalPromoConfig('nxm', { buy: 3, pay: 2, groups: [] }),
+    ).toEqual({ buy: 3, pay: 2, sameProductOnly: true });
+    expect(
+      normalizeSeasonalPromoConfig('nxm', {
+        buy: 3,
+        pay: 2,
+        groups: [{ name: 'Uno', productIds: ['a'] }],
+      }),
+    ).toEqual({ buy: 3, pay: 2, sameProductOnly: true });
+    // "Combinar todo" no lleva grupos aunque lleguen.
+    expect(
+      normalizeSeasonalPromoConfig('nxm', {
+        buy: 3,
+        pay: 2,
+        sameProductOnly: false,
+        groups: [{ name: 'G', productIds: ['a', 'b'] }],
+      }),
+    ).toEqual({ buy: 3, pay: 2, sameProductOnly: false });
+  });
+
+  it('nxm: rechaza un producto en dos grupos, grupos sin nombre o con el nombre repetido', () => {
+    const base = { buy: 3, pay: 2, sameProductOnly: true };
+    expect(() =>
+      normalizeSeasonalPromoConfig('nxm', {
+        ...base,
+        groups: [
+          { name: 'A', productIds: ['x', 'y'] },
+          { name: 'B', productIds: ['y', 'z'] },
+        ],
+      }),
+    ).toThrow(/dos grupos/);
+    expect(() =>
+      normalizeSeasonalPromoConfig('nxm', {
+        ...base,
+        groups: [{ name: '  ', productIds: ['x', 'y'] }],
+      }),
+    ).toThrow(/nombre/);
+    expect(() =>
+      normalizeSeasonalPromoConfig('nxm', {
+        ...base,
+        groups: [
+          { name: 'Shake', productIds: ['x', 'y'] },
+          { name: 'shake', productIds: ['z', 'w'] },
+        ],
+      }),
+    ).toThrow(/nombre/);
+    expect(() =>
+      normalizeSeasonalPromoConfig('nxm', { ...base, groups: 'x' }),
+    ).toThrow(/lista/);
   });
 
   it('etiquetas', () => {

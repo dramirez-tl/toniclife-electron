@@ -83,12 +83,17 @@ async function syncOne(q: QueuedSale): Promise<boolean> {
     let saleId = q.saleId;
     let saleNumber = q.saleNumber;
     if (q.stage === 'create' || !saleId) {
-      const sale = await posApi.createSale({
-        ...q.createInput,
-        clientRequestId: q.clientRequestId,
-        soldAt: q.soldAt,
-        queuedOffline: true,
-      });
+      const sale = await posApi.createSale(
+        {
+          ...q.createInput,
+          clientRequestId: q.clientRequestId,
+          soldAt: q.soldAt,
+          queuedOffline: true,
+        },
+        // Con las reglas de promociones con las que se COBRÓ (las de la
+        // versión que guardó la venta), no con las de la que sincroniza.
+        q.seasonalEngine ?? null,
+      );
       saleId = sale.id;
       saleNumber = sale.saleNumber;
       mark({

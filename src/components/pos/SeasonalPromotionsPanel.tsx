@@ -9,7 +9,14 @@ import { useMemo, useState } from 'react';
 import { Sparkles, Clock, Gift, ZoomIn, ChevronDown, ChevronUp } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import type { PosSeason, PosSeasonPromotion, PosSeasonalBundle, QuickProduct } from '@/types/pos';
+import type {
+  PosSeason,
+  PosSeasonPromotion,
+  PosSeasonPromotionProduct,
+  PosSeasonalBundle,
+  QuickProduct,
+} from '@/types/pos';
+import { promoGiftEntersAlone, splitPromoProducts } from '@/lib/seasonalGroups';
 import { ImageLightbox } from './ImageLightbox';
 
 interface SeasonalPromotionsPanelProps {
@@ -148,6 +155,28 @@ function SeasonCard({
           const live = isPromoLive(p, nowLocal);
           const eligible = p.products.filter((x) => x.role === 'eligible');
           const gifts = p.products.filter((x) => x.role === 'gift');
+          // Productos que se combinan entre sí (sabores del mismo producto) y
+          // los que cuentan por separado.
+          const { groups, loose } = splitPromoProducts(p.type, p.config, eligible);
+          const chip = (x: PosSeasonPromotionProduct) => {
+            const inCatalog = byId.has(x.productId);
+            return (
+              <button
+                key={x.productId}
+                type="button"
+                onClick={() => onAdd(x.productId, x.name)}
+                className={cn(
+                  'rounded-full border px-2 py-0.5 text-[11px]',
+                  inCatalog
+                    ? 'border-gray-300 bg-white text-foreground hover:border-[#2f5165] hover:text-[#2f5165]'
+                    : 'border-dashed border-gray-300 text-muted-foreground',
+                )}
+                title={inCatalog ? `Agregar ${x.name} al carrito` : 'No está en el catálogo de esta sucursal'}
+              >
+                <span className="font-mono text-[10px] text-muted-foreground">{x.sku}</span> {x.name}
+              </button>
+            );
+          };
           return (
             <li key={p.id} className={cn('rounded-md border bg-white p-2', live ? 'border-emerald-300' : 'border-gray-200')}>
               <div className="flex flex-wrap items-center gap-1.5">
@@ -162,10 +191,22 @@ function SeasonCard({
                 {p.excludesKitBonus && (
                   <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">Sin bono</span>
                 )}
-                {live && p.type === 'nxm' && (
+                {groups.length > 0 && (
+                  <span
+                    className="rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-900"
+                    title="Las piezas de un mismo grupo cuentan juntas, aunque sean de distinto sabor"
+                  >
+                    Se combinan por grupo
+                  </span>
+                )}
+                {live && promoGiftEntersAlone(p.type, p.config) && (
                   <span
                     className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800"
-                    title="Al llegar a las piezas que se pagan, la pieza gratis se agrega sola al carrito"
+                    title={
+                      groups.length > 0
+                        ? 'Al llegar el grupo a las piezas que se pagan, la pieza gratis se agrega sola al carrito (del último sabor capturado)'
+                        : 'Al llegar a las piezas que se pagan, la pieza gratis se agrega sola al carrito'
+                    }
                   >
                     La pieza gratis entra sola
                   </span>
@@ -174,26 +215,19 @@ function SeasonCard({
               {p.description && (
                 <p className="mt-0.5 whitespace-pre-line text-[11px] text-muted-foreground">{p.description}</p>
               )}
+              {groups.map((g) => (
+                <div key={g.name} className="mt-1.5 rounded-md border border-sky-200 bg-sky-50/60 px-2 py-1.5">
+                  <p className="mb-1 text-[11px] font-semibold text-sky-900">
+                    {g.name} <span className="font-normal">· se combinan entre sí</span>
+                  </p>
+                  <div className="flex flex-wrap gap-1">{g.products.map(chip)}</div>
+                </div>
+              ))}
+              {groups.length > 0 && loose.length > 0 && (
+                <p className="mt-1.5 text-[11px] text-muted-foreground">Cuentan por separado (solo piezas idénticas):</p>
+              )}
               <div className="mt-1.5 flex flex-wrap gap-1">
-                {eligible.map((x) => {
-                  const inCatalog = byId.has(x.productId);
-                  return (
-                    <button
-                      key={x.productId}
-                      type="button"
-                      onClick={() => onAdd(x.productId, x.name)}
-                      className={cn(
-                        'rounded-full border px-2 py-0.5 text-[11px]',
-                        inCatalog
-                          ? 'border-gray-300 bg-white text-foreground hover:border-[#2f5165] hover:text-[#2f5165]'
-                          : 'border-dashed border-gray-300 text-muted-foreground',
-                      )}
-                      title={inCatalog ? `Agregar ${x.name} al carrito` : 'No está en el catálogo de esta sucursal'}
-                    >
-                      <span className="font-mono text-[10px] text-muted-foreground">{x.sku}</span> {x.name}
-                    </button>
-                  );
-                })}
+                {loose.map(chip)}
                 {gifts.map((g) => (
                   <span
                     key={`g-${g.productId}`}

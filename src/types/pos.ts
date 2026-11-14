@@ -493,6 +493,9 @@ export interface PosCartItemPromo {
   name: string;
   type: SeasonalPromoType;
   typeLabel: string;
+  /** Grupo de productos que se combinan con este en la promoción ("24 Shake"),
+   *  si lo hay: sus piezas cuentan juntas aunque sean de otro sabor. */
+  groupName?: string;
   /** Piezas gratis (3x2) dentro de la cantidad de la línea. */
   freeQuantity: number;
   /** Descuento de la promo en la línea (gratis × precio o % / precio especial). */

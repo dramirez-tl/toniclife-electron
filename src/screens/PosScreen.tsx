@@ -1167,7 +1167,11 @@ export function PosScreen({
                     quantity: c.quantity * it.quantity,
                   })),
                 };
-              }),
+              })
+                // Un renglón cuyas piezas salieron TODAS gratis (la más barata
+                // de un grupo que se combina) no tiene piezas cobradas: sale
+                // solo abajo, como "Regalo".
+                .filter((row) => row.quantity > 0),
               // Regalos: los de la campaña de membresía y los de temporada
               // (piezas gratis y regalos por compra) los agregó el servidor a
               // $0 y se imprimen como "Regalo". Si no se pudo leer la venta,
@@ -1353,7 +1357,9 @@ export function PosScreen({
             taxRate: it.taxRate,
             promoLabel: it.promo ? seasonalLineLabel(it.promo, fmtMoney) : undefined,
           };
-        }),
+        })
+          // Sin el renglón que salió gratis completo: va abajo, como "Regalo".
+          .filter((row) => row.quantity > 0),
         // Sin conexión no hay venta que leer: piezas gratis y regalos desde el carrito.
         ...localSeasonalGiftLines(cart),
       ],

@@ -485,9 +485,24 @@ class PosApi {
   // VENTAS
   // --------------------------------------------------------------------------
 
-  async createSale(input: CreateSaleInput): Promise<Sale> {
+  /**
+   * `seasonalEngine` = nivel del motor de promociones de temporada con el que
+   * ESTA caja calculó la venta (lib/seasonalPromotions.SEASONAL_ENGINE_LEVEL al
+   * cobrar; el guardado con la venta al sincronizar la cola local). El servidor
+   * valúa la venta con esas mismas reglas: su total y el de la caja deben
+   * coincidir al centavo o rechaza el pago. Viaja en la QUERY a propósito: un
+   * API anterior la ignora (una cabecera nueva la frenaría su CORS y un campo
+   * nuevo en el cuerpo, su validación). Sin nivel no se manda nada: es una
+   * venta que un POS anterior dejó en la cola y el servidor la valúa con las
+   * reglas de antes, que son con las que se cobró.
+   */
+  async createSale(
+    input: CreateSaleInput,
+    seasonalEngine?: number | null,
+  ): Promise<Sale> {
     const { data } = await api.post('/pos/sales', input, {
       timeout: SALE_WRITE_TIMEOUT_MS,
+      ...(seasonalEngine != null ? { params: { seasonalEngine } } : {}),
     });
     return data;
   }

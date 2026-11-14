@@ -19,6 +19,7 @@ import type {
   InvoiceRequest,
 } from '@/types/pos';
 import type { SaleReceiptPayload } from '@/types';
+import { SEASONAL_ENGINE_LEVEL } from '@/lib/seasonalPromotions';
 
 /** Qué falta por hacer en el servidor. */
 export type QueuedSaleStage = 'create' | 'pay';
@@ -50,6 +51,14 @@ export interface QueuedSale {
   needsAttention: boolean;
   /** Ticket tal como se imprimió (para reimprimir). */
   receipt: SaleReceiptPayload;
+  /**
+   * Nivel del motor de promociones de temporada con el que se calculó la venta
+   * (lib/seasonalPromotions.SEASONAL_ENGINE_LEVEL de la versión que la cobró).
+   * Se manda al sincronizar para que el servidor la valúe con esas reglas. Un
+   * registro sin él lo guardó un POS anterior al 2.3.0: se sincroniza sin
+   * nivel y el servidor aplica las reglas de antes.
+   */
+  seasonalEngine?: number;
 }
 
 interface SalesOutboxState {
@@ -169,6 +178,7 @@ export function makeQueuedSale(args: {
     lastError: null,
     lastTriedAt: null,
     needsAttention: false,
+    seasonalEngine: SEASONAL_ENGINE_LEVEL,
     receipt: {
       ...args.receipt,
       saleNumber: args.saleNumber ?? provisionalNumber,
